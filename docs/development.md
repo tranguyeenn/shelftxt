@@ -17,11 +17,11 @@ httpx
 apscheduler
 ```
 
-Install:
+Install (from repo root):
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -29,11 +29,23 @@ pip install -r requirements.txt
 
 ### API
 
+Use the project venv so dependencies (e.g. `apscheduler`) are on the path:
+
 ```bash
+source .venv/bin/activate
 uvicorn api:app --reload
-# http://127.0.0.1:8000
-# Swagger: http://127.0.0.1:8000/docs
 ```
+
+Or without activating:
+
+```bash
+.venv/bin/uvicorn api:app --reload
+```
+
+- http://127.0.0.1:8000
+- Swagger: http://127.0.0.1:8000/docs
+
+If you see `ModuleNotFoundError: No module named 'apscheduler'`, the shell is using system Python — stop the server and run uvicorn via `.venv/bin/` as above.
 
 ### Frontend
 

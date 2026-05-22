@@ -47,42 +47,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(saved_df.iloc[-1]["Authors"], "New Author")
         self.assertEqual(saved_df.iloc[-1]["Read Status"], "to-read")
 
-    @patch("api.clean_for_json")
-    @patch("api.recommend_one")
-    @patch("api.score_tbr_books")
-    @patch("api.compute_recency")
-    @patch("api.normalize_rating")
-    @patch("api.load_data")
-    def test_recommend_returns_list_payload(
-        self,
-        mock_load_data,
-        mock_normalize_rating,
-        mock_compute_recency,
-        mock_score_tbr_books,
-        mock_recommend_one,
-        mock_clean_for_json,
-    ):
-        raw_df = pd.DataFrame(
-            [
-                {
-                    "Title": "Dune",
-                    "Authors": "Frank Herbert",
-                    "Read Status": "read",
-                    "Star Rating": 5,
-                    "Last Date Read": pd.Timestamp("2024-01-01"),
-                }
-            ]
-        )
-        rec_df = pd.DataFrame(
-            [{"Title": "Snow Crash", "Authors": "Neal Stephenson", "score": 0.93}]
-        )
-
-        mock_load_data.return_value = raw_df
-        mock_normalize_rating.return_value = raw_df
-        mock_compute_recency.return_value = raw_df
-        mock_score_tbr_books.return_value = raw_df
-        mock_recommend_one.return_value = rec_df
-        mock_clean_for_json.return_value = rec_df
+    @patch("api.get_recommendation")
+    def test_recommend_returns_list_payload(self, mock_get_recommendation):
+        mock_get_recommendation.return_value = [
+            {
+                "Title": "Snow Crash",
+                "Authors": "Neal Stephenson",
+                "score": 0.93,
+            }
+        ]
 
         response = self.client.get("/recommend")
         self.assertEqual(response.status_code, 200)
@@ -91,33 +64,16 @@ class ApiTests(unittest.TestCase):
         self.assertIsInstance(payload, list)
         self.assertEqual(payload[0]["Title"], "Snow Crash")
         self.assertEqual(payload[0]["Authors"], "Neal Stephenson")
+        mock_get_recommendation.assert_called_once_with()
 
-    @patch("api.clean_for_json")
-    @patch("api.recommend_one")
-    @patch("api.score_tbr_books")
-    @patch("api.compute_recency")
-    @patch("api.normalize_rating")
-    @patch("api.load_data")
-    def test_recommend_returns_empty_when_no_pick(
-        self,
-        mock_load_data,
-        mock_normalize_rating,
-        mock_compute_recency,
-        mock_score_tbr_books,
-        mock_recommend_one,
-        mock_clean_for_json,
-    ):
-        empty = pd.DataFrame()
-        mock_load_data.return_value = empty
-        mock_normalize_rating.return_value = empty
-        mock_compute_recency.return_value = empty
-        mock_score_tbr_books.return_value = empty
-        mock_recommend_one.return_value = None
+    @patch("api.get_recommendation")
+    def test_recommend_returns_empty_when_no_pick(self, mock_get_recommendation):
+        mock_get_recommendation.return_value = []
 
         response = self.client.get("/recommend")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
-        mock_clean_for_json.assert_not_called()
+        mock_get_recommendation.assert_called_once_with()
 
     @patch("api.save_data")
     @patch("api.load_data")
