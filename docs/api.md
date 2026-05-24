@@ -2,25 +2,27 @@
 
 ## Base URLs
 
-| Environment | Backend | Browser-facing (proxied) |
-|-------------|---------|---------------------------|
-| Local dev | `http://127.0.0.1:8000` | `http://localhost:3000/api/...` |
-| Production | `https://shelftxt.onrender.com` (default) | Same host as deployed Next app |
+| Environment | Backend | Browser (UI) |
+|-------------|---------|--------------|
+| Local dev | `http://127.0.0.1:8000` | `http://localhost:3000` — calls `/api/*` proxy |
+| Production | `https://shelftxt.onrender.com` | `https://shelftxt.vercel.app` — calls backend directly |
 
 OpenAPI (Swagger): `{backend}/docs`
 
-## Next.js proxy routes
+## Client vs proxy paths
 
-The browser calls same-origin routes; route handlers forward to the backend using `frontend/lib/backendUrl.ts`.
+**Production:** Browser uses `frontend/lib/apiUrl.ts` → Render paths (`/books`, `/recommend`, …).
 
-| Proxy path | Methods | Upstream |
-|------------|---------|----------|
-| `/api/books` | GET, POST, PATCH, DELETE | `/books` |
-| `/api/books/import` | POST | `/books/import` |
-| `/api/books/remove` | POST | `/books/remove` |
-| `/api/recommend` | GET | `/recommend` |
+**Local dev:** Browser uses `/api/books`, etc.; Next.js route handlers forward via `frontend/lib/backendUrl.ts`.
 
-Override backend target with `API_BASE_URL` or `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local`.
+| Client call (prod) | Backend path | Methods |
+|--------------------|----------------|---------|
+| `apiUrl("/books")` | `/books` | GET, POST, PATCH, DELETE |
+| `apiUrl("/books/import")` | `/books/import` | POST |
+| `apiUrl("/books/remove")` | `/books/remove` | POST |
+| `apiUrl("/recommend")` | `/recommend` | GET |
+
+Override with `NEXT_PUBLIC_API_BASE_URL` (prod) or `API_BASE_URL` (dev proxy).
 
 ---
 
@@ -32,7 +34,7 @@ Override backend target with `API_BASE_URL` or `NEXT_PUBLIC_API_BASE_URL` in `fr
 { "status": "healthy", "service": "LibroRank" }
 ```
 
-Used by Render keep-warm scheduler (see [development.md](development.md)).
+Used by Render keep-warm scheduler (see [deployment.md](deployment.md)).
 
 ---
 

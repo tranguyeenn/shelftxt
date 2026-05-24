@@ -6,21 +6,27 @@ Next.js  App Router app under `frontend/`. Single-page UI at `app/page.tsx`.
 
 - React client components (`"use client"`)
 - `papaparse` for client-side CSV parsing on Import tab
-- Route handlers proxy to FastAPI (no direct browser → :8000 in dev)
 
-## Backend URL resolution
+## How the browser reaches the API
 
-`frontend/lib/backendUrl.ts`:
+| Environment | Mechanism | Module |
+|-------------|-----------|--------|
+| **Local dev** | Same-origin `/api/*` → Next route handlers → backend | `lib/backendUrl.ts` |
+| **Production (Vercel)** | Browser → Render directly | `lib/apiUrl.ts` |
 
 ```typescript
-process.env.API_BASE_URL ??
-process.env.NEXT_PUBLIC_API_BASE_URL ??
-(process.env.NODE_ENV === "development"
-  ? "http://127.0.0.1:8000"
-  : "https://shelftxt.onrender.com")
+// lib/apiUrl.ts — production browser fetches
+apiUrl("/books")  →  https://shelftxt.onrender.com/books
+
+// local dev
+apiUrl("/books")  →  /api/books  →  Next proxy  →  127.0.0.1:8000/books
 ```
 
-## Proxy route handlers
+Production requires CORS on FastAPI for `https://shelftxt.vercel.app`. See [deployment.md](deployment.md).
+
+## Server-side proxy (dev only)
+
+Route handlers in `app/api/*/route.ts` forward to the backend using `backendBaseUrl()`:
 
 | File | Forwards to |
 |------|-------------|
@@ -41,7 +47,7 @@ Errors from upstream are surfaced via `frontend/lib/upstreamError.ts`.
 
 ## Library tab
 
-**Data load:** `GET /api/books` on mount and after mutations.
+**Data load:** `apiUrl("/books")` on mount and after mutations.
 
 **Shelves:** Client-side grouping via `shelfLabel()` — see [data-model.md](data-model.md).
 
@@ -101,27 +107,16 @@ Open `http://localhost:3000`.
 
 ## Deploy on Vercel
 
-**Project settings (required for monorepo):**
+Full runbook: [deployment.md](deployment.md).
 
 | Setting | Value |
 |---------|--------|
 | **Root Directory** | `frontend` |
-| **Framework Preset** | Next.js |
+| **Env (Production)** | `NEXT_PUBLIC_API_BASE_URL=https://shelftxt.onrender.com` |
 
-**Environment variable:**
+After deploy, DevTools Network should show requests to **`shelftxt.onrender.com`**, not `vercel.app/api/*`.
 
-| Key | Value |
-|-----|--------|
-| `API_BASE_URL` | `https://shelftxt.onrender.com` |
-
-Redeploy after changing env vars or `backendUrl.ts`.
-
-`frontend/vercel.json` includes rewrites that proxy `/api/*` → Render when route handlers are unavailable. After deploy, verify:
-
-- https://shelftxt.vercel.app/api/books → JSON (not 404)
-- https://shelftxt.vercel.app/ → library loads
-
-Also add your Vercel URL to FastAPI CORS in `backend/api.py` (`https://shelftxt.vercel.app`).
+`frontend/vercel.json` includes optional rewrites as fallback; primary path is `apiUrl.ts` direct fetch.
 
 ## Build / deploy notes
 
