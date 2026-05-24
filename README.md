@@ -1,4 +1,4 @@
-# LibroRank
+# Shelftxt
 
 Modular book ranking: manage a personal library, score read and to-read lists, and get a next-read suggestion. Supports flexible CSV ingestion with user-defined column mappings for batch analysis.
 
