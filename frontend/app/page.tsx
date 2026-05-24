@@ -3,6 +3,8 @@
 import Papa from "papaparse";
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useState } from "react";
 
+import { apiUrl } from "../lib/apiUrl";
+
 type ApiBook = {
   Title?: string | null;
   Authors?: string | null;
@@ -49,7 +51,7 @@ function shelfLabel(book: BackendBook): ShelfKind {
 }
 
 async function patchBook(body: Record<string, unknown>): Promise<Response> {
-  return fetch("/api/books", {
+  return fetch(apiUrl("/books"), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -97,7 +99,7 @@ export default function HomePage() {
     setLibraryError("");
     setLibraryLoading(true);
     try {
-      const response = await fetch("/api/books", { cache: "no-store" });
+      const response = await fetch(apiUrl("/books"), { cache: "no-store" });
       if (!response.ok) {
         let message =
           response.status === 502
@@ -290,7 +292,7 @@ export default function HomePage() {
       };
       if (total_pages !== null) body.total_pages = total_pages;
 
-      const response = await fetch("/api/books", {
+      const response = await fetch(apiUrl("/books"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -323,7 +325,7 @@ export default function HomePage() {
 
     setDeletingTitle(title);
     try {
-      const response = await fetch("/api/books/remove", {
+      const response = await fetch(apiUrl("/books/remove"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -347,7 +349,7 @@ export default function HomePage() {
     setApiMessage("");
     setLoadingRecommend(true);
     try {
-      const response = await fetch("/api/recommend");
+      const response = await fetch(apiUrl("/recommend"));
       if (!response.ok) {
         setApiMessage(
           response.status === 502 ? "Suggestion service unavailable." : `Couldn't load suggestion (${response.status}).`
@@ -430,7 +432,7 @@ export default function HomePage() {
     setImporting(true);
     setImportMsg("");
     try {
-      const res = await fetch("/api/books/import", {
+      const res = await fetch(apiUrl("/books/import"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ books })

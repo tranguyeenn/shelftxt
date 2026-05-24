@@ -99,6 +99,30 @@ uvicorn backend.api:app --reload
 
 Open `http://localhost:3000`.
 
+## Deploy on Vercel
+
+**Project settings (required for monorepo):**
+
+| Setting | Value |
+|---------|--------|
+| **Root Directory** | `frontend` |
+| **Framework Preset** | Next.js |
+
+**Environment variable:**
+
+| Key | Value |
+|-----|--------|
+| `API_BASE_URL` | `https://shelftxt.onrender.com` |
+
+Redeploy after changing env vars or `backendUrl.ts`.
+
+`frontend/vercel.json` includes rewrites that proxy `/api/*` → Render when route handlers are unavailable. After deploy, verify:
+
+- https://shelftxt.vercel.app/api/books → JSON (not 404)
+- https://shelftxt.vercel.app/ → library loads
+
+Also add your Vercel URL to FastAPI CORS in `backend/api.py` (`https://shelftxt.vercel.app`).
+
 ## Build / deploy notes
 
 - Production default API host is Render backend URL.

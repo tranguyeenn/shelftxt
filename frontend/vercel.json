@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/api/recommend",
+      "destination": "https://shelftxt.onrender.com/recommend"
+    },
+    {
+      "source": "/api/books/import",
+      "destination": "https://shelftxt.onrender.com/books/import"
+    },
+    {
+      "source": "/api/books/remove",
+      "destination": "https://shelftxt.onrender.com/books/remove"
+    },
+    {
+      "source": "/api/books",
+      "destination": "https://shelftxt.onrender.com/books"
+    }
+  ]
+}

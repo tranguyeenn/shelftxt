@@ -59,7 +59,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://shelftxt.onrender.com"
+        "https://shelftxt.onrender.com",
+        "https://shelftxt.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -164,6 +165,17 @@ def _delete_book_by_title(title: str):
 # -----------------------------
 # ROUTES
 # -----------------------------
+
+@app.get("/")
+async def root():
+    return {
+        "service": "LibroRank API",
+        "docs": "/docs",
+        "health": "/health",
+        "books": "/books",
+        "recommend": "/recommend",
+    }
+
 
 @app.api_route(
     "/health",

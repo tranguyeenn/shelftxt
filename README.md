@@ -12,10 +12,22 @@ pip install -r requirements.txt
 uvicorn backend.api:app --reload
 ```
 
-**Frontend** (defaults to `http://127.0.0.1:8000` in dev)
+**Frontend** (proxies to backend via `/api/*`)
 
 ```bash
 cd frontend && npm install && npm run dev
+```
+
+By default, dev uses `http://127.0.0.1:8000`. If you only run the API on Render, copy the example env:
+
+```bash
+cp frontend/.env.local.example frontend/.env.local
+```
+
+Then restart `npm run dev`. Or run the API locally:
+
+```bash
+.venv/bin/uvicorn backend.api:app --reload
 ```
 
 Open `http://localhost:3000`.
