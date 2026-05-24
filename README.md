@@ -47,6 +47,18 @@ No sample library is bundled — `backend/data/processed/books.csv` is created e
 | [docs/pipeline.md](docs/pipeline.md) | Batch CSV pipeline |
 | [docs/frontend.md](docs/frontend.md) | Next.js UI |
 
+## Engineering notes
+
+Ongoing development journal and architecture notes (not just “how to run the app”):
+
+| Resource | Description |
+|----------|-------------|
+| [DEVLOG.md](DEVLOG.md) | Devlog index — timeline, refactors, lessons learned |
+| [docs/devlogs/](docs/devlogs/) | Individual dated engineering entries |
+| [docs/architecture/system-overview.md](docs/architecture/system-overview.md) | Folder-by-folder responsibilities (`backend/`, `services/`, `ranking/`, …) |
+| [docs/architecture/](docs/architecture/) | Extended architecture docs (see also [architecture.md](docs/architecture.md)) |
+| [docs/screenshots/](docs/screenshots/) | UI / deploy screenshots for devlogs (optional) |
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

@@ -23,6 +23,15 @@ Developer reference for architecture, APIs, deployment, and operations.
 | [contributing.md](contributing.md) | Conventions, PR checklist, refactor roadmap |
 | [troubleshooting.md](troubleshooting.md) | Common errors and fixes |
 
+## Engineering notes
+
+| Doc | Description |
+|-----|-------------|
+| [../DEVLOG.md](../DEVLOG.md) | Devlog index — timeline and refactors |
+| [devlogs/](devlogs/) | Dated entries + [template](devlogs/README.md) |
+| [architecture/system-overview.md](architecture/system-overview.md) | Folder responsibilities (`backend/`, `services/`, …) |
+| [screenshots/](screenshots/) | Optional visuals for devlogs |
+
 ## Domain docs
 
 | Doc | Description |
@@ -54,3 +63,4 @@ Developer reference for architecture, APIs, deployment, and operations.
 | Add an API endpoint | [architecture.md](architecture.md) → [contributing.md](contributing.md) → [api.md](api.md) |
 | Change scoring | [ranking.md](ranking.md) → [decisions.md](decisions.md) if trade-off is non-obvious |
 | Import / batch CSV | [pipeline.md](pipeline.md) |
+| Understand a past refactor | [../DEVLOG.md](../DEVLOG.md) → [devlogs/](devlogs/) |

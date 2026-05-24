@@ -1,5 +1,7 @@
 # Architecture
 
+> **Folder guide:** [architecture/system-overview.md](architecture/system-overview.md) — responsibilities per directory.
+
 ## System context
 
 Shelftxt is a **monorepo monolith**: one codebase, three runnable surfaces, two production hosts.
