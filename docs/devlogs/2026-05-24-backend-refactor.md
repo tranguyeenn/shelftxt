@@ -1,13 +1,15 @@
 # Refactoring ShelfTxt Backend
 
-Date: 2026-05-24  
-Feature / Refactor: Backend layering — routes, services, repository, schemas  
-Problem: Monolithic `api.py` mixed HTTP, shelf rules, and recommendation orchestration; hard to test, extend, and reason about under production load  
-Old approach: Single ~500-line FastAPI file with inline recommendation pipeline (`load_data` → normalize → score → JSON) and all CRUD/shelf PATCH logic in route handlers  
-New approach: Thin `backend/api.py` registers routers; recommendation lives in `services/recommendation.py`; HTTP in `routes/`; Pydantic models in `schemas/`; persistence facade in `repository/books_repository.py` wrapping `book_data.py`  
-Files changed: `backend/api.py`, `backend/routes/*`, `backend/services/recommendation.py`, `backend/services/books.py`, `backend/schemas/books.py`, `backend/repository/books_repository.py`, `tests/test_api.py`, docs under `docs/`  
-Lessons learned: See below  
-Next steps: Move remaining shelf PATCH/add/import logic into `services/books.py`; remove legacy `api_draft.py`; consider persistent storage beyond CSV on Render free tier  
+| | |
+|---|---|
+| **Date** | 2026-05-24 |
+| **Feature / Refactor** | Backend layering — routes, services, repository, schemas |
+| **Problem** | Monolithic `api.py` mixed HTTP, shelf rules, and recommendation orchestration; hard to test, extend, and reason about under production load |
+| **Old approach** | Single ~500-line FastAPI file with inline recommendation pipeline (`load_data` → normalize → score → JSON) and all CRUD/shelf PATCH logic in route handlers |
+| **New approach** | Thin `backend/api.py` registers routers; recommendation in `services/recommendation.py`; HTTP in `routes/`; Pydantic in `schemas/`; persistence via `repository/books_repository.py` → `book_data.py` |
+| **Files changed** | `backend/api.py`, `backend/routes/*`, `backend/services/*`, `backend/schemas/books.py`, `backend/repository/`, `tests/test_api.py`, `docs/` |
+| **Lessons learned** | [Below](#lessons-learned) |
+| **Next steps** | Move shelf PATCH/add/import → `services/books.py`; remove `api_draft.py`; plan storage beyond CSV on Render |
 
 ---
 
@@ -72,6 +74,7 @@ Documented in [deployment.md](../deployment.md) and [troubleshooting.md](../trou
 ---
 
 ## Lessons learned
+
 
 1. **Extract the smallest vertical slice first** — `GET /recommend` was one endpoint, one service file, high learning value, low risk.
 2. **Keep algorithms separate from orchestration** — `ranking/` didn’t move; only the workflow moved. No duplicate scoring code.
