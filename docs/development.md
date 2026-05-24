@@ -125,7 +125,7 @@ Optional: [`render.yaml`](../render.yaml) at repo root documents the API service
 web: uvicorn backend.api:app --host 0.0.0.0 --port $PORT
 ```
 
-**Keep-warm:** `backend/api.py` lifespan starts `AsyncIOScheduler` pinging `https://librorank.onrender.com/health` every 14 minutes. Update the URL if you deploy under a different hostname.
+**Keep-warm:** `backend/api.py` lifespan starts `AsyncIOScheduler` pinging `https://shelftxt.onrender.com/health` every 14 minutes.
 
 **CORS origins** in `backend/api.py`: localhost dev hosts + production frontend URL.
 

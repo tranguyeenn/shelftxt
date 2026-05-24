@@ -5,7 +5,7 @@
 | Environment | Backend | Browser-facing (proxied) |
 |-------------|---------|---------------------------|
 | Local dev | `http://127.0.0.1:8000` | `http://localhost:3000/api/...` |
-| Production | `https://librorank.onrender.com` (default) | Same host as deployed Next app |
+| Production | `https://shelftxt.onrender.com` (default) | Same host as deployed Next app |
 
 OpenAPI (Swagger): `{backend}/docs`
 

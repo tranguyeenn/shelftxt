@@ -21,7 +21,7 @@ async def self_ping():
     async with httpx.AsyncClient() as client:
         try:
             await client.get(
-                "https://librorank.onrender.com/health",
+                "https://shelftxt.onrender.com/health",
                 timeout=5.0
             )
         except Exception as e:
@@ -59,7 +59,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://librorank.onrender.com"
+        "https://shelftxt.onrender.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
