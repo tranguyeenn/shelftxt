@@ -1,127 +1,50 @@
 # Frontend
 
-Next.js  App Router app under `frontend/`. Single-page UI at `app/page.tsx`.
+Vite + React + Tailwind app under `frontend/`. Client-side routing via React Router.
 
 ## Stack
 
-- React client components (`"use client"`)
-- `papaparse` for client-side CSV parsing on Import tab
+- React 19, Vite 6, Tailwind CSS 4
+- `react-router-dom` for pages
+- `papaparse` for CSV import (Settings — planned)
+
+## Routes
+
+| Path | Page |
+|------|------|
+| `/` | Dashboard — primary recommendation + score breakdown |
+| `/ranking` | TBR ranking table |
+| `/book/:id` | Book detail (explainability tabs) |
+| `/add` | Add book form |
+| `/system` | Model notes & roadmap |
+| `/settings` | Preferences, import/export, danger zone |
 
 ## How the browser reaches the API
 
-| Environment | Mechanism | Module |
-|-------------|-----------|--------|
-| **Local dev** | Same-origin `/api/*` → Next route handlers → backend | `lib/backendUrl.ts` |
-| **Production (Vercel)** | Browser → Render directly | `lib/apiUrl.ts` |
+| Environment | Mechanism |
+|-------------|-----------|
+| **Local dev** | `/api/*` → Vite proxy → `127.0.0.1:8000` |
+| **Production (Vercel)** | `VITE_API_BASE_URL` or direct Render default; `/api/*` rewrites in `vercel.json` |
 
 ```typescript
-// lib/apiUrl.ts — production browser fetches
-apiUrl("/books")  →  https://shelftxt.onrender.com/books
-
-// local dev
-apiUrl("/books")  →  /api/books  →  Next proxy  →  127.0.0.1:8000/books
+// src/lib/api.ts
+apiUrl("/books")  // dev → /api/books → proxy → backend
 ```
 
-Production requires CORS on FastAPI for `https://shelftxt.vercel.app`. See [deployment.md](deployment.md).
+Copy [`frontend/.env.local.example`](../frontend/.env.local.example) for `VITE_API_BASE_URL`.
 
-## Server-side proxy (dev only)
-
-Route handlers in `app/api/*/route.ts` forward to the backend using `backendBaseUrl()`:
-
-| File | Forwards to |
-|------|-------------|
-| `app/api/books/route.ts` | GET/POST/PATCH/DELETE `/books` |
-| `app/api/books/import/route.ts` | POST `/books/import` |
-| `app/api/books/remove/route.ts` | POST `/books/remove` |
-| `app/api/recommend/route.ts` | GET `/recommend` |
-
-Errors from upstream are surfaced via `frontend/lib/upstreamError.ts`.
-
-## Tabs
-
-| Tab ID | Label | Behavior |
-|--------|-------|----------|
-| `library` | Library | Load shelves, CRUD, shelf moves |
-| `import` | Import | Parse CSV, bulk POST import |
-| `discover` | Discover | Fetch one recommendation |
-
-## Library tab
-
-**Data load:** `apiUrl("/books")` on mount and after mutations.
-
-**Shelves:** Client-side grouping via `shelfLabel()` — see [data-model.md](data-model.md).
-
-**Add book:** `POST /api/books` with title, author, optional total pages.
-
-**Edit:** Modal → `PATCH /api/books` with `new_title`, `author`, `total_pages`, or `move_to`.
-
-**Delete:** `POST /api/books/remove` with `{ title }` (not DELETE, for hosting compatibility).
-
-**Shelf actions (examples):**
-
-| Action | PATCH payload |
-|--------|----------------|
-| Start reading | `move_to: "reading"`, `pages_read`, needs `total_pages` on book |
-| Mark read | `move_to: "read"`, `rating`, optional `date_read` |
-| Move to want | `move_to: "want"` |
-| DNF | `move_to: "dnf"` |
-
-## Import tab
-
-1. User selects or drags a `.csv` file.
-2. `Papa.parse` reads rows in the browser.
-3. Maps flexible header names (e.g. `Title`, `title`, `Book Title`) to title/author/pages.
-4. `POST /api/books/import` with `{ books: [...] }`.
-5. Shows imported/skipped counts from response.
-
-Does **not** use the Python flexible pipeline or mapping JSON.
-
-## Discover tab
-
-`apiUrl("/recommend")` → displays single suggested book or empty state.
-
-Backend caches the pick (`@lru_cache` on `get_recommendation`). Ops can clear via `POST /recommend/refresh` on the API.
-
-## Types (client)
-
-Key shapes in `page.tsx`:
-
-- `BackendBook` — mirrors CSV/API columns with quoted keys for `"Read Status"`, etc.
-- `ApiBook` — recommendation payload subset
-- `ShelfKind` — `"want" | "reading" | "read" | "dnf"`
-
-## Local development
+## Dev
 
 ```bash
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Requires FastAPI on port 8000 unless `API_BASE_URL` points elsewhere.
+Open http://localhost:3000 (API on :8000).
+
+## Build
 
 ```bash
-# from repo root
-uvicorn backend.api:app --reload
+cd frontend && npm run build
 ```
 
-Open `http://localhost:3000`.
-
-## Deploy on Vercel
-
-Full runbook: [deployment.md](deployment.md).
-
-| Setting | Value |
-|---------|--------|
-| **Root Directory** | `frontend` |
-| **Env (Production)** | `NEXT_PUBLIC_API_BASE_URL=https://shelftxt.onrender.com` |
-
-After deploy, DevTools Network should show requests to **`shelftxt.onrender.com`**, not `vercel.app/api/*`.
-
-`frontend/vercel.json` includes optional rewrites as fallback; primary path is `apiUrl.ts` direct fetch.
-
-## Build / deploy notes
-
-- Production default API host is Render backend URL.
-- Set `API_BASE_URL` when frontend and API are on different domains.
-- CORS on the API must include the frontend origin.
+Output: `frontend/dist/` (static SPA).

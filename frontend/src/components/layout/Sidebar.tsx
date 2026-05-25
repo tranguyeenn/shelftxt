@@ -1,0 +1,90 @@
+import { NavLink } from "react-router-dom";
+
+const navItems = [
+  { to: "/", label: "Dashboard", icon: DashboardIcon },
+  { to: "/ranking", label: "TBR Ranking", icon: RankingIcon },
+  { to: "/add", label: "Add Book", icon: AddIcon },
+  { to: "/system", label: "System", icon: SystemIcon },
+  { to: "/settings", label: "Settings", icon: SettingsIcon }
+] as const;
+
+function linkClass({ isActive }: { isActive: boolean }) {
+  return [
+    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+    isActive
+      ? "bg-accent-muted text-accent"
+      : "text-text-muted hover:bg-surface-hover hover:text-text"
+  ].join(" ");
+}
+
+export function Sidebar() {
+  return (
+    <aside className="flex w-full shrink-0 flex-row items-center gap-2 border-b border-border bg-bg-elevated px-3 py-2 md:w-56 md:flex-col md:items-stretch md:border-b-0 md:border-r md:px-0 md:py-0">
+      <div className="hidden border-b border-border-subtle px-4 py-5 md:block">
+        <p className="font-mono text-xs uppercase tracking-widest text-text-dim">ShelfTxt</p>
+        <p className="mt-1 text-sm text-text-muted">Recommendation lab</p>
+      </div>
+      <p className="font-mono text-xs uppercase tracking-widest text-text-dim md:hidden">ShelfTxt</p>
+      <nav
+        className="flex flex-1 flex-row gap-1 overflow-x-auto p-1 md:flex-col md:overflow-visible md:p-3"
+        aria-label="Main"
+      >
+        {navItems.map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} end={to === "/"} className={linkClass}>
+            <Icon className="h-4 w-4 shrink-0 opacity-80" />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+      <p className="hidden border-t border-border-subtle px-4 py-3 font-mono text-[10px] leading-relaxed text-text-dim md:block">
+        v0.2.0 · rule-based ranker
+      </p>
+    </aside>
+  );
+}
+
+function DashboardIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <rect x="3" y="3" width="8" height="8" rx="1" />
+      <rect x="13" y="3" width="8" height="4" rx="1" />
+      <rect x="13" y="9" width="8" height="12" rx="1" />
+      <rect x="3" y="13" width="8" height="8" rx="1" />
+    </svg>
+  );
+}
+
+function RankingIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path d="M4 6h16M4 12h16M4 18h10" />
+      <path d="M18 15v6M15 18h6" />
+    </svg>
+  );
+}
+
+function AddIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function SystemIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  );
+}
+
+function SettingsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}

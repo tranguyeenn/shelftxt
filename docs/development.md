@@ -45,8 +45,8 @@ Open http://localhost:3000.
 
 | Mode | Config | Browser calls |
 |------|--------|---------------|
-| Local API (default) | none | `/api/*` → Next proxy → `127.0.0.1:8000` |
-| Remote API only | `frontend/.env.local` with `API_BASE_URL=https://shelftxt.onrender.com` | `/api/*` → Render |
+| Local API (default) | none | `/api/*` → Vite proxy → `127.0.0.1:8000` |
+| Remote API only | `frontend/.env.local` with `VITE_API_BASE_URL=https://shelftxt.onrender.com` | direct or `/api` rewrites on Vercel |
 
 Copy [`frontend/.env.local.example`](../frontend/.env.local.example) to get started.
 

@@ -1,24 +1,29 @@
 {
   "name": "shelftxt-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc -b --noEmit"
   },
   "dependencies": {
-    "next": "^16.2.1",
     "papaparse": "^5.4.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.2"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.8",
     "@types/papaparse": "^5.3.15",
-    "@types/node": "^20.17.24",
-    "@types/react": "^18.3.20",
-    "@types/react-dom": "^18.3.6",
-    "typescript": "^5.8.2"
+    "@types/react": "^19.1.2",
+    "@types/node": "^22.15.21",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.5.0",
+    "tailwindcss": "^4.1.8",
+    "typescript": "^5.8.2",
+    "vite": "^6.3.5"
   }
 }

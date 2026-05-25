@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
   "rewrites": [
     {
       "source": "/api/recommend",
@@ -17,6 +16,7 @@
     {
       "source": "/api/books",
       "destination": "https://shelftxt.onrender.com/books"
-    }
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
