@@ -1,7 +1,6 @@
 # backend/services/recommendation.py
 
 import numpy as np
-from functools import lru_cache
 
 from backend.book_data import load_data
 from backend.preprocess.normalize import normalize_rating, compute_recency
@@ -12,7 +11,6 @@ def clean_for_json(df):
     return df.replace({np.nan: None})
 
 
-@lru_cache(maxsize=1)
 def get_recommendation():
 
     df = load_data()
@@ -40,8 +38,3 @@ def get_recommendation():
     result = clean_for_json(rec).to_dict(orient="records")
 
     return result
-
-
-def refresh_recommendation_cache():
-    get_recommendation.cache_clear()
-    return {"status": "recommendation cache cleared"}
