@@ -40,3 +40,7 @@ def get_recommendation():
     result = clean_for_json(rec).to_dict(orient="records")
 
     return result
+
+
+def invalidate_recommendation_cache():
+    get_recommendation.cache_clear()
