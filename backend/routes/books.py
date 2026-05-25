@@ -14,10 +14,23 @@ def clean_for_json(df):
 
 
 @router.get("/books")
-async def get_books():
+async def get_books(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1)
+):
     df = load_data()
     df = clean_for_json(df)
-    return df.to_dict(orient="records")
+
+    total = len(df)
+    start = (page - 1) * limit
+    results = df.iloc[start:start + limit].to_dict(orient="records")
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "results": results
+    }
 
 
 @router.post("/books")
