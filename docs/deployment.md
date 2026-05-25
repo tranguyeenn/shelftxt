@@ -5,7 +5,7 @@ Production split: **API on Render**, **UI on Vercel**. Both deploy from the same
 | Service | URL | Platform |
 |---------|-----|----------|
 | Backend | https://shelftxt.onrender.com | Render (Python) |
-| Frontend | https://shelftxt.vercel.app | Vercel (Next.js) |
+| Frontend | https://shelftxt.vercel.app | Vercel (Vite SPA) |
 | API docs | https://shelftxt.onrender.com/docs | Swagger (Render) |
 
 ---
@@ -50,21 +50,19 @@ Render should use `/health`. Keep-warm job in `backend/api.py` pings the same pa
 | Setting | Value |
 |---------|--------|
 | **Root Directory** | `frontend` |
-| **Framework** | Next.js |
-| **Build Command** | default (`next build`) |
-| **Output** | default |
+| **Framework Preset** | **Vite** (not Next.js) |
+| **Build Command** | `npm run build` (or leave default — set in `frontend/vercel.json`) |
+| **Output Directory** | `dist` |
+
+If deploy fails with “No Next.js version detected”, the project is still on the old Next preset. In Vercel → Project → Settings → General → Framework Preset, choose **Vite**, then redeploy.
 
 ### Environment variables
 
 | Key | Environments | Value |
 |-----|--------------|-------|
-| `NEXT_PUBLIC_API_BASE_URL` | Production | `https://shelftxt.onrender.com` |
+| `VITE_API_BASE_URL` | Production | `https://shelftxt.onrender.com` |
 
-Optional for local dev server-side proxy only:
-
-| Key | Value |
-|-----|-------|
-| `API_BASE_URL` | `https://shelftxt.onrender.com` or `http://127.0.0.1:8000` |
+Remove legacy `NEXT_PUBLIC_API_BASE_URL` if still set.
 
 See [`frontend/.env.local.example`](../frontend/.env.local.example).
 
