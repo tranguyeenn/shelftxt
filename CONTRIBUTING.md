@@ -4,6 +4,22 @@ Thanks for helping improve an open-source reading backend. Keep changes focused 
 
 ---
 
+## Ways to contribute
+
+Contributions are welcome, including:
+
+- Bug fixes
+- Documentation improvements
+- Backend refactors
+- Tests
+- Performance improvements
+- Small feature additions
+- Open issue resolution
+
+Large architecture changes should begin with an issue discussion before implementation.
+
+---
+
 ## Clone the repository
 
 ```bash
