@@ -180,8 +180,9 @@ def import_books_service(data: ImportBooks):
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         imported += 1
 
-    save_books(df)
-    invalidate_recommendation_cache()
+    if imported > 0:
+        save_books(df)
+        invalidate_recommendation_cache()
 
     return {
         "imported": imported,
