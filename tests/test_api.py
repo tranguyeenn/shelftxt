@@ -12,9 +12,10 @@ class ApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(api.app)
 
-    @patch("backend.routes.books.save_data")
-    @patch("backend.routes.books.load_data")
-    def test_add_book_appends_new_tbr_row(self, mock_load_data, mock_save_data):
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
+    @patch("backend.services.books.invalidate_recommendation_cache")
+    def test_add_book_appends_new_tbr_row(self, mock_load_data, mock_save_data, mock_invalidate_recommendation_cache):
         base_df = pd.DataFrame(
             [
                 {
@@ -40,7 +41,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"message": "Book added"})
         self.assertTrue(mock_save_data.called)
-
+        mock_invalidate.assert_called_once()
         saved_df = mock_save_data.call_args.args[0]
         self.assertEqual(len(saved_df), 2)
         self.assertEqual(saved_df.iloc[-1]["Title"], "New Book")
@@ -140,8 +141,8 @@ class ApiTests(unittest.TestCase):
         saved_df = mock_save_books.call_args.args[0]
         self.assertEqual(len(saved_df), 0)
 
-    @patch("backend.routes.books.save_data")
-    @patch("backend.routes.books.load_data")
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
     def test_patch_move_to_dnf(self, mock_load_data, mock_save_data):
         base_df = pd.DataFrame(
             [
@@ -165,8 +166,8 @@ class ApiTests(unittest.TestCase):
         saved = mock_save_data.call_args.args[0]
         self.assertEqual(saved.iloc[0]["Read Status"], "dnf")
 
-    @patch("backend.routes.books.save_data")
-    @patch("backend.routes.books.load_data")
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
     def test_import_skips_duplicate_title(self, mock_load_data, mock_save_data):
         base_df = pd.DataFrame(
             [
@@ -198,6 +199,24 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json(), {"imported": 1, "skipped": 1})
         saved = mock_save_data.call_args.args[0]
         self.assertEqual(len(saved), 2)
+
+    @patch("backend.services.books.invalidate_recommendation_cache")
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
+    def test_import_skips_invalidation_if_no_books_added(self, mock_get_all, mock_save, mock_invalidate):
+        mock_get_all.return_value = pd.DataFrame([{"Title": "Existing Book"}])
+
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Existing Book", "author": "X"}]},
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["imported"], 0)
+        
+        mock_save.assert_not_called()
+        mock_invalidate.assert_not_called()
+
 
 
 if __name__ == "__main__":
