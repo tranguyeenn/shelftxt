@@ -33,9 +33,9 @@ def validate_uploaded_csv(csv_path: str | Path, mapping_config: dict[str, Any] |
 
     try:
         preview_df = pd.read_csv(path, nrows=100)
-    except Exception as exc:
+    except pd.errors.ParserError:
         report["status"] = "reject"
-        report["errors"].append(f"Failed to parse CSV: {exc}")
+        report["errors"].append("Failed to parse CSV")
         return report
 
     report["row_count"] = len(preview_df)
