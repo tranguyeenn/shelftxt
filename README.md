@@ -132,6 +132,12 @@ Engineering history: [DEVLOG.md](DEVLOG.md) · [docs/devlogs/](docs/devlogs/)
 
 ---
 
+## Documentation
+
+Backend services and repository functions include docstrings documenting their purpose and return behavior. See `backend/services/`, `backend/repositories/`, `preprocess/`, and `backend/ranking/` for inline documentation.
+
+---
+
 ## Contributing
 
 Shelftxt is open source and contributions, bug reports, discussions, and feature ideas are welcome.
