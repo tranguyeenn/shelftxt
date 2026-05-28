@@ -20,10 +20,10 @@ export function QuickActions() {
           Open TBR ranking
         </Link>
         <Link
-          to="/system"
+          to="/insights"
           className={`${actionLink} text-text-muted hover:bg-surface hover:text-text`}
         >
-          How scoring works
+          View insights
         </Link>
       </div>
     </Card>

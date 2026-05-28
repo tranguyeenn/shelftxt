@@ -1,14 +1,24 @@
 import numpy as np
-import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
+from fastapi.responses import Response
 
 from backend.book_data import load_data
-from backend.schemas.books import AddBook, PatchBook, ImportBooks, RemoveBook
+from backend.schemas.books import (
+    AddBook,
+    PatchBook,
+    ImportBooks,
+    BookProgressPatch,
+    ClearLibraryRequest,
+)
 from backend.services.books import (
     add_book_service,
+    clear_library_service,
+    delete_book_by_id,
     delete_book_by_title,
+    export_library_csv,
     patch_book_service,
     import_books_service,
+    update_book_progress_by_id,
 )
 
 router = APIRouter()
@@ -25,6 +35,23 @@ async def get_books():
     return df.to_dict(orient="records")
 
 
+@router.get("/books/export")
+async def export_books():
+    csv_content = export_library_csv()
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="shelftxt-library.csv"',
+        },
+    )
+
+
+@router.post("/books/clear")
+async def clear_books(body: ClearLibraryRequest):
+    return clear_library_service(body.confirm)
+
+
 @router.post("/books")
 async def add_book(book: AddBook):
     return add_book_service(book)
@@ -35,16 +62,6 @@ async def delete_book(title: str = Query(..., min_length=1)):
     return delete_book_by_title(title)
 
 
-@router.post("/books/remove")
-async def remove_book(body: RemoveBook):
-    title = body.title.strip()
-
-    if not title:
-        raise HTTPException(status_code=400, detail="title is required")
-
-    return delete_book_by_title(title)
-
-
 @router.patch("/books")
 async def patch_book(p: PatchBook):
     return patch_book_service(p)
@@ -52,4 +69,14 @@ async def patch_book(p: PatchBook):
 
 @router.post("/books/import")
 async def import_books(data: ImportBooks):
-    return import_books_service(data)
+    return import_books_service(data)
+
+
+@router.patch("/books/{book_id}/progress")
+async def update_book_progress(book_id: str, body: BookProgressPatch):
+    return update_book_progress_by_id(book_id, body)
+
+
+@router.delete("/books/{book_id}")
+async def delete_book_by_id_route(book_id: str):
+    return delete_book_by_id(book_id)

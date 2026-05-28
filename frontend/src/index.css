@@ -44,3 +44,29 @@
     background: color-mix(in srgb, var(--color-accent) 35%, transparent);
   }
 }
+
+html[data-compact="true"] #root .gap-8 {
+  gap: 1.25rem;
+}
+
+html[data-compact="true"] #root .gap-6 {
+  gap: 1rem;
+}
+
+html[data-compact="true"] #root .gap-4 {
+  gap: 0.75rem;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f4f6f9;
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-hover: #eef2f7;
+  --color-border: #d5dde8;
+  --color-border-subtle: #e8edf4;
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-text-dim: #64748b;
+  --color-danger-muted: rgba(248, 113, 113, 0.1);
+}

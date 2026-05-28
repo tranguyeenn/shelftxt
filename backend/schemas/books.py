@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class AddBook(BaseModel):
@@ -28,5 +30,10 @@ class ImportBooks(BaseModel):
     books: list[ImportRow]
 
 
-class RemoveBook(BaseModel):
-    title: str
+class BookProgressPatch(BaseModel):
+    status: Literal["not_started", "reading", "completed"]
+    pages_read: int = Field(ge=0)
+
+
+class ClearLibraryRequest(BaseModel):
+    confirm: bool

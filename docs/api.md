@@ -18,8 +18,8 @@ OpenAPI (Swagger): `{backend}/docs`
 | Client call (prod) | Backend path | Methods |
 |--------------------|----------------|---------|
 | `apiUrl("/books")` | `/books` | GET, POST, PATCH, DELETE |
+| `apiUrl("/books/{id}/progress")` | `/books/{book_id}/progress` | PATCH |
 | `apiUrl("/books/import")` | `/books/import` | POST |
-| `apiUrl("/books/remove")` | `/books/remove` | POST |
 | `apiUrl("/recommend")` | `/recommend` | GET |
 
 Override with `NEXT_PUBLIC_API_BASE_URL` (prod) or `API_BASE_URL` (dev proxy).
@@ -138,15 +138,41 @@ Only `title` is required. Unset fields are left unchanged.
 
 ---
 
-## `POST` `/books/remove`
+## `PATCH` `/books/{book_id}/progress`
 
-Same behavior as `DELETE /books`. Accepts JSON body for hosts that return **405** on DELETE.
+Update reading status and pages read. `book_id` is the `ISBN/UID` value.
 
 **Body**
 
 ```json
-{ "title": "Book Title" }
+{
+  "status": "not_started | reading | completed",
+  "pages_read": 120
+}
 ```
+
+**Response 200**
+
+```json
+{
+  "book": {
+    "id": "1700000000.0",
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "status": "reading",
+    "total_pages": 500,
+    "pages_read": 120,
+    "progress_pct": 24.0
+  }
+}
+```
+
+**Validation**
+
+- `pages_read >= 0`
+- `pages_read <= total_pages` when total pages is set
+- `completed` requires `pages_read == total_pages`
+- If `pages_read == total_pages` while status is `reading`, status becomes `completed` automatically
 
 ---
 
@@ -177,37 +203,29 @@ Skipped when title is empty or already exists (case-sensitive title match on sto
 
 ## `GET` `/recommend`
 
-Runs normalization and TBR scoring on loaded data, then `recommend_one()`.
+Returns up to **10** ranked TBR recommendations with explanations and similar finished books.
 
 **Response 200**
 
 - Empty TBR: `[]`
-- Otherwise: array with **one** book (top-5 sample), including `score` when present
+- Otherwise: array of recommendation objects
 
 ```json
 [
   {
-    "Title": "Snow Crash",
-    "Authors": "Neal Stephenson",
-    "Read Status": "to-read",
-    "score": 0.82
+    "book": { "id": "1", "title": "Snow Crash", "author": "Neal Stephenson" },
+    "score": 0.82,
+    "explanation": "Recommended because you have finished 2 book(s) by Neal Stephenson…",
+    "similar_books": [
+      { "id": "2", "title": "Cryptonomicon", "author": "Neal Stephenson" }
+    ]
   }
 ]
 ```
 
-See [ranking.md](ranking.md) for algorithm details.
+See [ranking.md](ranking.md) for scoring details.
 
----
-
-## `POST` `/recommend/refresh`
-
-Clears the in-memory LRU cache for `get_recommendation()`.
-
-**Response 200**
-
-```json
-{ "status": "recommendation cache cleared" }
-```
+Recommendation cache is cleared automatically when books are added, updated, deleted, or imported.
 
 ---
 
@@ -221,6 +239,5 @@ Clears the in-memory LRU cache for `get_recommendation()`.
 |-------|---------|
 | `AddBook` | POST `/books` |
 | `PatchBook` | PATCH `/books` |
+| `BookProgressPatch` | PATCH `/books/{book_id}/progress` |
 | `ImportBooks` / `ImportRow` | POST `/books/import` |
-| `RemoveBook` | POST `/books/remove` |
-| `UpdateProgress`, `FinishBook`, `DNFBook` | Legacy/unused in current routes |

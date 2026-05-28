@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -7,14 +7,17 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { QuickActions } from "@/features/dashboard/QuickActions";
 import { ReadingStats } from "@/features/dashboard/ReadingStats";
 import { RecommendedNextCard } from "@/features/dashboard/RecommendedNextCard";
-import { ScoreBreakdownPanel } from "@/features/dashboard/ScoreBreakdown";
+import { RecommendationsList } from "@/features/recommendations/RecommendationsList";
+import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import type { BookRecord } from "@/lib/books";
-import { buildScoreBreakdown } from "@/lib/scoring";
+import { recommendQuery } from "@/lib/userSettings";
+import type { RecommendationItem } from "@/lib/types";
 
 export function DashboardPage() {
+  const { settings } = useUserSettings();
   const [library, setLibrary] = useState<BookRecord[]>([]);
-  const [recommendation, setRecommendation] = useState<BookRecord | null>(null);
+  const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -24,27 +27,24 @@ export function DashboardPage() {
     try {
       const [books, recs] = await Promise.all([
         fetchJson<BookRecord[]>("/books"),
-        fetchJson<BookRecord[]>("/recommend")
+        fetchJson<RecommendationItem[]>(recommendQuery(settings))
       ]);
       setLibrary(Array.isArray(books) ? books : []);
-      setRecommendation(Array.isArray(recs) && recs.length > 0 ? recs[0] : null);
+      setRecommendations(Array.isArray(recs) ? recs : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
       setLibrary([]);
-      setRecommendation(null);
+      setRecommendations([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [settings.recommendationStyle]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const breakdown = useMemo(() => {
-    if (!recommendation) return null;
-    return buildScoreBreakdown(recommendation, library);
-  }, [recommendation, library]);
+  const topPick = recommendations[0] ?? null;
 
   return (
     <div className="grid gap-8">
@@ -67,11 +67,11 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      {loading && !recommendation ? (
+      {loading && !topPick ? (
         <p className="text-sm text-text-muted">Loading recommendation signals…</p>
       ) : null}
 
-      {!loading && !recommendation && !error ? (
+      {!loading && !topPick && !error ? (
         <EmptyState
           title="No TBR recommendation yet"
           description="Add books with status “to-read” to your library, or import a CSV, then the ranker can pick your next read."
@@ -86,11 +86,21 @@ export function DashboardPage() {
         />
       ) : null}
 
-      {recommendation && breakdown ? (
-        <>
-          <RecommendedNextCard book={recommendation} breakdown={breakdown} />
-          <ScoreBreakdownPanel breakdown={breakdown} />
-        </>
+      {topPick ? <RecommendedNextCard item={topPick} /> : null}
+
+      {recommendations.length > 0 ? (
+        <section className="grid gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-text">Top 10 recommendations</h2>
+            <Link to="/ranking" className="text-sm text-accent hover:underline">
+              View all
+            </Link>
+          </div>
+          <RecommendationsList
+            items={topPick ? recommendations.slice(1) : recommendations}
+            limit={topPick ? 9 : 10}
+          />
+        </section>
       ) : null}
 
       <ReadingStats library={library} />

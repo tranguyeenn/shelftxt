@@ -1,3 +1,5 @@
+import type { ApiBook, ReadingStatus } from "@/lib/types";
+
 export type BookRecord = {
   Title?: string | null;
   Authors?: string | null;
@@ -47,6 +49,28 @@ function statusNorm(s: string | null | undefined): string {
   return String(s ?? "")
     .trim()
     .toLowerCase();
+}
+
+export function recordToApiBook(book: BookRecord): ApiBook {
+  const progress = progressPct(book);
+  const pagesRead = toNumber(book["Pages Read"]) ?? 0;
+  const totalPages = toNumber(book["Total Pages"]);
+  const st = statusNorm(book["Read Status"]);
+  let status: ReadingStatus = "not_started";
+  if (st === "read") status = "completed";
+  else if (st === "to-read" && (progress > 0 || pagesRead > 0)) status = "reading";
+
+  return {
+    id: bookId(book),
+    title: bookTitle(book),
+    author: bookAuthor(book),
+    status,
+    total_pages: totalPages,
+    pages_read: pagesRead,
+    progress_pct: progress,
+    rating: starRating(book),
+    read_status: String(book["Read Status"] ?? "")
+  };
 }
 
 export function derivedShelf(book: BookRecord): DerivedShelf {

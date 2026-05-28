@@ -49,12 +49,19 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(saved_df.iloc[-1]["Read Status"], "to-read")
 
     @patch("backend.routes.recommendation.get_recommendation")
-    def test_recommend_returns_list_payload(self, mock_get_recommendation):
+    def test_recommend_returns_structured_payload(self, mock_get_recommendation):
         mock_get_recommendation.return_value = [
             {
-                "Title": "Snow Crash",
-                "Authors": "Neal Stephenson",
+                "book": {
+                    "id": "1",
+                    "title": "Snow Crash",
+                    "author": "Neal Stephenson",
+                },
                 "score": 0.93,
+                "explanation": "Recommended because you rated Neal Stephenson highly.",
+                "similar_books": [
+                    {"id": "2", "title": "Cryptonomicon", "author": "Neal Stephenson"}
+                ],
             }
         ]
 
@@ -63,9 +70,10 @@ class ApiTests(unittest.TestCase):
 
         payload = response.json()
         self.assertIsInstance(payload, list)
-        self.assertEqual(payload[0]["Title"], "Snow Crash")
-        self.assertEqual(payload[0]["Authors"], "Neal Stephenson")
-        mock_get_recommendation.assert_called_once_with()
+        self.assertEqual(payload[0]["book"]["title"], "Snow Crash")
+        self.assertIn("explanation", payload[0])
+        self.assertIn("similar_books", payload[0])
+        mock_get_recommendation.assert_called_once_with(style="balanced")
 
     @patch("backend.routes.recommendation.get_recommendation")
     def test_recommend_returns_empty_when_no_pick(self, mock_get_recommendation):
@@ -74,7 +82,7 @@ class ApiTests(unittest.TestCase):
         response = self.client.get("/recommend")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
-        mock_get_recommendation.assert_called_once_with()
+        mock_get_recommendation.assert_called_once_with(style="balanced")
 
     @patch("backend.services.books.save_books")
     @patch("backend.services.books.get_all_books")
@@ -115,10 +123,167 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(saved_df), 1)
         self.assertEqual(saved_df.iloc[0]["Title"], "Keep")
 
+    @patch("backend.services.books.invalidate_recommendation_cache")
     @patch("backend.services.books.save_books")
     @patch("backend.services.books.get_all_books")
-    def test_remove_via_post(self, mock_get_all_books, mock_save_books):
+    def test_update_book_progress_by_id(
+        self, mock_get_all_books, mock_save_books, mock_invalidate
+    ):
         base_df = pd.DataFrame(
+            [
+                {
+                    "Title": "In Progress",
+                    "Authors": "A",
+                    "ISBN/UID": "book-1",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Last Date Read": None,
+                    "Progress (%)": 10,
+                    "Pages Read": 50,
+                    "Total Pages": 500,
+                }
+            ]
+        )
+        mock_get_all_books.return_value = base_df
+
+        response = self.client.patch(
+            "/books/book-1/progress",
+            json={"status": "reading", "pages_read": 120},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["book"]["pages_read"], 120)
+        self.assertEqual(payload["book"]["status"], "reading")
+        saved = mock_save_books.call_args.args[0]
+        self.assertEqual(saved.iloc[0]["Pages Read"], 120)
+        mock_invalidate.assert_called_once()
+
+    @patch("backend.services.books.get_all_books")
+    def test_update_book_progress_auto_completes(self, mock_get_all_books):
+        base_df = pd.DataFrame(
+            [
+                {
+                    "Title": "Almost Done",
+                    "Authors": "A",
+                    "ISBN/UID": "book-2",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Last Date Read": None,
+                    "Progress (%)": 90,
+                    "Pages Read": 450,
+                    "Total Pages": 500,
+                }
+            ]
+        )
+        mock_get_all_books.return_value = base_df
+
+        with patch("backend.services.books.save_books") as mock_save:
+            response = self.client.patch(
+                "/books/book-2/progress",
+                json={"status": "reading", "pages_read": 500},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["book"]["status"], "completed")
+        saved = mock_save.call_args.args[0]
+        self.assertEqual(saved.iloc[0]["Read Status"], "read")
+
+    @patch("backend.services.books.get_all_books")
+    def test_update_book_progress_rejects_pages_over_total(self, mock_get_all_books):
+        base_df = pd.DataFrame(
+            [
+                {
+                    "Title": "TBR",
+                    "Authors": "A",
+                    "ISBN/UID": "book-3",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Last Date Read": None,
+                    "Progress (%)": 0,
+                    "Pages Read": 0,
+                    "Total Pages": 500,
+                }
+            ]
+        )
+        mock_get_all_books.return_value = base_df
+
+        response = self.client.patch(
+            "/books/book-3/progress",
+            json={"status": "reading", "pages_read": 600},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @patch("backend.services.books.invalidate_recommendation_cache")
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
+    def test_delete_book_by_id(self, mock_get_all, mock_save, mock_invalidate):
+        base_df = pd.DataFrame(
+            [
+                {
+                    "Title": "Keep",
+                    "Authors": "A",
+                    "ISBN/UID": "keep-id",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Last Date Read": None,
+                    "Progress (%)": 0,
+                    "Pages Read": 0,
+                    "Total Pages": None,
+                },
+                {
+                    "Title": "Remove",
+                    "Authors": "B",
+                    "ISBN/UID": "remove-id",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Last Date Read": None,
+                    "Progress (%)": 0,
+                    "Pages Read": 0,
+                    "Total Pages": None,
+                },
+            ]
+        )
+        mock_get_all.return_value = base_df
+
+        response = self.client.delete("/books/remove-id")
+        self.assertEqual(response.status_code, 200)
+        saved = mock_save.call_args.args[0]
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved.iloc[0]["ISBN/UID"], "keep-id")
+        mock_invalidate.assert_called_once()
+
+    @patch("backend.services.books.invalidate_recommendation_cache")
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
+    def test_export_library_csv(self, mock_get_all, mock_save, mock_invalidate):
+        mock_get_all.return_value = pd.DataFrame(
+            [
+                {
+                    "Title": "Export Me",
+                    "Authors": "Author",
+                    "ISBN/UID": "1",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Last Date Read": None,
+                    "Progress (%)": 0,
+                    "Pages Read": 0,
+                    "Total Pages": 100,
+                }
+            ]
+        )
+
+        response = self.client.get("/books/export")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response.headers.get("content-type", ""))
+        self.assertIn("Export Me", response.text)
+
+    @patch("backend.services.books.invalidate_recommendation_cache")
+    @patch("backend.services.books.save_books")
+    @patch("backend.services.books.get_all_books")
+    def test_clear_library(self, mock_get_all, mock_save, mock_invalidate):
+        mock_get_all.return_value = pd.DataFrame(
             [
                 {
                     "Title": "Gone",
@@ -133,13 +298,19 @@ class ApiTests(unittest.TestCase):
                 }
             ]
         )
-        mock_get_all_books.return_value = base_df
 
-        response = self.client.post("/books/remove", json={"title": "Gone"})
+        response = self.client.post("/books/clear", json={"confirm": True})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"message": "Book deleted"})
-        saved_df = mock_save_books.call_args.args[0]
-        self.assertEqual(len(saved_df), 0)
+        self.assertEqual(response.json()["deleted"], 1)
+        saved = mock_save.call_args.args[0]
+        self.assertEqual(len(saved), 0)
+        mock_invalidate.assert_called_once()
+
+    @patch("backend.services.books.get_all_books")
+    def test_clear_library_requires_confirm(self, mock_get_all):
+        mock_get_all.return_value = pd.DataFrame()
+        response = self.client.post("/books/clear", json={"confirm": False})
+        self.assertEqual(response.status_code, 400)
 
     @patch("backend.services.books.save_books")
     @patch("backend.services.books.get_all_books")

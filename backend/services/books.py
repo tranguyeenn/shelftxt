@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd
 from fastapi import HTTPException
 
+from backend.book_data import BOOKS_COLUMNS
 from backend.repository.books_repository import get_all_books, save_books
-from backend.schemas.books import AddBook, PatchBook, ImportBooks
+from backend.schemas.books import AddBook, PatchBook, ImportBooks, BookProgressPatch
+from backend.services.book_api import find_row_by_book_id, series_to_api_book
 from backend.services.recommendation import invalidate_recommendation_cache
 
 
@@ -38,6 +40,41 @@ def add_book_service(book: AddBook):
     invalidate_recommendation_cache()
 
     return {"message": "Book added"}
+
+
+def export_library_csv() -> str:
+    df = get_all_books()
+    return df.to_csv(index=False)
+
+
+def clear_library_service(confirm: bool):
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation required to clear the library",
+        )
+
+    df = get_all_books()
+    deleted = len(df)
+    empty = pd.DataFrame(columns=BOOKS_COLUMNS)
+    save_books(empty)
+    invalidate_recommendation_cache()
+
+    return {"message": "Library cleared", "deleted": deleted}
+
+
+def delete_book_by_id(book_id: str):
+    df = get_all_books()
+    row = find_row_by_book_id(df, book_id)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    df = df.loc[~row].copy()
+    save_books(df)
+    invalidate_recommendation_cache()
+
+    return {"message": "Book deleted"}
 
 
 def delete_book_by_title(title: str):
@@ -150,6 +187,76 @@ def patch_book_service(p: PatchBook):
     invalidate_recommendation_cache()
 
     return {"message": "Book updated"}
+
+
+def update_book_progress_by_id(book_id: str, body: BookProgressPatch):
+    df = get_all_books()
+    row = find_row_by_book_id(df, book_id)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    total_raw = df.loc[row, "Total Pages"].values[0]
+    has_total = pd.notna(total_raw) and int(total_raw) > 0
+    total_pages = int(total_raw) if has_total else None
+
+    status = body.status
+    pages_read = int(body.pages_read)
+
+    if status in ("reading", "completed") and not has_total:
+        raise HTTPException(status_code=400, detail="Set total pages first")
+
+    if has_total:
+        if pages_read > total_pages:
+            raise HTTPException(
+                status_code=400,
+                detail="pages_read cannot exceed total_pages",
+            )
+        if status == "completed" and pages_read != total_pages:
+            raise HTTPException(
+                status_code=400,
+                detail="pages_read must equal total_pages when status is completed",
+            )
+        if pages_read == total_pages and status == "reading":
+            status = "completed"
+
+    if status == "not_started":
+        df.loc[row, ["Read Status", "Progress (%)", "Pages Read"]] = [
+            "to-read",
+            0,
+            0,
+        ]
+
+    elif status == "reading":
+        if has_total and pages_read == total_pages:
+            status = "completed"
+        else:
+            progress_pct = (
+                round((pages_read / total_pages) * 100, 2) if has_total and total_pages else 0
+            )
+            df.loc[row, ["Read Status", "Pages Read", "Progress (%)"]] = [
+                "to-read",
+                pages_read,
+                progress_pct,
+            ]
+
+    if status == "completed":
+        if not has_total:
+            raise HTTPException(status_code=400, detail="Set total pages first")
+        pages_read = total_pages
+        existing_rating = df.loc[row, "Star Rating"].values[0]
+        rating = existing_rating if pd.notna(existing_rating) else 3.0
+        df.loc[row, "Read Status"] = "read"
+        df.loc[row, "Star Rating"] = float(rating)
+        df.loc[row, "Progress (%)"] = 100
+        df.loc[row, "Pages Read"] = pages_read
+        df.loc[row, "Last Date Read"] = parse_date_or_today(None)
+
+    save_books(df)
+    invalidate_recommendation_cache()
+
+    updated = series_to_api_book(df.loc[row].iloc[0])
+    return {"book": updated}
 
 
 def import_books_service(data: ImportBooks):

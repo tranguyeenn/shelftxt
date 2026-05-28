@@ -50,6 +50,10 @@ Implementation: `shelfLabel()` in `frontend/app/page.tsx`.
 | `read` | `read`, rating 1–5, progress 100, optional finish date |
 | `dnf` | `dnf`, rating 1, progress 0, optional date |
 
+### Update pages while reading
+
+`PATCH /books/progress` with `{ "title", "pages_read" }` — only when the book is already in progress (see UI shelf “Currently reading”). Clamps pages to `1` … `Total Pages` and recomputes `Progress (%)`.
+
 ## Canonical schema (batch pipeline)
 
 Used by `backend/ingest/load_csv.py` and downstream preprocess/rank steps.

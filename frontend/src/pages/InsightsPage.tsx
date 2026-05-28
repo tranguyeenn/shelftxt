@@ -1,0 +1,240 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { StatCard } from "@/components/ui/StatCard";
+import { useUserSettings } from "@/contexts/UserSettingsContext";
+import { fetchJson } from "@/lib/api";
+import { recommendQuery } from "@/lib/userSettings";
+import { statusLabel } from "@/lib/bookProgress";
+import type { BookRecord } from "@/lib/books";
+import {
+  RECOMMENDATION_SIGNALS,
+  computeReadingPatterns,
+  computeReadingSummary,
+  currentlyReadingBooks,
+  topRecommendationThemes
+} from "@/lib/insights";
+import type { RecommendationItem } from "@/lib/types";
+
+function PatternCard({
+  label,
+  children
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="grid gap-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-text-dim">{label}</h3>
+      {children}
+    </Card>
+  );
+}
+
+export function InsightsPage() {
+  const { settings } = useUserSettings();
+  const [library, setLibrary] = useState<BookRecord[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [books, recs] = await Promise.all([
+        fetchJson<BookRecord[]>("/books"),
+        fetchJson<RecommendationItem[]>(recommendQuery(settings))
+      ]);
+      setLibrary(Array.isArray(books) ? books : []);
+      setRecommendations(Array.isArray(recs) ? recs : []);
+    } catch (err) {
+      setLibrary([]);
+      setRecommendations([]);
+      setError(err instanceof Error ? err.message : "Failed to load insights");
+    } finally {
+      setLoading(false);
+    }
+  }, [settings.recommendationStyle]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const summary = useMemo(() => computeReadingSummary(library), [library]);
+  const inProgress = useMemo(() => currentlyReadingBooks(library), [library]);
+  const patterns = useMemo(() => computeReadingPatterns(library), [library]);
+  const themes = useMemo(() => topRecommendationThemes(recommendations), [recommendations]);
+
+  const avgRatingDisplay =
+    summary.averageRating !== null ? `${summary.averageRating.toFixed(1)} / 5` : "—";
+
+  return (
+    <div className="grid gap-8">
+      <PageHeader
+        title="Insights"
+        subtitle="Understand your library, progress, and what shapes your recommendations."
+      />
+
+      {error ? (
+        <div
+          className="rounded-lg border border-danger/30 bg-danger-muted px-4 py-3 text-sm text-danger"
+          role="alert"
+        >
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? <p className="text-sm text-text-muted">Loading your reading insights…</p> : null}
+
+      {!loading && !error && library.length === 0 ? (
+        <EmptyState
+          title="No reading data yet"
+          description="Add books to your library to see summaries, patterns, and recommendation insights."
+          action={
+            <Link
+              to="/add"
+              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg hover:bg-accent-dim"
+            >
+              Add a book
+            </Link>
+          }
+        />
+      ) : null}
+
+      {!loading && library.length > 0 ? (
+        <>
+          <section className="grid gap-3">
+            <h2 className="text-sm font-medium text-text-dim">Reading summary</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <StatCard label="Total books" value={String(summary.totalBooks)} />
+              <StatCard label="Completed" value={String(summary.completed)} />
+              <StatCard label="Currently reading" value={String(summary.reading)} />
+              <StatCard label="Not started" value={String(summary.notStarted)} />
+              <StatCard
+                label="Total pages read"
+                value={summary.totalPagesRead.toLocaleString()}
+                hint="Across all books in your library"
+              />
+              <StatCard
+                label="Average rating"
+                value={avgRatingDisplay}
+                hint={
+                  summary.ratedCount > 0
+                    ? `From ${summary.ratedCount} rated completed book${summary.ratedCount === 1 ? "" : "s"}`
+                    : "No ratings on completed books yet"
+                }
+              />
+            </div>
+          </section>
+
+          <section className="grid gap-3">
+            <h2 className="text-sm font-medium text-text-dim">Current progress</h2>
+            {inProgress.length === 0 ? (
+              <Card>
+                <p className="text-sm text-text-muted">
+                  You are not reading any books right now. Open your{" "}
+                  <Link to="/library" className="text-accent hover:underline">
+                    library
+                  </Link>{" "}
+                  to start one.
+                </p>
+              </Card>
+            ) : (
+              <div className="grid gap-3">
+                {inProgress.map((book) => (
+                  <Card key={book.id} className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <div>
+                      <Link
+                        to={`/book/${encodeURIComponent(book.id)}`}
+                        className="text-base font-semibold text-text hover:text-accent hover:underline"
+                      >
+                        {book.title}
+                      </Link>
+                      <p className="mt-0.5 text-sm text-text-muted">{book.author}</p>
+                      <p className="mt-2 font-mono text-sm text-text">
+                        {book.pages_read} / {book.total_pages ?? "—"} pages ·{" "}
+                        {book.progress_pct.toFixed(0)}%
+                      </p>
+                    </div>
+                    <div className="flex items-start sm:justify-end">
+                      <Badge tone="accent">{statusLabel("reading")}</Badge>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="grid gap-3">
+            <h2 className="text-sm font-medium text-text-dim">Reading patterns</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              {patterns.map((pattern) => (
+                <PatternCard key={pattern.label} label={pattern.label}>
+                  {pattern.kind === "value" ? (
+                    <>
+                      <p className="text-lg font-semibold text-text">{pattern.value}</p>
+                      {pattern.detail ? (
+                        <p className="text-sm text-text-muted">{pattern.detail}</p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-sm text-text-muted">{pattern.message}</p>
+                  )}
+                </PatternCard>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid gap-3">
+            <h2 className="text-sm font-medium text-text-dim">Recommendation signals</h2>
+            <Card className="grid gap-3">
+              <p className="text-sm text-text-muted">
+                ShelfTxt learns from your own shelf — not from a generic bestseller list. Here is
+                what shapes your picks:
+              </p>
+              <ul className="grid gap-2 text-sm text-text-muted">
+                {RECOMMENDATION_SIGNALS.map((line) => (
+                  <li key={line} className="flex gap-2">
+                    <span className="text-accent" aria-hidden>
+                      ·
+                    </span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </section>
+
+          {themes.length > 0 ? (
+            <section className="grid gap-3">
+              <h2 className="text-sm font-medium text-text-dim">Top recommendation themes</h2>
+              <Card className="grid gap-3">
+                <p className="text-sm text-text-muted">
+                  Common authors showing up in your current top recommendations:
+                </p>
+                <ul className="grid gap-2">
+                  {themes.map((theme) => (
+                    <li
+                      key={theme.label}
+                      className="flex items-center justify-between gap-3 text-sm"
+                    >
+                      <span className="text-text">{theme.label}</span>
+                      <Badge tone="neutral">
+                        {theme.count} book{theme.count === 1 ? "" : "s"}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}

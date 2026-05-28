@@ -1,0 +1,76 @@
+import { useState } from "react";
+
+import { Button } from "@/components/ui/Button";
+import { clearLibrary, downloadLibraryCsv } from "@/lib/libraryExport";
+
+type LibraryActionsProps = {
+  onCleared?: () => void;
+};
+
+export function LibraryActions({ onCleared }: LibraryActionsProps) {
+  const [exporting, setExporting] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleExport() {
+    setExporting(true);
+    setError("");
+    setMessage("");
+    try {
+      await downloadLibraryCsv();
+      setMessage("Library exported to shelftxt-library.csv");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleClear() {
+    const confirmed = window.confirm(
+      "Clear your entire library? This removes all books and cannot be undone."
+    );
+    if (!confirmed) return;
+
+    setClearing(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await clearLibrary();
+      setMessage(`Removed ${result.deleted} book${result.deleted === 1 ? "" : "s"} from your library.`);
+      onCleared?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Clear failed");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button variant="secondary" onClick={() => void handleExport()} disabled={exporting}>
+          {exporting ? "Exporting…" : "Export library"}
+        </Button>
+        <Button variant="danger" onClick={() => void handleClear()} disabled={clearing}>
+          {clearing ? "Clearing…" : "Clear library"}
+        </Button>
+      </div>
+
+      {message ? (
+        <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p
+          className="rounded-lg border border-danger/30 bg-danger-muted px-3 py-2 text-sm text-danger"
+          role="alert"
+        >
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}

@@ -114,11 +114,10 @@ python -m pytest -q
 | `GET` | `/books` | List library |
 | `POST` | `/books` | Add book (TBR) |
 | `PATCH` | `/books` | Update / move shelf |
+| `PATCH` | `/books/{id}/progress` | Update status and pages read |
 | `DELETE` | `/books?title=` | Delete by title |
-| `POST` | `/books/remove` | Delete (JSON body) |
 | `POST` | `/books/import` | Bulk import |
 | `GET` | `/recommend` | Next-book suggestion |
-| `POST` | `/recommend/refresh` | Clear recommendation cache |
 
 Full reference: [docs/api.md](docs/api.md)
 

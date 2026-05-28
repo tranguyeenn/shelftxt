@@ -14,8 +14,20 @@
       "destination": "https://shelftxt.onrender.com/books/import"
     },
     {
-      "source": "/api/books/remove",
-      "destination": "https://shelftxt.onrender.com/books/remove"
+      "source": "/api/books/export",
+      "destination": "https://shelftxt.onrender.com/books/export"
+    },
+    {
+      "source": "/api/books/clear",
+      "destination": "https://shelftxt.onrender.com/books/clear"
+    },
+    {
+      "source": "/api/books/:bookId/progress",
+      "destination": "https://shelftxt.onrender.com/books/:bookId/progress"
+    },
+    {
+      "source": "/api/books/:bookId",
+      "destination": "https://shelftxt.onrender.com/books/:bookId"
     },
     {
       "source": "/api/books",

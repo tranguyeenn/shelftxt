@@ -2,9 +2,10 @@ import { NavLink } from "react-router-dom";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: DashboardIcon },
-  { to: "/ranking", label: "TBR Ranking", icon: RankingIcon },
+  { to: "/library", label: "Library", icon: LibraryIcon },
+  { to: "/ranking", label: "Recommendations", icon: RankingIcon },
   { to: "/add", label: "Add Book", icon: AddIcon },
-  { to: "/system", label: "System", icon: SystemIcon },
+  { to: "/insights", label: "Insights", icon: InsightsIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon }
 ] as const;
 
@@ -54,6 +55,15 @@ function DashboardIcon({ className }: { className?: string }) {
   );
 }
 
+function LibraryIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+    </svg>
+  );
+}
+
 function RankingIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -71,11 +81,11 @@ function AddIcon({ className }: { className?: string }) {
   );
 }
 
-function SystemIcon({ className }: { className?: string }) {
+function InsightsIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+      <path d="M3 3v18h18" />
+      <path d="M7 16l4-5 4 3 5-7" />
     </svg>
   );
 }

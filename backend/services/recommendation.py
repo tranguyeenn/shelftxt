@@ -1,45 +1,27 @@
 # backend/services/recommendation.py
 
-import numpy as np
 from functools import lru_cache
 
 from backend.book_data import load_data
-from backend.preprocess.normalize import normalize_rating, compute_recency
-from backend.ranking.score import score_tbr_books, recommend_one
+from backend.services.recommendation_builder import build_recommendations
+
+VALID_STYLES = frozenset({"balanced", "popular", "discovery"})
 
 
-def clean_for_json(df):
-    return df.replace({np.nan: None})
+def _normalize_style(style: str) -> str:
+    normalized = (style or "balanced").strip().lower()
+    return normalized if normalized in VALID_STYLES else "balanced"
 
 
-@lru_cache(maxsize=1)
-def get_recommendation():
-
+@lru_cache(maxsize=32)
+def get_recommendation(top_n: int = 10, style: str = "balanced"):
     df = load_data()
+    normalized_style = _normalize_style(style)
 
     if df.empty:
-        print("dataframe is empty")
         return []
 
-    df = normalize_rating(df)
-
-    df = compute_recency(df)
-
-    tbr_ranked = score_tbr_books(df)
-
-    rec = recommend_one(tbr_ranked)
-
-    if rec is None:
-        print("recommend_one returned None")
-        return []
-
-    if rec.empty:
-        print("recommend_one returned empty DataFrame")
-        return []
-
-    result = clean_for_json(rec).to_dict(orient="records")
-
-    return result
+    return build_recommendations(df, top_n=top_n, style=normalized_style)
 
 
 def invalidate_recommendation_cache():

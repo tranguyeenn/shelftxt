@@ -1,148 +1,143 @@
-import { useMemo, useState } from "react";
-import Papa from "papaparse";
-
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { fetchJson } from "@/lib/api";
+import { SettingRow, SettingsSection } from "@/components/settings/SettingsSection";
+import { CsvImportSection } from "@/features/settings/CsvImportSection";
+import { LibraryActions } from "@/features/settings/LibraryActions";
+import { useUserSettings } from "@/contexts/UserSettingsContext";
+import {
+  ACCENT_PRESETS,
+  type AccentColor,
+  type AppTheme,
+  type RecommendationStyle
+} from "@/lib/userSettings";
 
-type ImportRow = {
-  title: string;
-  author: string | null;
-  total_pages: number | null;
-};
+const selectClass =
+  "w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text sm:w-auto";
 
 export function SettingsPage() {
-  const [fileName, setFileName] = useState("");
-  const [rows, setRows] = useState<ImportRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  async function onCsvSelected(file: File | null) {
-    setError("");
-    setMessage("");
-    setRows([]);
-    if (!file) {
-      setFileName("");
-      return;
-    }
-    setFileName(file.name);
-
-    const text = await file.text();
-    const parsed = Papa.parse<Record<string, string>>(text, {
-      header: true,
-      skipEmptyLines: true
-    });
-
-    if (parsed.errors.length > 0) {
-      setError(parsed.errors[0]?.message ?? "Could not parse CSV.");
-      return;
-    }
-
-    const normalized = parsed.data
-      .map((row): ImportRow | null => {
-        const title = String(row.title ?? row.Title ?? "").trim();
-        if (!title) return null;
-        const author = String(row.author ?? row.Author ?? "").trim();
-        const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
-        const pagesNum = pagesRaw ? Number(pagesRaw) : null;
-        return {
-          title,
-          author: author || null,
-          total_pages: Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null
-        };
-      })
-      .filter((item): item is ImportRow => item !== null);
-
-    if (normalized.length === 0) {
-      setError("No usable rows found. Expected at least a `title` column.");
-      return;
-    }
-
-    setRows(normalized);
-  }
-
-  async function importRows() {
-    if (rows.length === 0) {
-      setError("Upload a CSV with at least one valid row first.");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    setMessage("");
-    try {
-      const result = await fetchJson<{ imported: number; skipped: number }>("/books/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ books: rows })
-      });
-      setMessage(`Imported ${result.imported} books, skipped ${result.skipped}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const preview = useMemo(() => rows.slice(0, 8), [rows]);
+  const { settings, updateSettings } = useUserSettings();
 
   return (
-    <div className="grid gap-6">
-      <PageHeader title="Settings" subtitle="Manage your preferences and data." />
-      <Card>
-        <div className="grid gap-4">
-          <div>
-            <h2 className="text-sm font-medium text-text">CSV import</h2>
-            <p className="mt-1 text-sm text-text-muted">
-              Upload a CSV with `title`, `author` (optional), and `total_pages` (optional).
-            </p>
-          </div>
+    <div className="mx-auto grid max-w-3xl gap-6">
+      <PageHeader
+        title="Settings"
+        subtitle="Manage your library, reading preferences, and how ShelfTxt looks."
+      />
 
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onChange={(e) => void onCsvSelected(e.target.files?.[0] ?? null)}
-            className="block w-full cursor-pointer rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text file:mr-3 file:rounded-md file:border-0 file:bg-accent-muted file:px-3 file:py-1 file:text-accent"
-          />
+      <SettingsSection
+        title="Data management"
+        description="Import, export, or reset your library."
+      >
+        <CsvImportSection />
 
-          {fileName ? <p className="text-xs text-text-dim">Selected: {fileName}</p> : null}
-
-          {rows.length > 0 ? (
-            <div className="rounded-lg border border-border-subtle bg-bg-elevated p-3">
-              <p className="text-xs uppercase tracking-wide text-text-dim">
-                Preview ({rows.length} rows)
-              </p>
-              <ul className="mt-2 grid gap-1 text-sm text-text-muted">
-                {preview.map((row, idx) => (
-                  <li key={`${row.title}-${idx}`}>
-                    {row.title}
-                    {row.author ? ` — ${row.author}` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {error ? (
-            <p className="rounded-lg border border-danger/30 bg-danger-muted px-3 py-2 text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
-
-          {message ? (
-            <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent">
-              {message}
-            </p>
-          ) : null}
-
-          <div>
-            <Button variant="primary" onClick={() => void importRows()} disabled={loading}>
-              {loading ? "Importing…" : "Import books"}
-            </Button>
-          </div>
+        <div className="border-t border-border-subtle pt-4">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-text-dim">
+            More actions
+          </p>
+          <LibraryActions />
         </div>
-      </Card>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Reading preferences"
+        description="These settings shape how recommendations are ranked."
+      >
+        <SettingRow
+          label="Recommendation style"
+          hint="Balanced mixes familiarity and variety; Popular favors authors you already love; Discovery surfaces newer picks."
+        >
+          <select
+            value={settings.recommendationStyle}
+            onChange={(e) =>
+              updateSettings({ recommendationStyle: e.target.value as RecommendationStyle })
+            }
+            className={selectClass}
+          >
+            <option value="balanced">Balanced</option>
+            <option value="popular">Popular</option>
+            <option value="discovery">Niche / discovery</option>
+          </select>
+        </SettingRow>
+
+        <SettingRow
+          label="Recommendation explanations"
+          hint="Show why a book was recommended when browsing picks."
+        >
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={settings.showRecommendationExplanations}
+              onChange={(e) =>
+                updateSettings({ showRecommendationExplanations: e.target.checked })
+              }
+              className="h-4 w-4 rounded border-border bg-bg-elevated accent-accent"
+            />
+            <span>{settings.showRecommendationExplanations ? "Visible" : "Hidden"}</span>
+          </label>
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="Appearance" description="Customize layout and colors.">
+        <SettingRow label="Compact mode" hint="Tighter spacing across the app.">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={settings.compactMode}
+              onChange={(e) => updateSettings({ compactMode: e.target.checked })}
+              className="h-4 w-4 rounded border-border bg-bg-elevated accent-accent"
+            />
+            <span>{settings.compactMode ? "On" : "Off"}</span>
+          </label>
+        </SettingRow>
+
+        <SettingRow label="Accent color" hint="Highlight color for buttons and links.">
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(ACCENT_PRESETS) as AccentColor[]).map((key) => {
+              const preset = ACCENT_PRESETS[key];
+              const active = settings.accentColor === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  title={preset.label}
+                  aria-label={preset.label}
+                  aria-pressed={active}
+                  onClick={() => updateSettings({ accentColor: key })}
+                  className={[
+                    "h-9 w-9 rounded-full border-2 transition-transform",
+                    active ? "scale-110 border-text" : "border-transparent hover:scale-105"
+                  ].join(" ")}
+                  style={{ backgroundColor: preset.accent }}
+                />
+              );
+            })}
+          </div>
+        </SettingRow>
+
+        <SettingRow label="Theme" hint="Dark is the default ShelfTxt look.">
+          <select
+            value={settings.theme}
+            onChange={(e) => updateSettings({ theme: e.target.value as AppTheme })}
+            className={selectClass}
+          >
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="About ShelfTxt">
+        <div className="grid gap-2 text-sm text-text-muted">
+          <p className="text-base font-semibold text-text">ShelfTxt</p>
+          <p>
+            ShelfTxt helps organize your reading and generate transparent recommendations from
+            your own library patterns.
+          </p>
+          <p>
+            Add books, track progress, and discover what to read next based on authors and ratings
+            you already enjoy.
+          </p>
+        </div>
+      </SettingsSection>
     </div>
   );
 }

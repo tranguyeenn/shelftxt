@@ -1,72 +1,71 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { BookDeleteButton } from "@/components/books/BookDeleteButton";
+import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { ScoreBar } from "@/components/ui/ScoreBar";
+import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
-import { bookAuthor, bookId, bookTitle, progressPct, type BookRecord } from "@/lib/books";
-import { buildScoreBreakdown, formatScore } from "@/lib/scoring";
+import { recommendQuery } from "@/lib/userSettings";
+import { statusLabel } from "@/lib/bookProgress";
+import { recordToApiBook, type BookRecord } from "@/lib/books";
+import type { ApiBook, RecommendationItem } from "@/lib/types";
 
 export function BookDetailPage() {
+  const navigate = useNavigate();
+  const { settings } = useUserSettings();
   const { id } = useParams();
-  const [library, setLibrary] = useState<BookRecord[]>([]);
+  const [, setLibrary] = useState<BookRecord[]>([]);
+  const [recommendation, setRecommendation] = useState<RecommendationItem | null>(null);
+  const [book, setBook] = useState<ApiBook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
-      setError("");
-      try {
-        const books = await fetchJson<BookRecord[]>("/books");
-        if (!cancelled) setLibrary(Array.isArray(books) ? books : []);
-      } catch (err) {
-        if (!cancelled) {
-          setLibrary([]);
-          setError(err instanceof Error ? err.message : "Failed to load book detail");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [books, recs] = await Promise.all([
+        fetchJson<BookRecord[]>("/books"),
+        fetchJson<RecommendationItem[]>(recommendQuery(settings))
+      ]);
+      const list = Array.isArray(books) ? books : [];
+      setLibrary(list);
+      const decoded = decodeURIComponent(id ?? "");
+      const match = list.map(recordToApiBook).find((item) => item.id === decoded) ?? null;
+      setBook(match);
+      const recList = Array.isArray(recs) ? recs : [];
+      setRecommendation(recList.find((r) => r.book.id === decoded) ?? null);
+    } catch (err) {
+      setLibrary([]);
+      setBook(null);
+      setRecommendation(null);
+      setError(err instanceof Error ? err.message : "Failed to load book detail");
+    } finally {
+      setLoading(false);
     }
+  }, [id, settings.recommendationStyle]);
 
+  useEffect(() => {
     void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [load]);
 
-  const book = useMemo(() => {
-    const decoded = decodeURIComponent(id ?? "");
-    return library.find((item) => bookId(item) === decoded) ?? null;
-  }, [id, library]);
-
-  const breakdown = useMemo(() => {
-    if (!book) return null;
-    return buildScoreBreakdown(book, library);
-  }, [book, library]);
-
-  const readStatus = String(book?.["Read Status"] ?? "unknown").trim() || "unknown";
-  const rating =
-    typeof book?.["Star Rating"] === "number" ? Number(book["Star Rating"]).toFixed(1) : "—";
-  const pagesRead =
-    typeof book?.["Pages Read"] === "number" ? String(Math.round(book["Pages Read"])) : "—";
-  const totalPages =
-    typeof book?.["Total Pages"] === "number" ? String(Math.round(book["Total Pages"])) : "—";
+  const ratingLabel = useMemo(() => {
+    if (book?.rating == null) return "—";
+    return Number(book.rating).toFixed(1);
+  }, [book?.rating]);
 
   return (
     <div className="grid gap-6">
-      <Link to="/ranking" className="text-sm text-accent hover:underline">
-        ← Back to TBR
+      <Link to="/library" className="text-sm text-accent hover:underline">
+        ← Back to library
       </Link>
       <PageHeader
-        title={book ? bookTitle(book) : "Book detail"}
-        subtitle={book ? bookAuthor(book) : `ID: ${decodeURIComponent(id ?? "")}`}
+        title={book ? book.title : "Book detail"}
+        subtitle={book ? book.author : `ID: ${decodeURIComponent(id ?? "")}`}
       />
 
       {error ? (
@@ -87,51 +86,64 @@ export function BookDetailPage() {
         />
       ) : null}
 
-      {book && breakdown ? (
+      {book ? (
         <>
           <Card className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-text-dim">Status</p>
               <p className="mt-1 text-text">
-                <Badge tone="accent">{readStatus}</Badge>
+                <Badge tone="accent">{statusLabel(book.status)}</Badge>
               </p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-text-dim">Progress</p>
-              <p className="mt-1 font-mono text-text">{progressPct(book).toFixed(0)}%</p>
+              <p className="mt-1 font-mono text-text">{book.progress_pct.toFixed(0)}%</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-text-dim">Rating</p>
-              <p className="mt-1 font-mono text-text">{rating}</p>
+              <p className="mt-1 font-mono text-text">{ratingLabel}</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-text-dim">Pages</p>
               <p className="mt-1 font-mono text-text">
-                {pagesRead} / {totalPages}
+                {book.pages_read} / {book.total_pages ?? "—"}
               </p>
             </div>
           </Card>
 
-          <Card className="grid gap-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-medium text-text">Why this is recommended</h3>
-              <Badge tone="success">{breakdown.matchLabel}</Badge>
-            </div>
-            <p className="text-sm text-text-muted">
-              Composite score: <span className="font-mono text-text">{formatScore(breakdown.composite)}</span>
-            </p>
-            <div className="grid gap-3">
-              {breakdown.factors.map((factor) => (
-                <ScoreBar
-                  key={factor.key}
-                  label={factor.label}
-                  value={factor.value}
-                  weight={factor.weight}
-                  color={factor.color}
-                  explanation={factor.explanation}
-                />
-              ))}
-            </div>
+          <BookProgressEditor
+            book={book}
+            onUpdated={(updated) => {
+              setBook(updated);
+              void load();
+            }}
+          />
+
+          {recommendation && settings.showRecommendationExplanations ? (
+            <Card className="grid gap-3">
+              <h3 className="text-sm font-medium text-text">Recommendation insight</h3>
+              <p className="text-sm leading-relaxed text-text-muted">{recommendation.explanation}</p>
+              {recommendation.similar_books.length > 0 ? (
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-text-dim">Similar to</p>
+                  <ul className="mt-2 text-sm text-text-muted">
+                    {recommendation.similar_books.map((similar) => (
+                      <li key={similar.id || similar.title}>
+                        {similar.title} — {similar.author}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </Card>
+          ) : null}
+
+          <Card>
+            <BookDeleteButton
+              bookId={book.id}
+              bookTitle={book.title}
+              onDeleted={() => navigate("/library")}
+            />
           </Card>
         </>
       ) : null}
