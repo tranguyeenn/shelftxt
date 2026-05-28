@@ -17,6 +17,9 @@ Developer reference for architecture, APIs, deployment, and operations.
 | Doc | Description |
 |-----|-------------|
 | [architecture.md](architecture.md) | System layout, layers, production topology, repo structure |
+| [system-design.md](system%20design/system-design.md) | End-to-end design: goals, components, flows, scaling strategy |
+| [system-design-1page.md](system%20design/system-design-1page.md) | 1-page interview-style system design summary |
+| [system-design-rfc.md](system%20design/system-design-rfc.md) | RFC-style deep design for engineering collaboration |
 | [deployment.md](deployment.md) | Render + Vercel runbook, env vars, verification |
 | [decisions.md](decisions.md) | Architecture decision records (ADRs) |
 | [development.md](development.md) | Local setup, tests, CLI |
