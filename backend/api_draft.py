@@ -24,8 +24,8 @@ async def self_ping():
                 "https://shelftxt.onrender.com/health",
                 timeout=5.0
             )
-        except Exception as e:
-            print(f"Self-ping failed: {e}")
+        except httpx.RequestError as e:
+            print(f"Self ping failed: {e}")
 
 
 @asynccontextmanager
@@ -83,7 +83,7 @@ def parse_date_or_today(date_str):
             if date_str
             else pd.Timestamp.today().normalize()
         )
-    except Exception:
+    except (ValueError, TypeError, pd.errors.ParserError):
         return pd.Timestamp.today().normalize()
 
 

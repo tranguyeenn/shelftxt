@@ -16,7 +16,7 @@ def parse_date_or_today(date_str):
             if date_str
             else pd.Timestamp.today().normalize()
         )
-    except Exception:
+    except (ValueError, TypeError, pd.errors.ParserError):
         return pd.Timestamp.today().normalize()
 
 
