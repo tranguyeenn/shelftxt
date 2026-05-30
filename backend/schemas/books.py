@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,3 +37,12 @@ class BookProgressPatch(BaseModel):
 
 class ClearLibraryRequest(BaseModel):
     confirm: bool
+
+
+class BooksPage(BaseModel):
+    """Paginated library list (GET /books). Each result row uses CSV column names."""
+
+    page: int
+    limit: int
+    total: int
+    results: list[dict[str, Any]]

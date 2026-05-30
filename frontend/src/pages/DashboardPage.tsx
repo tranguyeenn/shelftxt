@@ -10,7 +10,7 @@ import { RecommendedNextCard } from "@/features/dashboard/RecommendedNextCard";
 import { RecommendationsList } from "@/features/recommendations/RecommendationsList";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
-import type { BookRecord } from "@/lib/books";
+import { fetchAllLibraryBooks, type BookRecord } from "@/lib/books";
 import { recommendQuery } from "@/lib/userSettings";
 import type { RecommendationItem } from "@/lib/types";
 
@@ -26,10 +26,10 @@ export function DashboardPage() {
     setError("");
     try {
       const [books, recs] = await Promise.all([
-        fetchJson<BookRecord[]>("/books"),
+        fetchAllLibraryBooks(),
         fetchJson<RecommendationItem[]>(recommendQuery(settings))
       ]);
-      setLibrary(Array.isArray(books) ? books : []);
+      setLibrary(books);
       setRecommendations(Array.isArray(recs) ? recs : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");

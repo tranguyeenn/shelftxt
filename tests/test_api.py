@@ -6,11 +6,94 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from backend import api
+from backend.book_data import BOOKS_COLUMNS
+
+
+def _sample_library_df(count: int) -> pd.DataFrame:
+    rows = []
+    for i in range(count):
+        rows.append(
+            {
+                "Title": f"Book {i}",
+                "Authors": f"Author {i}",
+                "ISBN/UID": f"id-{i}",
+                "Read Status": "to-read",
+                "Star Rating": np.nan,
+                "Last Date Read": None,
+                "Progress (%)": 0,
+                "Pages Read": 0,
+                "Total Pages": None,
+            }
+        )
+    return pd.DataFrame(rows, columns=BOOKS_COLUMNS)
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(api.app)
+
+    @patch("backend.routes.books.load_data")
+    def test_get_books_default_pagination(self, mock_load_data):
+        mock_load_data.return_value = _sample_library_df(25)
+
+        response = self.client.get("/books")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["page"], 1)
+        self.assertEqual(payload["limit"], 20)
+        self.assertEqual(payload["total"], 25)
+        self.assertEqual(len(payload["results"]), 20)
+        self.assertEqual(payload["results"][0]["Title"], "Book 0")
+        self.assertEqual(payload["results"][-1]["Title"], "Book 19")
+
+    @patch("backend.routes.books.load_data")
+    def test_get_books_explicit_page_and_limit(self, mock_load_data):
+        mock_load_data.return_value = _sample_library_df(12)
+
+        response = self.client.get("/books?page=2&limit=5")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["page"], 2)
+        self.assertEqual(payload["limit"], 5)
+        self.assertEqual(payload["total"], 12)
+        self.assertEqual(len(payload["results"]), 5)
+        self.assertEqual([row["Title"] for row in payload["results"]], [
+            "Book 5",
+            "Book 6",
+            "Book 7",
+            "Book 8",
+            "Book 9",
+        ])
+
+    @patch("backend.routes.books.load_data")
+    def test_get_books_page_past_end_returns_empty_results(self, mock_load_data):
+        mock_load_data.return_value = _sample_library_df(3)
+
+        response = self.client.get("/books?page=10&limit=5")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], 3)
+        self.assertEqual(payload["results"], [])
+
+    @patch("backend.routes.books.load_data")
+    def test_get_books_rejects_invalid_query_params(self, mock_load_data):
+        mock_load_data.return_value = _sample_library_df(1)
+
+        for query in (
+            "page=0",
+            "limit=0",
+            "page=-1",
+            "limit=-5",
+            "page=abc",
+            "limit=xyz",
+            "limit=101",
+        ):
+            with self.subTest(query=query):
+                response = self.client.get(f"/books?{query}")
+                self.assertEqual(response.status_code, 422)
 
     @patch("backend.services.books.save_books")
     @patch("backend.services.books.get_all_books")

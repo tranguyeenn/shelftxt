@@ -4,8 +4,7 @@ import { BookLibraryCard } from "@/components/books/BookLibraryCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fetchJson } from "@/lib/api";
-import { recordToApiBook, type BookRecord } from "@/lib/books";
+import { fetchAllLibraryBooks, recordToApiBook } from "@/lib/books";
 import type { ApiBook, ReadingStatus } from "@/lib/types";
 
 type StatusFilter = "all" | ReadingStatus;
@@ -20,8 +19,8 @@ export function LibraryPage() {
     setLoading(true);
     setError("");
     try {
-      const rows = await fetchJson<BookRecord[]>("/books");
-      const mapped = (Array.isArray(rows) ? rows : []).map(recordToApiBook);
+      const rows = await fetchAllLibraryBooks();
+      const mapped = rows.map(recordToApiBook);
       setBooks(mapped);
     } catch (err) {
       setBooks([]);

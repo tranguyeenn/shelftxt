@@ -1,4 +1,14 @@
+import { fetchJson } from "@/lib/api";
 import type { ApiBook, ReadingStatus } from "@/lib/types";
+
+export type PaginatedBooksResponse = {
+  page: number;
+  limit: number;
+  total: number;
+  results: BookRecord[];
+};
+
+const LIBRARY_PAGE_LIMIT = 100;
 
 export type BookRecord = {
   Title?: string | null;
@@ -100,4 +110,25 @@ export function parseDate(value: string | null | undefined): Date | null {
 export function daysSince(date: Date): number {
   const ms = Date.now() - date.getTime();
   return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
+}
+
+/** Fetches all library pages (API max limit is 100 per request). */
+export async function fetchAllLibraryBooks(): Promise<BookRecord[]> {
+  const records: BookRecord[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const res = await fetchJson<PaginatedBooksResponse>(
+      `/books?page=${page}&limit=${LIBRARY_PAGE_LIMIT}`
+    );
+    if (!res || !Array.isArray(res.results)) {
+      throw new Error("Invalid library response");
+    }
+    records.push(...res.results);
+    total = res.total;
+    page += 1;
+  } while (records.length < total);
+
+  return records;
 }

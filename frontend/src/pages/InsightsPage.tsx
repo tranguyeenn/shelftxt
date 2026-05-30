@@ -10,7 +10,7 @@ import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
 import { statusLabel } from "@/lib/bookProgress";
-import type { BookRecord } from "@/lib/books";
+import { fetchAllLibraryBooks, type BookRecord } from "@/lib/books";
 import {
   RECOMMENDATION_SIGNALS,
   computeReadingPatterns,
@@ -47,10 +47,10 @@ export function InsightsPage() {
     setError("");
     try {
       const [books, recs] = await Promise.all([
-        fetchJson<BookRecord[]>("/books"),
+        fetchAllLibraryBooks(),
         fetchJson<RecommendationItem[]>(recommendQuery(settings))
       ]);
-      setLibrary(Array.isArray(books) ? books : []);
+      setLibrary(books);
       setRecommendations(Array.isArray(recs) ? recs : []);
     } catch (err) {
       setLibrary([]);

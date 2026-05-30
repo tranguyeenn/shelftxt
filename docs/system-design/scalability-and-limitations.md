@@ -87,7 +87,7 @@ Either would address durability, concurrency, and multi-user paths better than C
 
 ## Frontend scalability
 
-- Entire library loaded on key pages (`GET /books`) — fine for small shelves; pagination needed at scale
+- `GET /books` is paginated on the wire (`page`, `limit`, max 100), but `load_data()` still reads the full CSV per request — fine for small shelves; PostgreSQL paging needed at scale
 - Settings in `localStorage` — no cross-device sync
 
 ---

@@ -31,7 +31,7 @@ Layout: `AppShell` + `Sidebar` navigation.
 
 ### View library
 
-1. `GET /books`
+1. `GET /books` (paginated; UI uses `fetchAllLibraryBooks()` to load all pages at max `limit=100`)
 2. Map rows to `ApiBook` via `recordToApiBook()` (`lib/books.ts`)
 3. Filter by status: not started, reading, completed
 4. Cards show title, author, pages, progress, status badge

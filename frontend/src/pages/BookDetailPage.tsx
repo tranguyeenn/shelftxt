@@ -11,7 +11,7 @@ import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
 import { statusLabel } from "@/lib/bookProgress";
-import { recordToApiBook, type BookRecord } from "@/lib/books";
+import { fetchAllLibraryBooks, recordToApiBook, type BookRecord } from "@/lib/books";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
 export function BookDetailPage() {
@@ -29,10 +29,10 @@ export function BookDetailPage() {
     setError("");
     try {
       const [books, recs] = await Promise.all([
-        fetchJson<BookRecord[]>("/books"),
+        fetchAllLibraryBooks(),
         fetchJson<RecommendationItem[]>(recommendQuery(settings))
       ]);
-      const list = Array.isArray(books) ? books : [];
+      const list = books;
       setLibrary(list);
       const decoded = decodeURIComponent(id ?? "");
       const match = list.map(recordToApiBook).find((item) => item.id === decoded) ?? null;

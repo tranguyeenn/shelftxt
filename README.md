@@ -111,7 +111,7 @@ python -m pytest -q
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` / `HEAD` | `/health` | Health check |
-| `GET` | `/books` | List library |
+| `GET` | `/books` | List library (paginated: `?page=1&limit=20`) |
 | `POST` | `/books` | Add book (TBR) |
 | `PATCH` | `/books` | Update / move shelf |
 | `PATCH` | `/books/{id}/progress` | Update status and pages read |

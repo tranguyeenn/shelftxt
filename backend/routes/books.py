@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from backend.book_data import load_data
 from backend.schemas.books import (
     AddBook,
+    BooksPage,
     PatchBook,
     ImportBooks,
     BookProgressPatch,
@@ -28,11 +29,23 @@ def clean_for_json(df):
     return df.replace({np.nan: None})
 
 
-@router.get("/books")
-async def get_books():
+@router.get("/books", response_model=BooksPage)
+async def get_books(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+):
     df = load_data()
     df = clean_for_json(df)
-    return df.to_dict(orient="records")
+    total = len(df)
+    start = (page - 1) * limit
+    results = df.iloc[start : start + limit].to_dict(orient="records")
+
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "results": results,
+    }
 
 
 @router.get("/books/export")

@@ -31,13 +31,45 @@ Override production API: `VITE_API_BASE_URL` in frontend env.
 
 ---
 
-### Books — list
+### Books — list (paginated)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/books` | Full library as JSON array of CSV rows |
+| GET | `/books` | Paginated library (`?page=1&limit=20`) |
 
-NaN values → `null`.
+**Query parameters:**
+
+| Param | Default | Constraints |
+|-------|---------|-------------|
+| `page` | `1` | integer ≥ 1 |
+| `limit` | `20` | integer 1–100 |
+
+**Response:**
+
+```json
+{
+  "page": 1,
+  "limit": 20,
+  "total": 120,
+  "results": [
+    {
+      "Title": "Example",
+      "Authors": "Author",
+      "ISBN/UID": "…",
+      "Read Status": "to-read",
+      "Star Rating": null,
+      "Last Date Read": null,
+      "Progress (%)": 0,
+      "Pages Read": 0,
+      "Total Pages": null
+    }
+  ]
+}
+```
+
+Each object in `results` uses CSV column names. NaN values → `null`.
+
+**Notes:** Pagination reduces response payload size. The server still loads the full CSV via `load_data()` today; database-level paging is planned with PostgreSQL. Invalid `page` / `limit` (zero, negative, non-integer, `limit` > 100) return **422**.
 
 ---
 

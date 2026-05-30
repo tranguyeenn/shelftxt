@@ -68,7 +68,7 @@ ShelfTxt remains **pre-release**; order and scope will change.
 |------|-----------|
 | **PostgreSQL migration** | Durability, concurrency ([ROADMAP.md](../../ROADMAP.md)) |
 | Repository + service tests with real DB | Integration confidence |
-| Pagination on `GET /books` | Large libraries |
+| UI pagination on Library (server `GET /books` already paginated) | Large libraries |
 | Structured response schemas | OpenAPI completeness |
 | Optional Redis cache | Multi-instance recommend cache |
 

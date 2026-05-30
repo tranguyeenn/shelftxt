@@ -58,7 +58,7 @@ The API progress endpoint exposes UI statuses `not_started`, `reading`, and `com
 }
 ```
 
-`GET /books` returns raw CSV column names instead.
+`GET /books` returns paginated `{ page, limit, total, results }`; each row in `results` uses raw CSV column names.
 
 ---
 

@@ -22,11 +22,15 @@ Reference for HTTP behavior as implemented in `backend/routes/`. OpenAPI lives a
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/books` | List entire library as JSON array of CSV rows |
+| GET | `/books` | Paginated library list |
 
-**Output:** Array of objects with columns `Title`, `Authors`, `ISBN/UID`, `Read Status`, `Star Rating`, `Last Date Read`, `Progress (%)`, `Pages Read`, `Total Pages`. NaN → `null`.
+**Query:** `page` (default `1`, ≥ 1), `limit` (default `20`, 1–100).
 
-**Errors:** None specific; empty library returns `[]`.
+**Output:** `BooksPage` — `{ "page", "limit", "total", "results" }`. Each item in `results` uses CSV columns: `Title`, `Authors`, `ISBN/UID`, `Read Status`, `Star Rating`, `Last Date Read`, `Progress (%)`, `Pages Read`, `Total Pages`. NaN → `null`.
+
+**Errors:** Invalid query params → **422**. Empty library: `total: 0`, `results: []`.
+
+**Scalability note:** Slicing happens before serialization, so clients receive smaller payloads. `load_data()` still reads the entire CSV into memory on each request until storage moves to PostgreSQL with server-side paging.
 
 ---
 
@@ -214,6 +218,6 @@ Clearly marked as **not current**:
 - Server-persisted user settings (theme, recommendation style)
 - Auth and multi-tenant libraries
 - Webhook or async import for large files
-- Paginated `GET /books`
+- Cursor-based pagination for very large libraries
 
 Do not document these as available until routes exist in `backend/routes/`.
