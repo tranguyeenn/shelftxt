@@ -30,19 +30,19 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 **Status:** Accepted
 
-**Decision:** Production browser → Render via `apiUrl.ts`. Local dev → `/api/*` Next proxy.
+**Decision:** Production browser → Render via `apiUrl.ts`. Local dev → `/api/*` Vite proxy to `127.0.0.1:8000`.
 
 **Consequences:** (+) Reliable on Vercel (−) CORS required for `shelftxt.vercel.app`.
 
 ---
 
-## ADR-004: Title string as primary key
+## ADR-004: Book identity keys
 
-**Status:** Accepted
+**Status:** Accepted (evolving)
 
-**Decision:** API matches books by exact `Title`.
+**Decision:** `ISBN/UID` is the stable id for UI routes, progress updates, and delete-by-id. Legacy endpoints still match by exact `Title` for PATCH/DELETE.
 
-**Consequences:** (+) Matches CSV exports (−) Duplicate/renamed titles are fragile.
+**Consequences:** (+) Stable URLs after renames (−) Title-based endpoints remain fragile; import dedupes by title case-sensitively.
 
 ---
 
@@ -66,7 +66,7 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 - (+) Clear boundaries; routes stay thin where extracted
 - (+) `GET /recommend` isolated in `services/recommendation.py`
-- (−) Some shelf PATCH logic still in `routes/books.py` until moved to `services/books.py`
+- (−) Some shelf PATCH logic still in `services/books.py` — largely migrated from routes
 - (−) `api_draft.py` kept temporarily as legacy reference — **do not extend**
 
 ---
@@ -83,9 +83,9 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 **Status:** Accepted
 
-**Decision:** `get_recommendation()` uses `@lru_cache(maxsize=1)`. `POST /recommend/refresh` clears cache after shelf changes (optional ops endpoint).
+**Decision:** `get_recommendation()` uses `@lru_cache(maxsize=32)` keyed by style. `invalidate_recommendation_cache()` runs after book mutations in `services/books.py`.
 
-**Consequences:** (+) Fewer repeated scoring runs (−) Stale pick until refresh or process restart.
+**Consequences:** (+) Fewer repeated scoring runs (−) In-process cache only; not shared across Render instances.
 
 ---
 

@@ -14,7 +14,7 @@ Shelftxt is an open-source backend-driven recommendation system for organizing a
 
 ## Overview
 
-Shelftxt exposes a FastAPI service over a CSV-backed library (Postgres-ready layering). A Next.js UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
+Shelftxt exposes a FastAPI service over a CSV-backed library (Postgres-ready layering). A Vite + React UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
 
 The project is maintained in the open: architecture notes, ADRs, and [devlogs](docs/devlogs/) document how the backend evolves.
 
@@ -135,7 +135,7 @@ Engineering history: [DEVLOG.md](DEVLOG.md) · [docs/devlogs/](docs/devlogs/)
 
 ## Documentation
 
-Backend services and repository functions include docstrings documenting their purpose and return behavior. See `backend/services/`, `backend/repositories/`, `preprocess/`, and `backend/ranking/` for inline documentation.
+Backend services and repository functions include docstrings where helpful. See `backend/services/` and `backend/repository/` for inline notes.
 
 ---
 

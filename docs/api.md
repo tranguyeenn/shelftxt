@@ -1,243 +1,141 @@
 # API reference
 
+Endpoint design principles and categories: [system-design/api-design.md](system-design/api-design.md).
+
+OpenAPI (live): `{backend}/docs`
+
 ## Base URLs
 
-| Environment | Backend | Browser (UI) |
-|-------------|---------|--------------|
-| Local dev | `http://127.0.0.1:8000` | `http://localhost:3000` — calls `/api/*` proxy |
-| Production | `https://shelftxt.onrender.com` | `https://shelftxt.vercel.app` — calls backend directly |
+| Environment | Backend | Browser |
+|-------------|---------|---------|
+| Local | `http://127.0.0.1:8000` | `http://localhost:3000` via `/api/*` Vite proxy |
+| Production | `https://shelftxt.onrender.com` | `https://shelftxt.vercel.app` → Render direct |
 
-OpenAPI (Swagger): `{backend}/docs`
+Client helper: `frontend/src/lib/api.ts` (`apiUrl`, `fetchJson`).
 
-## Client vs proxy paths
-
-**Production:** Browser uses `frontend/lib/apiUrl.ts` → Render paths (`/books`, `/recommend`, …).
-
-**Local dev:** Browser uses `/api/books`, etc.; Next.js route handlers forward via `frontend/lib/backendUrl.ts`.
-
-| Client call (prod) | Backend path | Methods |
-|--------------------|----------------|---------|
-| `apiUrl("/books")` | `/books` | GET, POST, PATCH, DELETE |
-| `apiUrl("/books/{id}/progress")` | `/books/{book_id}/progress` | PATCH |
-| `apiUrl("/books/import")` | `/books/import` | POST |
-| `apiUrl("/recommend")` | `/recommend` | GET |
-
-Override with `NEXT_PUBLIC_API_BASE_URL` (prod) or `API_BASE_URL` (dev proxy).
+Override production API: `VITE_API_BASE_URL` in frontend env.
 
 ---
 
-## `GET` / `HEAD` `/health`
+## Endpoints
 
-**Response 200**
+### Health
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET, HEAD | `/health` | Liveness check |
 
 ```json
 { "status": "healthy", "service": "ShelfTxt" }
 ```
 
-Used by Render keep-warm scheduler (see [deployment.md](deployment.md)).
+---
+
+### Books — list
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/books` | Full library as JSON array of CSV rows |
+
+NaN values → `null`.
 
 ---
 
-## `GET` `/books`
+### Books — create / update (title key)
 
-Returns all rows from `books.csv`.
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/books` | Add TBR book |
+| PATCH | `/books` | Update metadata or shelf via `move_to` |
+| DELETE | `/books?title=` | Delete by exact title |
 
-**Response 200** — JSON array of objects; `NaN` → `null`.
+**POST body:** `{ "title", "author", "total_pages"? }` → `{ "message": "Book added" }`
 
-Example row:
+**PATCH body:** `{ "title" (required), "new_title"?, "author"?, "total_pages"?, "pages_read"?, "move_to"?, "rating"?, "date_read"? }`
 
-```json
-{
-  "Title": "Dune",
-  "Authors": "Frank Herbert",
-  "ISBN/UID": "1710000000.0",
-  "Read Status": "to-read",
-  "Star Rating": null,
-  "Last Date Read": null,
-  "Progress (%)": 0,
-  "Pages Read": 0,
-  "Total Pages": 688
-}
-```
+`move_to`: `want` | `reading` | `read` | `dnf`
 
 ---
 
-## `POST` `/books`
+### Books — progress (id key, UI primary)
 
-Add a book to the want-to-read shelf.
+| Method | Path | Description |
+|--------|------|-------------|
+| PATCH | `/books/{book_id}/progress` | Update status and pages |
+| DELETE | `/books/{book_id}` | Delete one book |
 
-**Body**
-
-```json
-{
-  "title": "string",
-  "author": "string",
-  "total_pages": 400
-}
-```
-
-`total_pages` is optional.
-
-**Response 200**
+**Progress body:**
 
 ```json
-{ "message": "Book added" }
+{ "status": "not_started | reading | completed", "pages_read": 120 }
 ```
 
-New rows: `Read Status` = `to-read`, `Progress (%)` = 0, `Pages Read` = 0, new `ISBN/UID` from timestamp.
-
----
-
-## `PATCH` `/books`
-
-Update metadata or move between shelves.
-
-**Body**
-
-```json
-{
-  "title": "Current Title",
-  "new_title": "Optional Rename",
-  "author": "Optional Author",
-  "total_pages": 500,
-  "pages_read": 120,
-  "move_to": "want | reading | read | dnf",
-  "rating": 4.5,
-  "date_read": "2024-06-01"
-}
-```
-
-Only `title` is required. Unset fields are left unchanged.
-
-**Errors**
-
-| Status | Condition |
-|--------|-----------|
-| 404 | Title not found |
-| 400 | Rename collision; reading without total pages; read without rating 1–5 |
-
-**Response 200**
-
-```json
-{ "message": "Book updated" }
-```
-
----
-
-## `DELETE` `/books`
-
-**Query:** `title` (required, min length 1)
-
-**Response 200**
-
-```json
-{ "message": "Book deleted" }
-```
-
-**404** if title not found.
-
----
-
-## `PATCH` `/books/{book_id}/progress`
-
-Update reading status and pages read. `book_id` is the `ISBN/UID` value.
-
-**Body**
-
-```json
-{
-  "status": "not_started | reading | completed",
-  "pages_read": 120
-}
-```
-
-**Response 200**
+**Progress response:**
 
 ```json
 {
   "book": {
-    "id": "1700000000.0",
-    "title": "Dune",
-    "author": "Frank Herbert",
-    "status": "reading",
-    "total_pages": 500,
-    "pages_read": 120,
-    "progress_pct": 24.0
+    "id", "title", "author", "status",
+    "total_pages", "pages_read", "progress_pct", "rating", "read_status"
   }
 }
 ```
 
-**Validation**
-
-- `pages_read >= 0`
-- `pages_read <= total_pages` when total pages is set
-- `completed` requires `pages_read == total_pages`
-- If `pages_read == total_pages` while status is `reading`, status becomes `completed` automatically
+`book_id` = `ISBN/UID`.
 
 ---
 
-## `POST` `/books/import`
+### Import / export / clear
 
-Bulk import from UI CSV tab (not the flexible Python pipeline).
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/books/import` | Bulk add from JSON |
+| GET | `/books/export` | Download `shelftxt-library.csv` |
+| POST | `/books/clear` | Remove all books |
 
-**Body**
+**Import body:** `{ "books": [{ "title", "author"?, "total_pages"? }] }`  
+**Import response:** `{ "imported", "skipped" }`
+
+**Clear body:** `{ "confirm": true }` (required)  
+**Clear response:** `{ "message", "deleted" }`
+
+---
+
+### Recommendations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/recommend?style=` | Top 10 TBR picks |
+
+**Query `style`:** `balanced` (default), `popular`, `discovery`
+
+**Response:** array of:
 
 ```json
 {
-  "books": [
-    { "title": "Snow Crash", "author": "Neal Stephenson", "total_pages": 480 },
-    { "title": "Duplicate", "author": "Someone" }
-  ]
+  "book": { "id", "title", "author" },
+  "score": 0.82,
+  "explanation": "...",
+  "similar_books": [{ "id", "title", "author" }]
 }
 ```
 
-**Response 200**
-
-```json
-{ "imported": 1, "skipped": 1 }
-```
-
-Skipped when title is empty or already exists (case-sensitive title match on stored `Title`).
+Empty TBR → `[]`. Cache invalidated automatically when books change.
 
 ---
 
-## `GET` `/recommend`
+## Errors
 
-Returns up to **10** ranked TBR recommendations with explanations and similar finished books.
-
-**Response 200**
-
-- Empty TBR: `[]`
-- Otherwise: array of recommendation objects
-
-```json
-[
-  {
-    "book": { "id": "1", "title": "Snow Crash", "author": "Neal Stephenson" },
-    "score": 0.82,
-    "explanation": "Recommended because you have finished 2 book(s) by Neal Stephenson…",
-    "similar_books": [
-      { "id": "2", "title": "Cryptonomicon", "author": "Neal Stephenson" }
-    ]
-  }
-]
-```
-
-See [ranking.md](ranking.md) for scoring details.
-
-Recommendation cache is cleared automatically when books are added, updated, deleted, or imported.
+| Code | Meaning |
+|------|---------|
+| 400 | Business rule violation (`detail` string) |
+| 404 | Book not found |
+| 422 | Invalid request body (Pydantic) |
 
 ---
 
-## Schema reference (Pydantic)
+## Pydantic models
 
-**Handlers:** `backend/routes/` · **Models:** `backend/schemas/books.py` · **App:** `backend/api.py`
+Defined in `backend/schemas/books.py`: `AddBook`, `PatchBook`, `ImportBooks`, `BookProgressPatch`, `ClearLibraryRequest`.
 
-`backend/api_draft.py` is legacy — not loaded by `uvicorn backend.api:app`.
-
-| Model | Used by |
-|-------|---------|
-| `AddBook` | POST `/books` |
-| `PatchBook` | PATCH `/books` |
-| `BookProgressPatch` | PATCH `/books/{book_id}/progress` |
-| `ImportBooks` / `ImportRow` | POST `/books/import` |
+Legacy monolith `backend/api_draft.py` is **not** loaded by production app.

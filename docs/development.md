@@ -92,8 +92,7 @@ First API/CLI access creates empty `books.csv` with correct headers.
 
 | Variable | File | Purpose |
 |----------|------|---------|
-| `API_BASE_URL` | `frontend/.env.local` | Next.js server proxy target (dev) |
-| `NEXT_PUBLIC_API_BASE_URL` | `frontend/.env.local` | Optional; forces client URL in dev builds |
+| `VITE_API_BASE_URL` | `frontend/.env.local` | Optional; override API host in dev or prod builds |
 
 Full reference: [deployment.md#environment-variable-reference](deployment.md#environment-variable-reference).
 

@@ -96,9 +96,7 @@ First request after idle may wait 30–60s (Render cold start).
 | Variable | Where set | Consumed by | Purpose |
 |----------|-----------|-------------|---------|
 | `PORT` | Render (injected) | uvicorn | Listen port |
-| `NEXT_PUBLIC_API_BASE_URL` | Vercel | `frontend/lib/apiUrl.ts` | Production browser → API |
-| `API_BASE_URL` | Vercel / `.env.local` | `frontend/lib/backendUrl.ts` | Next.js server proxy (dev) |
-| `NODE_ENV` | Build/runtime | Next.js | Dev vs production defaults |
+| `VITE_API_BASE_URL` | Vercel / `.env.local` | `frontend/src/lib/api.ts` | Production or custom API base URL |
 
 ---
 

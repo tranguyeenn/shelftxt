@@ -1,71 +1,76 @@
-# Shelftxt — Technical documentation
+# ShelfTxt documentation
 
-Developer reference for architecture, APIs, deployment, and operations.
+Developer reference for architecture, APIs, local development, and deployment.
 
-## Production
-
-| Service | URL |
-|---------|-----|
-| Frontend | https://shelftxt.vercel.app |
-| Backend API | https://shelftxt.onrender.com |
-| OpenAPI | https://shelftxt.onrender.com/docs |
+**Production:** [shelftxt.vercel.app](https://shelftxt.vercel.app) · **API:** [shelftxt.onrender.com](https://shelftxt.onrender.com) · **OpenAPI:** [/docs](https://shelftxt.onrender.com/docs)
 
 ---
 
-## Core docs
+## Start here
 
-| Doc | Description |
-|-----|-------------|
-| [system-design/README.md](system-design/README.md) | **Multi-page system design** — architecture, backend, data model, recommendations, API/frontend, scalability, roadmap |
-| [architecture.md](architecture.md) | System layout, layers, production topology, repo structure |
-| [system-design.md](system%20design/system-design.md) | End-to-end design: goals, components, flows, scaling strategy |
-| [system-design-1page.md](system%20design/system-design-1page.md) | 1-page interview-style system design summary |
-| [system-design-rfc.md](system%20design/system-design-rfc.md) | RFC-style deep design for engineering collaboration |
-| [deployment.md](deployment.md) | Render + Vercel runbook, env vars, verification |
-| [decisions.md](decisions.md) | Architecture decision records (ADRs) |
-| [development.md](development.md) | Local setup, tests, CLI |
-| [contributing.md](contributing.md) | Workflow detail — PR checklist, commit style |
-| [opensource.md](opensource.md) | Why the project is open source, devlogs, transparency |
-| [troubleshooting.md](troubleshooting.md) | Common errors and fixes |
-
-## Engineering notes
-
-| Doc | Description |
-|-----|-------------|
-| [../DEVLOG.md](../DEVLOG.md) | Devlog index — timeline and refactors |
-| [devlogs/](devlogs/) | Dated entries + [template](devlogs/README.md) |
-| [architecture/system-overview.md](architecture/system-overview.md) | Folder responsibilities (`backend/`, `services/`, …) |
-| [screenshots/](screenshots/) | Optional visuals for devlogs |
-
-## Domain docs
-
-| Doc | Description |
-|-----|-------------|
-| [data-model.md](data-model.md) | App CSV schema, canonical fields, shelf mapping |
-| [api.md](api.md) | FastAPI REST reference |
-| [ranking.md](ranking.md) | Scoring formulas and recommendation behavior |
-| [pipeline.md](pipeline.md) | Flexible CSV ingest, mapping config, validation |
-| [frontend.md](frontend.md) | Vite + React app structure and UI behavior |
+| If you want to… | Read |
+|-----------------|------|
+| Understand the full system | [system-design/README.md](system-design/README.md) |
+| Clone and run locally | [development.md](development.md) |
+| Call or extend the API | [api.md](api.md) |
+| Change recommendation scoring | [ranking.md](ranking.md) → [system-design/recommendation-system.md](system-design/recommendation-system.md) |
+| Deploy or fix production | [deployment.md](deployment.md) → [troubleshooting.md](troubleshooting.md) |
+| Contribute a change | [contributing.md](contributing.md) |
 
 ---
 
-## Quick links
+## System design (in-depth)
 
-- Local API docs: http://127.0.0.1:8000/docs
-- Mapping template: [`backend/ingest/mapping.example.json`](../backend/ingest/mapping.example.json)
-- Persistence: [`backend/book_data.py`](../backend/book_data.py) · [`backend/repository/books_repository.py`](../backend/repository/books_repository.py)
+Multi-page technical design for contributors:
+
+| Document | Topic |
+|----------|--------|
+| [system-design/README.md](system-design/README.md) | Index and overview |
+| [architecture-overview.md](system-design/architecture-overview.md) | Components, diagrams, boundaries |
+| [backend-design.md](system-design/backend-design.md) | Routes, services, flows |
+| [data-model.md](system-design/data-model.md) | CSV fields, validation, future columns |
+| [recommendation-system.md](system-design/recommendation-system.md) | Scoring, explanations, limits |
+| [api-design.md](system-design/api-design.md) | Endpoint categories and principles |
+| [frontend-design.md](system-design/frontend-design.md) | UI routes and reader-focused flows |
+| [import-export-flow.md](system-design/import-export-flow.md) | CSV import/export |
+| [scalability-and-limitations.md](system-design/scalability-and-limitations.md) | CSV limits, Render, migration |
+| [future-roadmap.md](system-design/future-roadmap.md) | Planned reader and engineering work |
+
+---
+
+## Quick reference
+
+| Doc | Purpose |
+|-----|---------|
+| [architecture.md](architecture.md) | Short architecture summary + links |
+| [architecture/system-overview.md](architecture/system-overview.md) | Folder map and layer rules |
+| [data-model.md](data-model.md) | CSV column cheat sheet |
+| [api.md](api.md) | REST endpoint reference |
+| [ranking.md](ranking.md) | Scoring formulas |
+| [frontend.md](frontend.md) | Vite + React app |
+| [pipeline.md](pipeline.md) | Offline batch CSV ingest |
+| [decisions.md](decisions.md) | Architecture decision records |
+
+---
+
+## Operations & process
+
+| Doc | Purpose |
+|-----|---------|
+| [deployment.md](deployment.md) | Render + Vercel |
+| [development.md](development.md) | Local setup, tests, env vars |
+| [troubleshooting.md](troubleshooting.md) | Common failures |
+| [contributing.md](contributing.md) | PR workflow |
+| [opensource.md](opensource.md) | Project ethos |
+| [../DEVLOG.md](../DEVLOG.md) | Engineering timeline |
+| [devlogs/](devlogs/) | Dated refactor notes |
+
+---
+
+## Code pointers
+
+- Persistence: [`backend/book_data.py`](../backend/book_data.py)
 - Routes: [`backend/routes/`](../backend/routes/)
-- Render Blueprint: [`render.yaml`](../render.yaml)
-
----
-
-## Doc map (what to read when)
-
-| Task | Start here |
-|------|------------|
-| First time cloning | [development.md](development.md) |
-| Deploy or fix prod | [deployment.md](deployment.md) → [troubleshooting.md](troubleshooting.md) |
-| Add an API endpoint | [system-design/backend-design.md](system-design/backend-design.md) → [contributing.md](contributing.md) → [api.md](api.md) |
-| Change scoring | [system-design/recommendation-system.md](system-design/recommendation-system.md) → [ranking.md](ranking.md) |
-| Import / batch CSV | [pipeline.md](pipeline.md) |
-| Understand a past refactor | [../DEVLOG.md](../DEVLOG.md) → [devlogs/](devlogs/) |
+- Services: [`backend/services/`](../backend/services/)
+- Frontend API client: [`frontend/src/lib/api.ts`](../frontend/src/lib/api.ts)
+- Mapping template: [`backend/ingest/mapping.example.json`](../backend/ingest/mapping.example.json)

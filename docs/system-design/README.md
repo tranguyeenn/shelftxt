@@ -31,7 +31,7 @@ These docs live outside `system-design/` but complement it:
 - [API reference](../api.md) — endpoint-level detail and examples
 - [Ranking](../ranking.md) — scoring formulas for TBR and read books
 - [Architecture](../architecture.md) — monorepo layout and production topology
-- [Data model (legacy path)](../data-model.md) — older single-page reference (prefer `system-design/data-model.md` for system design context)
+- [Data model (quick reference)](../data-model.md) — CSV column cheat sheet
 - [Deployment](../deployment.md) — Render + Vercel
 - [ROADMAP.md](../../ROADMAP.md) — high-level engineering directions
 

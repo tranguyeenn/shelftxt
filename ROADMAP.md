@@ -10,7 +10,7 @@ Engineering directions for shelftxt — not fixed release dates. See [DEVLOG.md]
 - Recommendation scoring (`preprocess/` + `ranking/`)
 - CSV storage with repository-style facade
 - Open-source docs (CONTRIBUTING, templates, CI tests)
-- Next.js UI and batch ingest pipeline
+- Vite + React UI and batch ingest pipeline
 
 ---
 
