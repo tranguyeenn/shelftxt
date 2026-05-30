@@ -40,7 +40,7 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 | **API** | Python, FastAPI, uvicorn, pandas |
 | **Ranking** | Custom scoring in `backend/ranking/`, features in `backend/preprocess/` |
 | **Persistence** | CSV today (`backend/book_data.py` + `backend/repository/`) |
-| **UI** | Next.js 16, React, TypeScript |
+| **UI** | Vite, React, TypeScript |
 | **Deploy** | Render (API), Vercel (frontend) |
 
 ---
@@ -61,7 +61,7 @@ HTTP → routes/ → services/ → repository/ → book_data.py → books.csv
 | `schemas/` | Pydantic request/response models |
 | `ingest/` | Offline CSV pipeline (not live UI import) |
 
-Deeper docs: [system overview](docs/architecture/system-overview.md) · [architecture.md](docs/architecture.md) · [decisions.md](docs/decisions.md)
+Deeper docs: [system design](./docs/system-design/README.md) · [system overview](./docs/architecture/system-overview.md) · [architecture.md](./docs/architecture.md) · [decisions.md](./docs/decisions.md)
 
 ---
 
@@ -115,11 +115,13 @@ python -m pytest -q
 | `POST` | `/books` | Add book (TBR) |
 | `PATCH` | `/books` | Update / move shelf |
 | `PATCH` | `/books/{id}/progress` | Update status and pages read |
-| `DELETE` | `/books?title=` | Delete by title |
+| `GET` | `/books/export` | Download library CSV |
+| `POST` | `/books/clear` | Clear entire library |
 | `POST` | `/books/import` | Bulk import |
-| `GET` | `/recommend` | Next-book suggestion |
+| `DELETE` | `/books/{id}` | Delete by book id |
+| `GET` | `/recommend?style=` | Top 10 TBR suggestions |
 
-Full reference: [docs/api.md](docs/api.md)
+Full reference: [docs/api.md](docs/api.md) · [System design](docs/system-design/README.md)
 
 ---
 
@@ -151,4 +153,4 @@ Use GitHub templates under `.github/` for bugs and pull requests.
 
 MIT — see [LICENSE](LICENSE).
 
-Additional docs: [docs/README.md](docs/README.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
+Additional docs: [docs/README.md](docs/README.md) · [System design](docs/system-design/README.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
