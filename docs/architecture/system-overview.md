@@ -57,10 +57,10 @@ Always import with the `backend.` package prefix from repo root.
 | File | Paths |
 |------|-------|
 | `health.py` | `/health` |
-| `books.py` | `/books`, `/books/export`, `/books/import`, `/books/clear`, `/books/{id}/progress`, `/books/{id}` |
+| `books.py` | `GET /books?page&limit` (paginated), `/books/export`, `/books/import`, `/books/clear`, `/books/{id}/progress`, `/books/{id}` |
 | `recommendation.py` | `/recommend` |
 
-Most shelf logic lives in `services/books.py`. `GET /books` still calls `load_data()` directly in the route (minor inconsistency).
+Most shelf logic lives in `services/books.py`. `GET /books` paginates in the route after `load_data()` (full CSV read until Postgres).
 
 ---
 
@@ -87,7 +87,7 @@ Deployed as a static SPA on Vercel (`frontend/dist/`). Details: [frontend.md](..
 
 | File | Covers |
 |------|--------|
-| `test_api.py` | HTTP via `TestClient`; mock services/repository |
+| `test_api.py` | HTTP via `TestClient`; `GET /books` pagination + mock services/repository |
 | `test_recommendation_builder.py` | Structured recommendation output |
 | `test_flexible_pipeline.py` | Batch ingest + ranking |
 
@@ -113,6 +113,6 @@ Patch names **where they are used** in the module under test.
 | Area | Status |
 |------|--------|
 | Layered routes + services | Mostly done |
-| `GET /books` via repository | Minor gap |
+| `GET /books` via repository; server-side CSV paging | Minor gap |
 | Remove `api_draft.py` | Pending |
 | Postgres migration | Planned — [ROADMAP.md](../../ROADMAP.md) |

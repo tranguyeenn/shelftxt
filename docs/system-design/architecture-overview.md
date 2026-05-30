@@ -69,10 +69,10 @@ sequenceDiagram
   participant Repo as repository/
   participant CSV as books.csv
 
-  Browser->>API: GET /books
+  Browser->>API: GET /books?page=&limit=
   API->>CSV: load_data() via book_data
   CSV-->>API: DataFrame
-  API-->>Browser: JSON array of book rows
+  API-->>Browser: { page, limit, total, results }
 ```
 
 ## Request / response flow (recommendation)
@@ -146,7 +146,7 @@ flowchart TB
 
 ### Known boundary gaps (current)
 
-- `GET /books` loads CSV directly in the route via `load_data()` rather than `get_all_books()` — functionally equivalent but slightly inconsistent with the repository pattern used elsewhere.
+- `GET /books` loads the full CSV via `load_data()` in the route, then slices for `page`/`limit` — wire-level pagination only until PostgreSQL; repository use remains a minor inconsistency.
 - `backend/api_draft.py` exists as legacy reference; **not** mounted by `uvicorn backend.api:app`.
 - Title remains a lookup key for `PATCH /books` and `DELETE /books?title=`; book id (`ISBN/UID`) is preferred for progress and delete-by-id from the UI.
 

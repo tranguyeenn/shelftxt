@@ -36,6 +36,12 @@ Implementation: `recordToApiBook()` in `frontend/src/lib/books.ts`.
 
 ---
 
+## API list (`GET /books`)
+
+Paginated response: `{ page, limit, total, results }`. Defaults: `page=1`, `limit=20` (max `100`). Each item in `results` uses the CSV column names above. See [api.md](api.md).
+
+---
+
 ## Primary keys (today)
 
 | Operation | Key |

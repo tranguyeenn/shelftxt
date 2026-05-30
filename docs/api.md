@@ -11,7 +11,7 @@ OpenAPI (live): `{backend}/docs`
 | Local | `http://127.0.0.1:8000` | `http://localhost:3000` via `/api/*` Vite proxy |
 | Production | `https://shelftxt.onrender.com` | `https://shelftxt.vercel.app` → Render direct |
 
-Client helper: `frontend/src/lib/api.ts` (`apiUrl`, `fetchJson`).
+Client helpers: `frontend/src/lib/api.ts` (`apiUrl`, `fetchJson`); `frontend/src/lib/books.ts` (`fetchAllLibraryBooks` for multi-page library loads).
 
 Override production API: `VITE_API_BASE_URL` in frontend env.
 

@@ -40,7 +40,7 @@ Recommendations pass `?style=` from user settings (`src/lib/userSettings.ts`).
 
 | Path | Role |
 |------|------|
-| `src/lib/books.ts` | CSV row → `ApiBook`, shelf derivation |
+| `src/lib/books.ts` | CSV row → `ApiBook`, `fetchAllLibraryBooks()` (paginated GET /books) |
 | `src/lib/bookProgress.ts` | Progress validation + PATCH helper |
 | `src/lib/libraryExport.ts` | Export download, clear library, delete book |
 | `src/lib/insights.ts` | Insights page aggregations |

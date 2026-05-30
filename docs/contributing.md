@@ -68,7 +68,7 @@ Full layer rules: [architecture/system-overview.md#backend-layer-rules](architec
 
 | If you changed… | Update… |
 |-----------------|---------|
-| API request/response or paths | [api.md](api.md) |
+| API request/response or paths | [api.md](api.md), [system-design/api-design.md](system-design/api-design.md) |
 | Deploy / env vars | [deployment.md](deployment.md) |
 | Folder responsibilities | [architecture/system-overview.md](architecture/system-overview.md) |
 | Non-obvious trade-off | [decisions.md](decisions.md) or a new [devlog](devlogs/) entry |

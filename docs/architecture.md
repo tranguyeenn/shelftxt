@@ -73,7 +73,7 @@ UI import uses `POST /books/import` (JSON)—not the batch pipeline. See [pipeli
 | Router | Paths |
 |--------|-------|
 | `health.py` | `GET|HEAD /health` |
-| `books.py` | `GET|POST|PATCH|DELETE /books`, `GET /books/export`, `POST /books/import`, `POST /books/clear`, `PATCH /books/{id}/progress`, `DELETE /books/{id}` |
+| `books.py` | `GET /books?page&limit` (paginated), `POST|PATCH|DELETE /books`, `GET /books/export`, `POST /books/import`, `POST /books/clear`, `PATCH /books/{id}/progress`, `DELETE /books/{id}` |
 | `recommendation.py` | `GET /recommend?style=` |
 
 Full API reference: [api.md](api.md).

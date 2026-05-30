@@ -11,7 +11,7 @@ backend/
 │   ├── books.py           # /books, import, export, clear, progress, delete by id
 │   └── recommendation.py  # GET /recommend
 ├── schemas/
-│   └── books.py           # Pydantic models for request bodies
+│   └── books.py           # Pydantic request bodies + BooksPage (GET /books)
 ├── services/
 │   ├── books.py           # Shelf CRUD, import/export/clear, progress updates
 │   ├── book_api.py        # Row → API book dict, find by ISBN/UID
@@ -33,7 +33,7 @@ backend/
 ### API routes (`backend/routes/`)
 
 - Map HTTP verbs and paths to service functions
-- Serialize responses (JSON arrays, CSV download, `NaN` → `null` for JSON)
+- Serialize responses (paginated JSON, recommendation arrays, CSV download, `NaN` → `null` for JSON)
 - Stay thin: no shelf state machines, no scoring formulas
 
 **Example:** `PATCH /books/{book_id}/progress` validates body via Pydantic, calls `update_book_progress_by_id`.

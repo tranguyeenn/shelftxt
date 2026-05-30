@@ -89,6 +89,18 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 ---
 
+## ADR-008: Paginated `GET /books`
+
+**Status:** Accepted
+
+**Context:** Large libraries inflate response size; PostgreSQL migration is planned.
+
+**Decision:** `GET /books` returns `{ page, limit, total, results }` with query params `page` (≥ 1) and `limit` (1–100, default 20). Frontend loads the full shelf via `fetchAllLibraryBooks()` until the Library UI paginates client-side.
+
+**Consequences:** (+) Smaller payloads per request (+) Prepares API shape for DB paging (−) Breaking change vs. top-level array (−) Server still reads full CSV via `load_data()` until Postgres.
+
+---
+
 ## When to add a new ADR
 
 Persistence change, auth, new deploy target, or a trade-off future you will question.
