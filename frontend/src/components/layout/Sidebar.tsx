@@ -1,10 +1,12 @@
 import { NavLink } from "react-router-dom";
 
+import { isReadOnlyDemo } from "@/lib/demoMode";
+
 const navItems = [
   { to: "/", label: "Dashboard", icon: DashboardIcon },
   { to: "/library", label: "Library", icon: LibraryIcon },
   { to: "/ranking", label: "Recommendations", icon: RankingIcon },
-  { to: "/add", label: "Add Book", icon: AddIcon },
+  { to: "/add", label: "Add Book", icon: AddIcon, hideInDemo: true },
   { to: "/insights", label: "Insights", icon: InsightsIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon }
 ] as const;
@@ -30,7 +32,9 @@ export function Sidebar() {
         className="flex flex-1 flex-row gap-1 overflow-x-auto p-1 md:flex-col md:overflow-visible md:p-3"
         aria-label="Main"
       >
-        {navItems.map(({ to, label, icon: Icon }) => (
+        {navItems
+          .filter((item) => !(isReadOnlyDemo && "hideInDemo" in item && item.hideInDemo))
+          .map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} end={to === "/"} className={linkClass}>
             <Icon className="h-4 w-4 shrink-0 opacity-80" />
             {label}

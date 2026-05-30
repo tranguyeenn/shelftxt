@@ -1,3 +1,5 @@
+import { assertDemoWritable, resolveApiBase } from "@/lib/demoMode";
+
 /**
  * Browser fetch target for the FastAPI backend.
  *
@@ -6,17 +8,21 @@
  */
 export function apiUrl(path: string): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  const publicBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "");
-  if (publicBase) {
-    return `${publicBase}${normalized}`;
-  }
-  if (import.meta.env.PROD) {
-    return `https://shelftxt.onrender.com${normalized}`;
+  const base = resolveApiBase();
+  if (base) {
+    return `${base}${normalized}`;
   }
   return `/api${normalized}`;
 }
 
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (MUTATING_METHODS.has(method)) {
+    assertDemoWritable();
+  }
+
   const response = await fetch(apiUrl(path), { cache: "no-store", ...init });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;

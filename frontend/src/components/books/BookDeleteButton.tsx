@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { deleteBook } from "@/lib/libraryExport";
+import { isReadOnlyDemo } from "@/lib/demoMode";
 
 type BookDeleteButtonProps = {
   bookId: string;
@@ -18,6 +19,10 @@ export function BookDeleteButton({
 }: BookDeleteButtonProps) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+
+  if (isReadOnlyDemo) {
+    return null;
+  }
 
   async function handleDelete() {
     const confirmed = window.confirm(

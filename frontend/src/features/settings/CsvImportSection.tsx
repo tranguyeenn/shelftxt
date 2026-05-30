@@ -3,6 +3,7 @@ import Papa from "papaparse";
 
 import { Button } from "@/components/ui/Button";
 import { fetchJson } from "@/lib/api";
+import { demoReadOnlyMessage, isReadOnlyDemo } from "@/lib/demoMode";
 
 type ImportRow = {
   title: string;
@@ -88,6 +89,11 @@ export function CsvImportSection() {
 
   return (
     <div className="grid gap-4">
+      {isReadOnlyDemo ? (
+        <p className="rounded-lg border border-score-recency/30 bg-score-recency/10 px-3 py-2 text-sm text-text-muted">
+          {demoReadOnlyMessage()}
+        </p>
+      ) : null}
       <div>
         <h3 className="text-sm font-medium text-text">CSV import</h3>
         <p className="mt-1 text-sm text-text-muted">
@@ -100,8 +106,9 @@ export function CsvImportSection() {
       <input
         type="file"
         accept=".csv,text/csv"
+        disabled={isReadOnlyDemo}
         onChange={(e) => void onCsvSelected(e.target.files?.[0] ?? null)}
-        className="block w-full cursor-pointer rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text file:mr-3 file:rounded-md file:border-0 file:bg-accent-muted file:px-3 file:py-1 file:text-accent"
+        className="block w-full cursor-pointer rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text file:mr-3 file:rounded-md file:border-0 file:bg-accent-muted file:px-3 file:py-1 file:text-accent disabled:cursor-not-allowed disabled:opacity-50"
       />
 
       {fileName ? <p className="text-xs text-text-dim">Selected: {fileName}</p> : null}
@@ -137,11 +144,13 @@ export function CsvImportSection() {
         </p>
       ) : null}
 
-      <div>
-        <Button variant="primary" onClick={() => void importRows()} disabled={loading}>
-          {loading ? "Importing…" : "Import books"}
-        </Button>
-      </div>
+      {!isReadOnlyDemo ? (
+        <div>
+          <Button variant="primary" onClick={() => void importRows()} disabled={loading}>
+            {loading ? "Importing…" : "Import books"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

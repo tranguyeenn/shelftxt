@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { clearLibrary, downloadLibraryCsv } from "@/lib/libraryExport";
+import { isReadOnlyDemo } from "@/lib/demoMode";
 
 type LibraryActionsProps = {
   onCleared?: () => void;
@@ -53,9 +54,11 @@ export function LibraryActions({ onCleared }: LibraryActionsProps) {
         <Button variant="secondary" onClick={() => void handleExport()} disabled={exporting}>
           {exporting ? "Exporting…" : "Export library"}
         </Button>
-        <Button variant="danger" onClick={() => void handleClear()} disabled={clearing}>
-          {clearing ? "Clearing…" : "Clear library"}
-        </Button>
+        {!isReadOnlyDemo ? (
+          <Button variant="danger" onClick={() => void handleClear()} disabled={clearing}>
+            {clearing ? "Clearing…" : "Clear library"}
+          </Button>
+        ) : null}
       </div>
 
       {message ? (

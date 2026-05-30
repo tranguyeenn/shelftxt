@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { fetchAllLibraryBooks, recordToApiBook } from "@/lib/books";
+import { isReadOnlyDemo } from "@/lib/demoMode";
 import type { ApiBook, ReadingStatus } from "@/lib/types";
 
 type StatusFilter = "all" | ReadingStatus;
@@ -51,7 +52,11 @@ export function LibraryPage() {
     <div className="grid gap-6">
       <PageHeader
         title="Library"
-        subtitle="View and edit reading status and progress for every book."
+        subtitle={
+          isReadOnlyDemo
+            ? "Browse books and reading progress (read-only demo)."
+            : "View and edit reading status and progress for every book."
+        }
         actions={
           <Button variant="secondary" onClick={() => void load()} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}

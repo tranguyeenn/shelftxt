@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { patchBookProgress, statusLabel, validatePagesRead } from "@/lib/bookProgress";
+import { isReadOnlyDemo } from "@/lib/demoMode";
 import type { ApiBook, ReadingStatus } from "@/lib/types";
 
 type BookProgressEditorProps = {
@@ -27,6 +28,26 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
   const pagesValue = Number.isFinite(parsedPages) ? parsedPages : 0;
 
   const validation = validatePagesRead(pagesValue, totalPages, status);
+
+  if (isReadOnlyDemo) {
+    return (
+      <div className={compact ? "grid gap-2 text-sm text-text-muted" : "grid gap-2 rounded-lg border border-border-subtle bg-bg-elevated p-4 text-sm text-text-muted"}>
+        <p>
+          <span className="text-text-dim">Status:</span> {statusLabel(book.status)}
+        </p>
+        <p>
+          Progress:{" "}
+          <span className="font-mono text-text">{book.progress_pct.toFixed(0)}%</span>
+          {totalPages !== null ? (
+            <>
+              {" "}
+              · {book.pages_read} / {totalPages} pages
+            </>
+          ) : null}
+        </p>
+      </div>
+    );
+  }
 
   async function handleSave() {
     if (!validation.valid) {

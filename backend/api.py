@@ -3,7 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import httpx
+from starlette.responses import JSONResponse
 
+from backend.demo_mode import is_demo_read_only
 from backend.routes.books import router as books_router
 from backend.routes.health import router as health_router
 from backend.routes.recommendation import router as recommendations_router
@@ -69,6 +71,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def demo_read_only_guard(request, call_next):
+    if is_demo_read_only() and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This API is in read-only demo mode."},
+        )
+    return await call_next(request)
 
 
 # -----------------------------

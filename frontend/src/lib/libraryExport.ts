@@ -1,4 +1,5 @@
 import { apiUrl, fetchJson } from "@/lib/api";
+import { assertDemoWritable } from "@/lib/demoMode";
 
 export async function downloadLibraryCsv(): Promise<void> {
   const response = await fetch(apiUrl("/books/export"), { cache: "no-store" });
@@ -25,11 +26,13 @@ export async function downloadLibraryCsv(): Promise<void> {
 }
 
 export async function deleteBook(bookId: string): Promise<{ message: string }> {
+  assertDemoWritable();
   const encodedId = encodeURIComponent(bookId);
   return fetchJson<{ message: string }>(`/books/${encodedId}`, { method: "DELETE" });
 }
 
 export async function clearLibrary(): Promise<{ message: string; deleted: number }> {
+  assertDemoWritable();
   const response = await fetch(apiUrl("/books/clear"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
