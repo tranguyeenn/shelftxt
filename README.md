@@ -153,4 +153,4 @@ Use GitHub templates under `.github/` for bugs and pull requests.
 
 MIT — see [LICENSE](LICENSE).
 
-Additional docs: [docs/README.md](docs/README.md) · [System design](docs/system-design/README.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
+Additional docs: [docs/README.md](docs/README.md) · [System design](docs/system-design/README.md) · [User research](docs/user-research/README.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)

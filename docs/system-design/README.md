@@ -33,6 +33,7 @@ These docs live outside `system-design/` but complement it:
 - [Architecture](../architecture.md) — monorepo layout and production topology
 - [Data model (quick reference)](../data-model.md) — CSV column cheat sheet
 - [Deployment](../deployment.md) — Render + Vercel
+- [User research](../user-research/README.md) — reader feedback, archetypes, assumptions
 - [ROADMAP.md](../../ROADMAP.md) — high-level engineering directions
 
 ---
