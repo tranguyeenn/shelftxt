@@ -33,7 +33,7 @@ def validate_uploaded_csv(csv_path: str | Path, mapping_config: dict[str, Any] |
 
     try:
         preview_df = pd.read_csv(path, nrows=100)
-    except Exception as exc:
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError) as exc:
         report["status"] = "reject"
         report["errors"].append(f"Failed to parse CSV: {exc}")
         return report

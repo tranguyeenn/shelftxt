@@ -23,7 +23,7 @@ async def self_ping():
                 "https://shelftxt.onrender.com/health",
                 timeout=5.0
             )
-        except Exception as e:
+        except httpx.RequestError as e:
             print(f"Self ping failed: {e}")
 
 
