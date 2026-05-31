@@ -12,12 +12,14 @@ This file is the **index**. Detailed entries live in [`docs/devlogs/`](docs/devl
 
 | Date | Title | Summary |
 |------|-------|---------|
+| 2026-05-30 | [Weekly foundation work](docs/devlogs/2026-05-30-weekly-foundation-work.md) | Exception handling, docs expansion, pagination, recommendation tests, demo mode, Postgres planning |
 | 2026-05-24 | [Refactoring shelftxt backend](docs/devlogs/2026-05-24-backend-refactor.md) | Layered backend: routes, services, repository; recommendation extracted from monolithic API; Render + Vercel deploy fixes |
 
 ---
 
 ## Recent refactors
 
+- **Foundation week (2026-05-30)** — Narrower exception handling, paginated `GET /books`, system-design docs, recommendation test coverage, demo-mode banner; planning Postgres + per-user libraries.
 - **Backend layering** — `backend/api.py` is now an app shell; HTTP lives in `routes/`, logic in `services/`, CSV access via `repository/` + `book_data.py`.
 - **Recommendation pipeline** — `GET /recommend` orchestration moved to `services/recommendation.py`; ranking math stays in `ranking/` and `preprocess/`.
 - **Monorepo layout** — Python app under `backend/`; Render runs from repo root; Vercel Root Directory = `frontend`.

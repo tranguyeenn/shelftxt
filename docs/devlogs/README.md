@@ -40,6 +40,7 @@ Next steps:
 
 | Date | File |
 |------|------|
+| 2026-05-30 | [2026-05-30-weekly-foundation-work.md](2026-05-30-weekly-foundation-work.md) |
 | 2026-05-24 | [2026-05-24-backend-refactor.md](2026-05-24-backend-refactor.md) |
 
 After adding an entry, link it from the root [DEVLOG.md](../../DEVLOG.md).
