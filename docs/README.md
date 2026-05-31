@@ -15,7 +15,7 @@ Developer reference for architecture, APIs, local development, and deployment.
 | Call or extend the API | [api.md](api.md) |
 | Change recommendation scoring | [ranking.md](ranking.md) → [system-design/recommendation-system.md](system-design/recommendation-system.md) |
 | Deploy or fix production | [deployment.md](deployment.md) → [troubleshooting.md](troubleshooting.md) |
-| Contribute a change | [contributing.md](contributing.md) |
+| Contribute a change | [contributing.md](contributing.md) → [development-workflow.md](development-workflow.md) |
 | Understand reader needs | [user-research/README.md](user-research/README.md) |
 
 ---
@@ -76,8 +76,10 @@ Multi-page technical design for contributors:
 |-----|---------|
 | [deployment.md](deployment.md) | Render + Vercel |
 | [development.md](development.md) | Local setup, tests, env vars |
+| [development-workflow.md](development-workflow.md) | Branching, PR checklist, CI |
 | [troubleshooting.md](troubleshooting.md) | Common failures |
-| [contributing.md](contributing.md) | PR workflow |
+| [contributing.md](contributing.md) | PR workflow and conventions |
+| [repository-audit.md](repository-audit.md) | Repo health snapshot and gaps |
 | [opensource.md](opensource.md) | Project ethos |
 | [../DEVLOG.md](../DEVLOG.md) | Engineering timeline |
 | [devlogs/](devlogs/) | Dated refactor notes |

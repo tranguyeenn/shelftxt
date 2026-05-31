@@ -4,6 +4,8 @@ How to work on shelftxt — setup, workflow, and what we expect in changes.
 
 **Start here:** [CONTRIBUTING.md](../CONTRIBUTING.md) (clone, setup, PR and issue guidelines).
 
+**Day-to-day workflow:** [development-workflow.md](development-workflow.md) (branching, local checks, CI, doc updates).
+
 For **where code lives**, see [architecture/system-overview.md](architecture/system-overview.md). For **why** structural choices were made, see [decisions.md](decisions.md).
 
 ---
@@ -94,6 +96,8 @@ Document Render monorepo root directory
 | Doc | Use when |
 |-----|----------|
 | [development.md](development.md) | Install, run locally, CLI |
+| [development-workflow.md](development-workflow.md) | End-to-end contributor workflow |
+| [repository-audit.md](repository-audit.md) | Known gaps and improvement backlog |
 | [architecture/system-overview.md](architecture/system-overview.md) | Where to put code |
 | [architecture.md](architecture.md) | Diagrams, data paths, production topology |
 | [decisions.md](decisions.md) | ADRs |

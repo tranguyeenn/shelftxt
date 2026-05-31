@@ -1,60 +1,63 @@
-# Contributing to shelftxt
+# Contributing to ShelfTxt
 
-Thanks for helping improve an open-source reading backend. Keep changes focused and documented.
+Thanks for helping improve an open-source reading backend. ShelfTxt is maintained by one person — reviews may take time, especially for large or cross-cutting changes. Focused, well-tested PRs are appreciated.
 
-> **Review timing note:** ShelfTxt is maintained by one person. PR reviews are often slow, especially for large or cross-cutting changes.
+---
+
+## Quick links
+
+| Topic | Document |
+|-------|----------|
+| **Setup and run locally** | [docs/development.md](docs/development.md) |
+| **Day-to-day workflow and PR process** | [docs/development-workflow.md](docs/development-workflow.md) |
+| **Where code lives** | [docs/architecture/system-overview.md](docs/architecture/system-overview.md) |
+| **API reference** | [docs/api.md](docs/api.md) |
+| **Extended conventions** | [docs/contributing.md](docs/contributing.md) |
+| **Roadmap** | [ROADMAP.md](ROADMAP.md) |
 
 ---
 
 ## Ways to contribute
 
-Contributions are welcome, including:
-
 - Bug fixes
 - Documentation improvements
-- Backend refactors
 - Tests
-- Performance improvements
 - Small feature additions
+- Performance improvements
 - Open issue resolution
 
-Large architecture changes should begin with an issue discussion before implementation.
+Large architecture changes (storage migration, auth, breaking API changes) should start with an [issue discussion](.github/ISSUE_TEMPLATE/feature_request.md) before implementation.
 
 ---
 
-## Clone the repository
+## Getting started
+
+### 1. Clone
 
 ```bash
 git clone https://github.com/tranguyeenn/shelftxt.git
 cd shelftxt
 ```
 
-Fork the repo on GitHub and clone your fork if you prefer working from a branch on your account.
+Fork on GitHub and clone your fork if you prefer working from your account.
 
----
-
-## Virtual environment
-
-From the repo root:
+### 2. Virtual environment
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-```
-
-Use Python 3.12+ (see `requirements.txt`). Always activate the venv before installing or running commands.
-
----
-
-## Install requirements
-
-```bash
 pip install -r requirements.txt
 ```
 
----
+Use **Python 3.12+** (matches CI). Run commands from the **repo root**.
 
-## Run FastAPI locally
+### 3. Verify tests pass
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+### 4. Run the API
 
 ```bash
 uvicorn backend.api:app --reload
@@ -63,43 +66,36 @@ uvicorn backend.api:app --reload
 - API: http://127.0.0.1:8000  
 - Interactive docs: http://127.0.0.1:8000/docs  
 
-Legacy entrypoint: `uvicorn api:app --reload` (root shim).
-
 Optional UI: `cd frontend && npm install && npm run dev` — see [docs/development.md](docs/development.md).
 
 ---
 
-## Coding style expectations
+## Before you open a PR
+
+1. **Run tests** (see above).
+2. If you changed `frontend/`, run `npm run lint` and `npm run build` in `frontend/`.
+3. **Update docs** when behavior, API paths, or deploy steps change — see [docs/development-workflow.md#documentation-updates](docs/development-workflow.md#documentation-updates).
+4. Use the [pull request template](.github/PULL_REQUEST_TEMPLATE.md).
+5. Ensure CI passes (Python tests + frontend TypeScript check).
+
+Full checklist: [docs/development-workflow.md#local-verification-checklist](docs/development-workflow.md#local-verification-checklist).
+
+---
+
+## Coding expectations
 
 - Match naming and import style in the file you edit (`from backend.X import Y` from repo root).
 - Put business logic in `backend/services/`, not in route handlers.
+- Use `apiUrl()` in the frontend — do not hardcode production API URLs.
 - Do not commit `.venv/`, `.env*`, `frontend/.env.local`, or `backend/data/processed/books.csv`.
-- Avoid new frameworks or extra abstraction layers without a concrete need.
-- Update [docs/api.md](docs/api.md) when public paths or payloads change.
+- Avoid new frameworks or abstraction layers without a concrete need.
 - Prefer small, reviewable diffs over large rewrites.
 
 Architecture map: [docs/architecture/system-overview.md](docs/architecture/system-overview.md).
 
 ---
 
-## Pull request guidelines
-
-1. Branch from `main` (or your fork’s default branch).
-2. Run tests before opening a PR:
-
-   ```bash
-   python -m unittest discover -s tests -v
-   ```
-
-3. Use the [pull request template](.github/PULL_REQUEST_TEMPLATE.md) checklist.
-4. Describe what changed and why; link related issues when applicable.
-5. Update docs if behavior, deploy steps, or layout changed.
-
-This is a solo-maintained project — review may take time. Large changes benefit from a prior [feature request](.github/ISSUE_TEMPLATE/feature_request.md) or issue discussion.
-
----
-
-## Issue reporting
+## Issues and security
 
 | Type | Template |
 |------|----------|
@@ -112,8 +108,14 @@ Include reproduction steps, expected vs actual behavior, and environment (local 
 
 ---
 
+## Code of conduct
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Be respectful and constructive in issues and reviews.
+
+---
+
 ## Related
 
-- [ROADMAP.md](ROADMAP.md)
-- [docs/contributing.md](docs/contributing.md) — extra workflow and doc-update table
+- [docs/repository-audit.md](docs/repository-audit.md) — maintainer notes on repo health and gaps
 - [docs/troubleshooting.md](docs/troubleshooting.md)
+- [DEVLOG.md](DEVLOG.md)

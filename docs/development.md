@@ -4,7 +4,7 @@ Local setup and day-to-day commands. For production deploy, see [deployment.md](
 
 ## Requirements
 
-- Python 3.14+ (see `requirements.txt`)
+- Python 3.12+ (matches CI; see `requirements.txt`)
 - Node.js 20+ for frontend
 
 ### Install Python deps
