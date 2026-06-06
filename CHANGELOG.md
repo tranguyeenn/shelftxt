@@ -18,7 +18,7 @@ This file tracks architectural changes, feature additions, refactors, and decisi
   - GitHub Actions test workflow
 
 - Engineering documentation:
-  - `docs/devlogs/`
+  - `docs/history/devlogs/`
   - architecture notes
   - deployment notes
   - troubleshooting docs
@@ -60,4 +60,4 @@ Versioned milestones may be added as ShelfTxt evolves.
 Early development changes are documented primarily through:
 
 - [DEVLOG.md](DEVLOG.md)
-- [docs/devlogs/](docs/devlogs/)
+- [docs/history/devlogs/](docs/history/devlogs/)
