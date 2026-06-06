@@ -4,7 +4,7 @@
 
 A **devlog** is an engineering journal: short, dated write-ups of what changed, why it changed, and what you learned. Unlike API reference docs (what the system *is*), devlogs capture how the system *evolved* — refactors, deploy incidents, architecture bets, and dead ends worth remembering.
 
-This file is the **index**. Detailed entries live in [`docs/devlogs/`](docs/devlogs/).
+This file is the **index**. Detailed entries live in [`docs/history/devlogs/`](docs/history/devlogs/).
 
 ---
 
@@ -12,8 +12,8 @@ This file is the **index**. Detailed entries live in [`docs/devlogs/`](docs/devl
 
 | Date | Title | Summary |
 |------|-------|---------|
-| 2026-05-30 | [Weekly foundation work](docs/devlogs/2026-05-30-weekly-foundation-work.md) | Exception handling, docs expansion, pagination, recommendation tests, demo mode, Postgres planning |
-| 2026-05-24 | [Refactoring shelftxt backend](docs/devlogs/2026-05-24-backend-refactor.md) | Layered backend: routes, services, repository; recommendation extracted from monolithic API; Render + Vercel deploy fixes |
+| 2026-05-30 | [Weekly foundation work](docs/history/devlogs/2026-05-30-weekly-foundation-work.md) | Exception handling, docs expansion, pagination, recommendation tests, demo mode, Postgres planning |
+| 2026-05-24 | [Refactoring shelftxt backend](docs/history/devlogs/2026-05-24-backend-refactor.md) | Layered backend: routes, services, repository; recommendation extracted from monolithic API; Render + Vercel deploy fixes |
 
 ---
 
@@ -29,11 +29,11 @@ This file is the **index**. Detailed entries live in [`docs/devlogs/`](docs/devl
 
 ## How to add an entry
 
-1. Copy the template in [`docs/devlogs/README.md`](docs/devlogs/README.md).
-2. Create `docs/devlogs/YYYY-MM-DD-short-title.md`.
+1. Copy the template in [`docs/history/devlogs/README.md`](docs/history/devlogs/README.md).
+2. Create `docs/history/devlogs/YYYY-MM-DD-short-title.md`.
 3. Add a row to the **Major entries** table above.
 4. Optionally add a one-line bullet under **Recent refactors**.
 
-**Open refactor backlog:** [system-overview.md → Refactor backlog](docs/architecture/system-overview.md#refactor-backlog)
+**Open refactor backlog:** [engineering/architecture.md#refactor-backlog](docs/engineering/architecture.md#refactor-backlog)
 
-See also: [Architecture overview](docs/architecture/system-overview.md) · [Technical docs index](docs/README.md)
+See also: [Architecture overview](docs/engineering/architecture.md) · [Technical docs index](docs/README.md)

@@ -29,4 +29,4 @@ Shelftxt is a CSV-backed library API with a hosted frontend. Reports about your 
 
 Good-faith research that avoids harming users or data will not be treated as hostile. Do not test production without permission.
 
-Fixes apply to the default branch (`main`) and deployments described in [docs/deployment.md](docs/deployment.md).
+Fixes apply to the default branch (`main`) and deployments described in [docs/engineering/deployment.md](docs/engineering/deployment.md).

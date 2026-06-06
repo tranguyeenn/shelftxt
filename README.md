@@ -16,7 +16,7 @@ Shelftxt is an open-source backend-driven recommendation system for organizing a
 
 Shelftxt exposes a FastAPI service over a CSV-backed library (Postgres-ready layering). A Vite + React UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
 
-The project is maintained in the open: architecture notes, ADRs, and [devlogs](docs/devlogs/) document how the backend evolves.
+The project is maintained in the open: architecture notes, ADRs, and [devlogs](docs/history/devlogs/) document how the backend evolves.
 
 ---
 
@@ -26,7 +26,7 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 - **TBR ranking** — `GET /recommend` scores your to-read list from read-history author preferences
 - **REST API** — OpenAPI at `/docs`; Pydantic schemas in `backend/schemas/`
 - **CSV import** — bulk add via `POST /books/import`; duplicates skipped
-- **Batch ingest pipeline** — map external exports to a canonical schema ([pipeline docs](docs/pipeline.md))
+- **Batch ingest pipeline** — map external exports to a canonical schema ([pipeline docs](docs/engineering/import-export.md#batch-pipeline))
 - **CLI** — `python -m cli.manage_books` for local shelf edits
 
 `backend/data/processed/books.csv` is created empty on first use (not committed).
@@ -61,7 +61,7 @@ HTTP → routes/ → services/ → repository/ → book_data.py → books.csv
 | `schemas/` | Pydantic request/response models |
 | `ingest/` | Offline CSV pipeline (not live UI import) |
 
-Deeper docs: [system design](./docs/system-design/README.md) · [system overview](./docs/architecture/system-overview.md) · [architecture.md](./docs/architecture.md) · [decisions.md](./docs/decisions.md)
+Deeper docs: [documentation index](./docs/README.md) · [architecture](./docs/engineering/architecture.md) · [decisions](./docs/product/decisions.md)
 
 ---
 
@@ -89,7 +89,7 @@ Run commands from the **repo root** so `backend` resolves as a package.
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:3000. See [docs/development.md](docs/development.md) for env vars and remote API mode.
+Open http://localhost:3000. See [docs/contributors/development.md](docs/contributors/development.md) for env vars and remote API mode.
 
 ### Tests
 
@@ -121,7 +121,7 @@ python -m pytest -q
 | `DELETE` | `/books/{id}` | Delete by book id |
 | `GET` | `/recommend?style=` | Top 10 TBR suggestions |
 
-Full reference: [docs/api.md](docs/api.md) · [System design](docs/system-design/README.md)
+Full reference: [docs/engineering/api.md](docs/engineering/api.md) · [Documentation index](docs/README.md)
 
 ---
 
@@ -129,7 +129,7 @@ Full reference: [docs/api.md](docs/api.md) · [System design](docs/system-design
 
 See [ROADMAP.md](ROADMAP.md) for current capabilities and planned work (Postgres, caching, auth, analytics).
 
-Engineering history: [DEVLOG.md](DEVLOG.md) · [docs/devlogs/](docs/devlogs/)
+Engineering history: [DEVLOG.md](DEVLOG.md) · [docs/history/devlogs/](docs/history/devlogs/)
 
 ---
 
@@ -153,4 +153,4 @@ Use GitHub templates under `.github/` for bugs and pull requests.
 
 MIT — see [LICENSE](LICENSE).
 
-Additional docs: [docs/README.md](docs/README.md) · [System design](docs/system-design/README.md) · [User research](docs/user-research/README.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
+Additional docs: [docs/README.md](docs/README.md) · [User research](docs/product/user-research/README.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)

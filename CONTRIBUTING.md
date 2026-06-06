@@ -8,11 +8,11 @@ Thanks for helping improve an open-source reading backend. ShelfTxt is maintaine
 
 | Topic | Document |
 |-------|----------|
-| **Setup and run locally** | [docs/development.md](docs/development.md) |
-| **Day-to-day workflow and PR process** | [docs/development-workflow.md](docs/development-workflow.md) |
-| **Where code lives** | [docs/architecture/system-overview.md](docs/architecture/system-overview.md) |
-| **API reference** | [docs/api.md](docs/api.md) |
-| **Extended conventions** | [docs/contributing.md](docs/contributing.md) |
+| **Setup and run locally** | [docs/contributors/development.md](docs/contributors/development.md) |
+| **Day-to-day workflow and PR process** | [docs/contributors/development-workflow.md](docs/contributors/development-workflow.md) |
+| **Where code lives** | [docs/engineering/architecture.md](docs/engineering/architecture.md) |
+| **API reference** | [docs/engineering/api.md](docs/engineering/api.md) |
+| **Extended conventions** | [docs/contributors/contributing.md](docs/contributors/contributing.md) |
 | **Roadmap** | [ROADMAP.md](ROADMAP.md) |
 
 ---
@@ -66,7 +66,7 @@ uvicorn backend.api:app --reload
 - API: http://127.0.0.1:8000  
 - Interactive docs: http://127.0.0.1:8000/docs  
 
-Optional UI: `cd frontend && npm install && npm run dev` — see [docs/development.md](docs/development.md).
+Optional UI: `cd frontend && npm install && npm run dev` — see [docs/contributors/development.md](docs/contributors/development.md).
 
 ---
 
@@ -74,11 +74,11 @@ Optional UI: `cd frontend && npm install && npm run dev` — see [docs/developme
 
 1. **Run tests** (see above).
 2. If you changed `frontend/`, run `npm run lint` and `npm run build` in `frontend/`.
-3. **Update docs** when behavior, API paths, or deploy steps change — see [docs/development-workflow.md#documentation-updates](docs/development-workflow.md#documentation-updates).
+3. **Update docs** when behavior, API paths, or deploy steps change — see [docs/contributors/development-workflow.md#documentation-updates](docs/contributors/development-workflow.md#documentation-updates).
 4. Use the [pull request template](.github/PULL_REQUEST_TEMPLATE.md).
 5. Ensure CI passes (Python tests + frontend TypeScript check).
 
-Full checklist: [docs/development-workflow.md#local-verification-checklist](docs/development-workflow.md#local-verification-checklist).
+Full checklist: [docs/contributors/development-workflow.md#local-verification-checklist](docs/contributors/development-workflow.md#local-verification-checklist).
 
 ---
 
@@ -91,7 +91,7 @@ Full checklist: [docs/development-workflow.md#local-verification-checklist](docs
 - Avoid new frameworks or abstraction layers without a concrete need.
 - Prefer small, reviewable diffs over large rewrites.
 
-Architecture map: [docs/architecture/system-overview.md](docs/architecture/system-overview.md).
+Architecture map: [docs/engineering/architecture.md](docs/engineering/architecture.md).
 
 ---
 
@@ -116,6 +116,6 @@ This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Be respectf
 
 ## Related
 
-- [docs/repository-audit.md](docs/repository-audit.md) — maintainer notes on repo health and gaps
-- [docs/troubleshooting.md](docs/troubleshooting.md)
+- [docs/history/audits/repository-audit.md](docs/history/audits/repository-audit.md) — maintainer notes on repo health and gaps
+- [docs/contributors/troubleshooting.md](docs/contributors/troubleshooting.md)
 - [DEVLOG.md](DEVLOG.md)
