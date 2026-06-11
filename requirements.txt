@@ -5,3 +5,7 @@ numpy
 python-multipart
 httpx
 apscheduler
+sqlalchemy
+psycopg[binary]
+alembic
+python-dotenv
