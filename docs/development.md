@@ -12,7 +12,7 @@ Live application data is stored at:
 backend/data/processed/books.csv
 ```
 
-The PostgreSQL migration is in progress. PostgreSQL infrastructure and the initial SQLAlchemy foundation have been added, but routes and repositories do not use PostgreSQL yet. CSV storage has not been removed.
+The PostgreSQL migration is in progress. PostgreSQL infrastructure, the initial SQLAlchemy foundation, Alembic migrations, and the first repository layer have been added. Routes and services have not been fully migrated yet, and CSV storage has not been removed.
 
 ## Requirements
 
@@ -40,7 +40,7 @@ The PostgreSQL migration stack is installed through `requirements.txt`:
 | --- | --- |
 | `SQLAlchemy` | ORM and database engine/session foundation |
 | `psycopg[binary]` | PostgreSQL driver used by SQLAlchemy |
-| `Alembic` | Database migration tooling dependency; migrations are not initialized yet |
+| `Alembic` | Database migration tooling used to recreate schema changes in a repeatable way |
 | `python-dotenv` | Loads local environment variables from `.env` |
 
 ---
@@ -137,10 +137,58 @@ Current database foundation:
 Important current limitations:
 
 * API routes do not use PostgreSQL yet.
-* Repositories do not use PostgreSQL yet.
-* Alembic migrations are not initialized yet.
-* No migration scripts have been added.
+* Routes and services have not been fully migrated to PostgreSQL yet.
 * CSV remains the active production storage layer.
+
+---
+
+## Alembic Migrations
+
+Alembic is used to manage database schema changes. A schema is the structure of the database, such as which tables exist and which columns each table has.
+
+Instead of creating tables by hand every time, Alembic stores schema changes in migration files. These files make database setup reproducible: a developer can start with an empty PostgreSQL database and run the migrations to create the same tables.
+
+Current Alembic migration work:
+
+* Alembic has been initialized.
+* Alembic is connected to SQLAlchemy metadata.
+* The initial migration has been generated.
+* The initial migration has been applied to local PostgreSQL.
+* The `books` table has been created.
+* The `alembic_version` table has been created.
+* Schema creation was verified directly through PostgreSQL.
+
+The `alembic_version` table is managed by Alembic. It records which migration has been applied so Alembic knows the current database version.
+
+---
+
+## Repository Layer
+
+The repository layer is responsible for database operations. It acts as a bridge between application code and the database.
+
+Application code should not need to know the details of SQLAlchemy queries. Instead, it can call repository functions such as "get all books" or "create a book." The repository handles the database session and the SQLAlchemy model operations.
+
+Current repository file:
+
+| File | Purpose |
+| --- | --- |
+| `backend/repository/books_repository.py` | Provides CRUD operations for `Book` records in PostgreSQL |
+
+Implemented repository operations:
+
+* `get_all_books()`
+* `get_book_by_id()`
+* `create_book()`
+* `update_book()`
+* `delete_book()`
+
+CRUD means create, read, update, and delete. These are the basic operations needed to manage records in a database.
+
+The repository CRUD operations have been successfully tested against PostgreSQL.
+
+Important current limitation:
+
+* The repository layer exists, but routes and services have not been fully migrated to use it yet.
 
 ---
 
@@ -174,7 +222,28 @@ Completed migration phases:
 * Implemented `get_db()`.
 * Added the initial `Book` SQLAlchemy model.
 
-The migration is not complete. The next phases still need to connect application persistence to PostgreSQL and define migration management.
+### Phase 4: Alembic Migrations
+
+* Initialized Alembic.
+* Connected Alembic to SQLAlchemy metadata.
+* Generated the initial migration.
+* Applied the migration to PostgreSQL.
+* Created the `books` table.
+* Created the `alembic_version` table.
+* Verified schema creation through PostgreSQL.
+* Confirmed the database schema can be recreated through migration files.
+
+### Phase 5: Repository Layer
+
+* Implemented repository CRUD operations in `backend/repository/books_repository.py`.
+* Added `get_all_books()`.
+* Added `get_book_by_id()`.
+* Added `create_book()`.
+* Added `update_book()`.
+* Added `delete_book()`.
+* Verified create, read, update, and delete operations against PostgreSQL.
+
+The migration is not complete. The application has not fully migrated away from CSV storage yet. Routes and services have not been fully migrated to PostgreSQL, and PostgreSQL should not be treated as the active production storage layer.
 
 ---
 
