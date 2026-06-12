@@ -11,10 +11,7 @@ from backend.schemas.books import (
     BookProgressPatch,
     ClearLibraryRequest,
 )
-from backend.services.books import (
-    export_library_csv,
-    import_books_service,
-)
+from backend.services.books import export_library_csv
 from backend.services.postgres_books import (
     add_book_service,
     clear_library_service,
@@ -22,6 +19,7 @@ from backend.services.postgres_books import (
     delete_book_by_title_service,
     get_book_by_id_service,
     get_books_service,
+    import_books_service,
     patch_book_service,
     update_book_progress_by_id_service,
 )
@@ -84,8 +82,11 @@ async def patch_book(
 
 
 @router.post("/books/import")
-async def import_books(data: ImportBooks):
-    return import_books_service(data)
+async def import_books(
+    data: ImportBooks,
+    db: Session = Depends(get_db),
+):
+    return import_books_service(db, data)
 
 
 @router.get("/books/{book_id}")

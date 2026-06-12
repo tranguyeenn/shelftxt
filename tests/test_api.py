@@ -262,7 +262,7 @@ class ApiTests(unittest.TestCase):
 
         response = self.client.patch(
             "/books/book-2/progress",
-            json={"status": "reading", "pages_read": 500, "rating": 5},
+            json={"status": "reading", "pages_read": 500},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -301,6 +301,53 @@ class ApiTests(unittest.TestCase):
         response = self.client.post("/books/clear", json={"confirm": False})
 
         self.assertEqual(response.status_code, 400)
+
+    def test_import_skips_duplicate_title(self):
+        _seed_book(
+            title="Existing",
+            authors="A",
+            isbn_uid="1",
+        )
+
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {"title": "Existing", "author": "X"},
+                    {"title": "New", "author": "Y"},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"imported": 1, "skipped": 1})
+
+        payload = self.client.get("/books").json()
+        self.assertEqual(payload["total"], 2)
+
+        titles = [book["Title"] for book in payload["results"]]
+        self.assertIn("Existing", titles)
+        self.assertIn("New", titles)
+
+    def test_import_skips_if_no_books_added(self):
+        _seed_book(
+            title="Existing Book",
+            authors="A",
+            isbn_uid="existing-book",
+        )
+
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Existing Book", "author": "X"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["imported"], 0)
+        self.assertEqual(response.json()["skipped"], 1)
+
+        payload = self.client.get("/books").json()
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["results"][0]["Title"], "Existing Book")
 
     @patch("backend.routes.recommendation.get_recommendation")
     def test_recommend_returns_structured_payload(self, mock_get_recommendation):
@@ -365,64 +412,6 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/csv", response.headers.get("content-type", ""))
         self.assertIn("Export Me", response.text)
-
-    @patch("backend.services.books.save_books")
-    @patch("backend.services.books.get_all_books")
-    def test_import_skips_duplicate_title(self, mock_load_data, mock_save_data):
-        base_df = pd.DataFrame(
-            [
-                {
-                    "Title": "Existing",
-                    "Authors": "A",
-                    "ISBN/UID": "1",
-                    "Read Status": "to-read",
-                    "Star Rating": np.nan,
-                    "Last Date Read": None,
-                    "Progress (%)": 0,
-                    "Pages Read": 0,
-                    "Total Pages": None,
-                }
-            ],
-            columns=BOOKS_COLUMNS,
-        )
-        mock_load_data.return_value = base_df
-
-        response = self.client.post(
-            "/books/import",
-            json={
-                "books": [
-                    {"title": "Existing", "author": "X"},
-                    {"title": "New", "author": "Y"},
-                ]
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"imported": 1, "skipped": 1})
-        saved = mock_save_data.call_args.args[0]
-        self.assertEqual(len(saved), 2)
-
-    @patch("backend.services.books.invalidate_recommendation_cache")
-    @patch("backend.services.books.save_books")
-    @patch("backend.services.books.get_all_books")
-    def test_import_skips_invalidation_if_no_books_added(
-        self,
-        mock_get_all,
-        mock_save,
-        mock_invalidate,
-    ):
-        mock_get_all.return_value = pd.DataFrame([{"Title": "Existing Book"}])
-
-        response = self.client.post(
-            "/books/import",
-            json={"books": [{"title": "Existing Book", "author": "X"}]},
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["imported"], 0)
-
-        mock_save.assert_not_called()
-        mock_invalidate.assert_not_called()
 
 
 if __name__ == "__main__":

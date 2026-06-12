@@ -83,6 +83,44 @@ def add_book_service(db: Session, book):
     return {"message": "Book added"}
 
 
+def import_books_service(db: Session, data):
+    books = get_all_books(db)
+    existing_titles = {book.title for book in books}
+
+    imported = 0
+    skipped = 0
+
+    for book in data.books:
+        title = (book.title or "").strip()
+
+        if not title or title in existing_titles:
+            skipped += 1
+            continue
+
+        create_book(
+            db,
+            {
+                "title": title,
+                "authors": (book.author or "Unknown").strip(),
+                "isbn_uid": f"uid-{uuid.uuid4()}",
+                "read_status": "to-read",
+                "star_rating": None,
+                "last_date_read": None,
+                "progress_percent": 0,
+                "pages_read": 0,
+                "total_pages": book.total_pages,
+            },
+        )
+
+        existing_titles.add(title)
+        imported += 1
+
+    return {
+        "imported": imported,
+        "skipped": skipped,
+    }
+
+
 def clear_library_service(db: Session, confirm: bool):
     if not confirm:
         raise HTTPException(
@@ -289,7 +327,9 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body):
         update_data.update(
             {
                 "read_status": "read",
-                "star_rating": float(rating) if rating is not None else book.star_rating,
+                "star_rating": float(rating)
+                if rating is not None
+                else book.star_rating,
                 "progress_percent": 100,
                 "pages_read": pages_read,
                 "last_date_read": parse_date_or_today(None),
