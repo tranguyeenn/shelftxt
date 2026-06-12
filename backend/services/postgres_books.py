@@ -8,7 +8,7 @@ from backend.repository.postgres_books_repository import (
     create_book,
     delete_book,
     get_all_books,
-    get_book_by_id,
+    get_book_by_isbn_uid,
     update_book,
 )
 
@@ -55,8 +55,8 @@ def get_books_service(db: Session, page: int, limit: int):
     }
 
 
-def get_book_by_id_service(db: Session, book_id: int):
-    book = get_book_by_id(db, book_id)
+def get_book_by_id_service(db: Session, book_id: str):
+    book = get_book_by_isbn_uid(db, book_id)
 
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -99,11 +99,13 @@ def clear_library_service(db: Session, confirm: bool):
     return {"message": "Library cleared", "deleted": deleted}
 
 
-def delete_book_by_id_service(db: Session, book_id: int):
-    deleted = delete_book(db, book_id)
+def delete_book_by_id_service(db: Session, book_id: str):
+    book = get_book_by_isbn_uid(db, book_id)
 
-    if not deleted:
+    if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
+
+    delete_book(db, book.id)
 
     return {"message": "Book deleted"}
 
@@ -215,11 +217,12 @@ def patch_book_service(db: Session, p):
             raise HTTPException(status_code=400, detail="Invalid move target")
 
     update_book(db, book.id, update_data)
+
     return {"message": "Book updated"}
 
 
-def update_book_progress_by_id_service(db: Session, book_id: int, body):
-    book = get_book_by_id(db, book_id)
+def update_book_progress_by_id_service(db: Session, book_id: str, body):
+    book = get_book_by_isbn_uid(db, book_id)
 
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -281,18 +284,12 @@ def update_book_progress_by_id_service(db: Session, book_id: int, body):
         )
 
     elif status == "completed":
-        rating = body.rating
-
-        if rating is None or not (1 <= rating <= 5):
-            raise HTTPException(
-                status_code=400,
-                detail="Rating 1-5 required",
-            )
+        rating = getattr(body, "rating", None)
 
         update_data.update(
             {
                 "read_status": "read",
-                "star_rating": float(rating),
+                "star_rating": float(rating) if rating is not None else book.star_rating,
                 "progress_percent": 100,
                 "pages_read": pages_read,
                 "last_date_read": parse_date_or_today(None),
@@ -314,4 +311,5 @@ def update_book_progress_by_id_service(db: Session, book_id: int, body):
         raise HTTPException(status_code=400, detail="Invalid status")
 
     updated = update_book(db, book.id, update_data)
+
     return book_to_dict(updated)

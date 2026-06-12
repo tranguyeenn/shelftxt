@@ -1,8 +1,8 @@
-import numpy as np
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
+from sqlalchemy.orm import Session
 
-from backend.book_data import load_data
+from backend.db.database import get_db
 from backend.schemas.books import (
     AddBook,
     BooksPage,
@@ -12,45 +12,36 @@ from backend.schemas.books import (
     ClearLibraryRequest,
 )
 from backend.services.books import (
+    export_library_csv,
+    import_books_service,
+)
+from backend.services.postgres_books import (
     add_book_service,
     clear_library_service,
-    delete_book_by_id,
-    delete_book_by_title,
-    export_library_csv,
+    delete_book_by_id_service,
+    delete_book_by_title_service,
+    get_book_by_id_service,
+    get_books_service,
     patch_book_service,
-    import_books_service,
-    update_book_progress_by_id,
+    update_book_progress_by_id_service,
 )
 
 router = APIRouter()
-
-
-def clean_for_json(df):
-    return df.replace({np.nan: None})
 
 
 @router.get("/books", response_model=BooksPage)
 async def get_books(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
 ):
-    df = load_data()
-    df = clean_for_json(df)
-    total = len(df)
-    start = (page - 1) * limit
-    results = df.iloc[start : start + limit].to_dict(orient="records")
-
-    return {
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "results": results,
-    }
+    return get_books_service(db, page, limit)
 
 
 @router.get("/books/export")
 async def export_books():
     csv_content = export_library_csv()
+
     return Response(
         content=csv_content,
         media_type="text/csv",
@@ -61,23 +52,35 @@ async def export_books():
 
 
 @router.post("/books/clear")
-async def clear_books(body: ClearLibraryRequest):
-    return clear_library_service(body.confirm)
+async def clear_books(
+    body: ClearLibraryRequest,
+    db: Session = Depends(get_db),
+):
+    return clear_library_service(db, body.confirm)
 
 
 @router.post("/books")
-async def add_book(book: AddBook):
-    return add_book_service(book)
+async def add_book(
+    book: AddBook,
+    db: Session = Depends(get_db),
+):
+    return add_book_service(db, book)
 
 
 @router.delete("/books")
-async def delete_book(title: str = Query(..., min_length=1)):
-    return delete_book_by_title(title)
+async def delete_book(
+    title: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+):
+    return delete_book_by_title_service(db, title)
 
 
 @router.patch("/books")
-async def patch_book(p: PatchBook):
-    return patch_book_service(p)
+async def patch_book(
+    p: PatchBook,
+    db: Session = Depends(get_db),
+):
+    return patch_book_service(db, p)
 
 
 @router.post("/books/import")
@@ -85,11 +88,26 @@ async def import_books(data: ImportBooks):
     return import_books_service(data)
 
 
+@router.get("/books/{book_id}")
+async def get_book_by_id_route(
+    book_id: str,
+    db: Session = Depends(get_db),
+):
+    return get_book_by_id_service(db, book_id)
+
+
 @router.patch("/books/{book_id}/progress")
-async def update_book_progress(book_id: str, body: BookProgressPatch):
-    return update_book_progress_by_id(book_id, body)
+async def update_book_progress(
+    book_id: str,
+    body: BookProgressPatch,
+    db: Session = Depends(get_db),
+):
+    return update_book_progress_by_id_service(db, book_id, body)
 
 
 @router.delete("/books/{book_id}")
-async def delete_book_by_id_route(book_id: str):
-    return delete_book_by_id(book_id)
+async def delete_book_by_id_route(
+    book_id: str,
+    db: Session = Depends(get_db),
+):
+    return delete_book_by_id_service(db, book_id)
