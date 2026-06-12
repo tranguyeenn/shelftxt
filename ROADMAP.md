@@ -8,7 +8,8 @@ Engineering directions for shelftxt — not fixed release dates. See [DEVLOG.md]
 
 - FastAPI backend
 - Recommendation scoring (`preprocess/` + `ranking/`)
-- CSV storage with repository-style facade
+- PostgreSQL-backed book CRUD through repository layer
+- PostgreSQL migration phases 1-7 complete
 - Open-source docs (CONTRIBUTING, templates, CI tests)
 - Vite + React UI and batch ingest pipeline
 
@@ -16,7 +17,7 @@ Engineering directions for shelftxt — not fixed release dates. See [DEVLOG.md]
 
 ## Planned
 
-- PostgreSQL migration
+- PostgreSQL follow-up work for remaining CSV-adjacent paths
 - Repository pattern improvements
 - Caching improvements
 - Better recommendation engine

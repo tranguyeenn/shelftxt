@@ -14,7 +14,7 @@ Shelftxt is an open-source backend-driven recommendation system for organizing a
 
 ## Overview
 
-Shelftxt exposes a FastAPI service over a CSV-backed library (Postgres-ready layering). A Vite + React UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
+Shelftxt exposes a FastAPI service over a PostgreSQL-backed book CRUD API, with CSV import/export compatibility. A Vite + React UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
 
 The project is maintained in the open: architecture notes, ADRs, and [devlogs](docs/history/devlogs/) document how the backend evolves.
 
@@ -25,11 +25,11 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 - **Shelf management** — want-to-read, reading (progress %), read (ratings), DNF
 - **TBR ranking** — `GET /recommend` scores your to-read list from read-history author preferences
 - **REST API** — OpenAPI at `/docs`; Pydantic schemas in `backend/schemas/`
-- **CSV import** — bulk add via `POST /books/import`; duplicates skipped
+- **CSV import** — bulk add via `POST /books/import`; duplicates skipped and stored through PostgreSQL-backed routes
 - **Batch ingest pipeline** — map external exports to a canonical schema ([pipeline docs](docs/engineering/import-export.md#batch-pipeline))
 - **CLI** — `python -m cli.manage_books` for local shelf edits
 
-`backend/data/processed/books.csv` is created empty on first use (not committed).
+CSV export remains available for backups and spreadsheet workflows.
 
 ---
 
@@ -39,7 +39,7 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 |-------|--------|
 | **API** | Python, FastAPI, uvicorn, pandas |
 | **Ranking** | Custom scoring in `backend/ranking/`, features in `backend/preprocess/` |
-| **Persistence** | CSV today (`backend/book_data.py` + `backend/repository/`) |
+| **Persistence** | PostgreSQL for book CRUD (`backend/db/` + `backend/repository/postgres_books_repository.py`) |
 | **UI** | Vite, React, TypeScript |
 | **Deploy** | Render (API), Vercel (frontend) |
 
@@ -48,7 +48,7 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 ## Architecture
 
 ```text
-HTTP → routes/ → services/ → repository/ → book_data.py → books.csv
+HTTP → routes/ → services/ → repository/ → SQLAlchemy → PostgreSQL
                     ↘ preprocess/ + ranking/  (no I/O)
 ```
 
@@ -57,7 +57,7 @@ HTTP → routes/ → services/ → repository/ → book_data.py → books.csv
 | `backend/api.py` | App shell: CORS, lifespan, router registration |
 | `routes/` | HTTP only — parse request, call services |
 | `services/` | Business logic (shelves, recommendations) |
-| `repository/` | Persistence facade (swap for Postgres later) |
+| `repository/` | Persistence layer for PostgreSQL-backed book CRUD |
 | `schemas/` | Pydantic request/response models |
 | `ingest/` | Offline CSV pipeline (not live UI import) |
 
@@ -127,7 +127,7 @@ Full reference: [docs/engineering/api.md](docs/engineering/api.md) · [Documenta
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for current capabilities and planned work (Postgres, caching, auth, analytics).
+See [ROADMAP.md](ROADMAP.md) for current capabilities and planned work (remaining PostgreSQL follow-up, caching, auth, analytics).
 
 Engineering history: [DEVLOG.md](DEVLOG.md) · [docs/history/devlogs/](docs/history/devlogs/)
 

@@ -4,13 +4,13 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 ---
 
-## ADR-001: CSV as single source of truth
+## ADR-001: CSV as single source of truth (superseded)
 
-**Status:** Accepted
+**Status:** Superseded by ADR-009
 
 **Context:** Solo project, small library, no auth yet.
 
-**Decision:** Live library in `backend/data/processed/books.csv`. Low-level access via `book_data.py`; services/routes prefer `repository/books_repository.py`.
+**Historical decision:** Live library in `backend/data/processed/books.csv`. Low-level access via `book_data.py`; services/routes prefer `repository/books_repository.py`.
 
 **Consequences:** (+) Simple, portable (−) No concurrent-write safety; ephemeral disk on Render free tier.
 
@@ -60,7 +60,7 @@ Lightweight ADRs. Format: context → decision → consequences.
 | HTTP routes | `backend/routes/` |
 | Request models | `backend/schemas/` |
 | Business logic | `backend/services/` |
-| Persistence facade | `backend/repository/` → `book_data.py` |
+| Persistence facade | `backend/repository/` |
 
 **Consequences:**
 
@@ -83,7 +83,7 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 **Status:** Accepted
 
-**Decision:** `get_recommendation()` uses `@lru_cache(maxsize=32)` keyed by style. `invalidate_recommendation_cache()` runs after book mutations in `services/books.py`.
+**Decision:** `get_recommendation()` uses `@lru_cache(maxsize=32)` keyed by style. Legacy CSV service writes call `invalidate_recommendation_cache()`; PostgreSQL CRUD freshness should be reviewed before stronger recommendation cache guarantees are documented.
 
 **Consequences:** (+) Fewer repeated scoring runs (−) In-process cache only; not shared across Render instances.
 
@@ -93,11 +93,23 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 **Status:** Accepted
 
-**Context:** Large libraries inflate response size; PostgreSQL migration is planned.
+**Context:** Large libraries inflate response size; PostgreSQL migration was planned.
 
 **Decision:** `GET /books` returns `{ page, limit, total, results }` with query params `page` (≥ 1) and `limit` (1–100, default 20). Frontend loads the full shelf via `fetchAllLibraryBooks()` until the Library UI paginates client-side.
 
-**Consequences:** (+) Smaller payloads per request (+) Prepares API shape for DB paging (−) Breaking change vs. top-level array (−) Server still reads full CSV via `load_data()` until Postgres.
+**Consequences:** (+) Smaller payloads per request (+) API shape is compatible with DB-backed paging (−) Breaking change vs. top-level array (−) SQL-level pagination remains a follow-up optimization.
+
+---
+
+## ADR-009: PostgreSQL-backed book CRUD
+
+**Status:** Accepted
+
+**Context:** CSV storage was simple but created durability, concurrency, and deployment risks. PostgreSQL migration phases 1-7 established local database infrastructure, SQLAlchemy, Alembic migrations, a repository layer, route/session injection through `get_db()`, PostgreSQL-backed book CRUD services, and stronger Pydantic validation.
+
+**Decision:** Book CRUD routes use PostgreSQL as the source of truth through the flow `routes -> services -> repository -> SQLAlchemy -> PostgreSQL`. Existing API response formats are preserved, including CSV-compatible field names for `GET /books`.
+
+**Consequences:** (+) Book CRUD no longer depends on direct CSV reads/writes (+) Stronger request validation and documented response models (+) Durable database foundation for future auth/multi-user work (−) CSV export/import compatibility and recommendation-adjacent paths still need careful follow-up.
 
 ---
 

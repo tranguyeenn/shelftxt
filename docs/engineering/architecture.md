@@ -11,7 +11,7 @@ ShelfTxt is a **monorepo** with three runnable surfaces that share one logical l
 | **CLI** | Python (`cli/manage_books.py`) | Local shelf edits (limited commands today) |
 | **Batch pipeline** | Python (`backend/ingest/`) | Offline CSV mapping to canonical schema—not used by live UI import |
 
-**Persistence today:** a single CSV file at `backend/data/processed/books.csv`, accessed through `backend/book_data.py` and wrapped by `backend/repository/books_repository.py`.
+**Persistence today:** PostgreSQL is the primary storage backend for book CRUD operations. Routes call services, services call the PostgreSQL repository layer, and SQLAlchemy persists `Book` rows to the `books` table. CSV remains for export/import compatibility and legacy helper paths.
 
 **Production hosts (as of current deployment):**
 
@@ -26,10 +26,10 @@ ShelfTxt is a **monorepo** with three runnable surfaces that share one logical l
 flowchart LR
   Browser[shelftxt.vercel.app]
   API[shelftxt.onrender.com]
-  CSV[(books.csv)]
+  DB[(PostgreSQL books table)]
 
   Browser -->|HTTPS JSON| API
-  API --> CSV
+  API --> DB
 ```
 
 - **Production:** browser calls Render directly (`frontend/src/lib/api.ts`).
@@ -53,12 +53,15 @@ See [decisions.md](../product/decisions.md#adr-003-production-api-calls-bypass-v
 - Entry: `backend/api.py` — CORS, lifespan (keep-warm ping), router registration
 - HTTP handlers: `backend/routes/` — thin; delegate to services
 - Business logic: `backend/services/` — shelf mutations, import/export, recommendation cache
-- Validation: `backend/schemas/` — Pydantic request bodies
+- Validation: `backend/schemas/` — Pydantic request and response models
 
 ### Book data storage layer
 
-- `backend/book_data.py` — load/save CSV, column normalization on read
-- `backend/repository/books_repository.py` — thin facade (`get_all_books`, `save_books`) intended for future DB swap
+- `backend/db/database.py` — SQLAlchemy engine, session factory, `get_db()` dependency, declarative `Base`
+- `backend/db/models.py` — `Book` ORM model mapped to the `books` table
+- `backend/repository/postgres_books_repository.py` — CRUD operations for `Book` records
+- `backend/services/postgres_books.py` — book CRUD use cases backed by the repository layer
+- `backend/book_data.py` — legacy CSV helper used by CSV-adjacent paths, not the book CRUD source of truth
 
 ### Recommendation / ranking logic
 
@@ -86,11 +89,14 @@ sequenceDiagram
   participant API as FastAPI routes
   participant Svc as services/
   participant Repo as repository/
-  participant CSV as books.csv
+  participant DB as PostgreSQL
 
   Browser->>API: GET /books?page=&limit=
-  API->>CSV: load_data() via book_data
-  CSV-->>API: DataFrame
+  API->>Svc: get_books_service(db, page, limit)
+  Svc->>Repo: get_all_books(db)
+  Repo->>DB: SQLAlchemy query
+  DB-->>Repo: Book rows
+  Repo-->>Svc: Book models
   API-->>Browser: { page, limit, total, results }
 ```
 
@@ -120,7 +126,7 @@ sequenceDiagram
   API-->>Browser: JSON array
 ```
 
-Mutations (add, patch, progress, delete, import, clear) go through `services/books.py`, persist via repository, then call `invalidate_recommendation_cache()`.
+Book CRUD mutations (add, patch, progress, delete, import, clear) go through `services/postgres_books.py` and persist through the PostgreSQL repository layer.
 
 ---
 
@@ -136,16 +142,16 @@ flowchart TB
     Routes[routes/]
     Services[services/]
     Repo[repository/]
-    BookData[book_data.py]
+    SA[SQLAlchemy]
     Rank[ranking/ + preprocess/]
-    CSV[(books.csv)]
+    DB[(PostgreSQL)]
   end
 
   UI -->|HTTPS JSON| Routes
   Routes --> Services
   Services --> Repo
-  Repo --> BookData
-  BookData --> CSV
+  Repo --> SA
+  SA --> DB
   Services --> Rank
   Rank -.->|read-only DataFrame| Services
 ```
@@ -159,13 +165,14 @@ flowchart TB
 | **UI** | Display library, collect edits, explain recommendations to readers | Implement scoring rules or persist data locally (except UI-only prefs) |
 | **Routes** | HTTP mapping, status codes, JSON/CSV response shapes | Contain shelf transition branching or ranking math |
 | **Services** | Use cases: add book, update progress, build recommendations | Know about React or Vite |
-| **Repository** | Load/save abstraction | Rank or validate HTTP bodies |
-| **book_data** | CSV file I/O, column repair | Business rules for shelf states |
+| **Repository** | SQLAlchemy-backed CRUD abstraction | Rank or validate HTTP bodies |
+| **Database** | SQLAlchemy session/model mapping and PostgreSQL persistence | Business rules for shelf states |
+| **book_data** | Legacy CSV I/O for CSV-adjacent compatibility paths | Book CRUD source of truth |
 | **ranking / preprocess** | Pure transforms on DataFrames | Read files or call HTTP |
 
 ### Known boundary gaps (current)
 
-- `GET /books` loads the full CSV via `load_data()` in the route, then slices for `page`/`limit` — wire-level pagination only until PostgreSQL; repository use remains a minor inconsistency.
+- `GET /books` now goes through `services/postgres_books.py` and the PostgreSQL repository layer. Pagination response shape is preserved; deeper SQL-level pagination can still be improved.
 - `backend/api_draft.py` exists as legacy reference; **not** mounted by `uvicorn backend.api:app`.
 - Title remains a lookup key for `PATCH /books` and `DELETE /books?title=`; book id (`ISBN/UID`) is preferred for progress and delete-by-id from the UI.
 
@@ -175,7 +182,7 @@ flowchart TB
 
 | Path | Schema | Entry |
 |------|--------|-------|
-| **App (live)** | `BOOKS_COLUMNS` in CSV | UI, API, CLI |
+| **App (live CRUD)** | SQLAlchemy `Book` model plus CSV-shaped API compatibility fields | UI, API |
 | **Batch (offline)** | Canonical lowercase fields | `backend/ingest/pipeline.py` |
 
 UI import uses `POST /books/import` (JSON)—not the batch pipeline. See [import-export.md](import-export.md).
@@ -213,7 +220,7 @@ Where code lives and what each layer may do.
 
 ```text
 shelftxt/
-├── backend/       # FastAPI, ranking, CSV persistence
+├── backend/       # FastAPI, ranking, PostgreSQL persistence
 ├── frontend/        # Vite + React SPA (Vercel)
 ├── cli/             # Local shelf helper
 ├── tests/           # Python unit tests
@@ -226,12 +233,13 @@ shelftxt/
 |------|----------------|
 | `api.py` | FastAPI app, CORS, keep-warm job, router registration |
 | `routes/` | HTTP handlers — call services, return JSON/CSV |
-| `schemas/` | Pydantic request models |
+| `schemas/` | Pydantic request/response models |
 | `services/` | Use cases: books CRUD, import/export, recommendations |
 | `services/recommendation_builder.py` | Top-10 recommendations + explanations |
 | `services/book_api.py` | Row → API book dict; lookup by `ISBN/UID` |
-| `repository/` | `get_all_books`, `save_books` → `book_data.py` |
-| `book_data.py` | CSV path, columns, load/save coercion |
+| `db/` | SQLAlchemy engine/session setup and ORM models |
+| `repository/` | PostgreSQL CRUD operations |
+| `book_data.py` | Legacy CSV path, columns, load/save coercion for CSV-adjacent paths |
 | `preprocess/` | `rating_norm`, `recency_norm` |
 | `ranking/` | `score_tbr_books`, `score_read_books` |
 | `ingest/` | Offline batch pipeline (not live UI import) |
@@ -240,13 +248,13 @@ shelftxt/
 #### Layer rules {#backend-layer-rules}
 
 ```text
-routes/  →  services/  →  repository/  →  book_data.py  →  CSV
+routes/  →  services/  →  repository/  →  SQLAlchemy  →  PostgreSQL
                 ↘  preprocess/ , ranking/  (algorithms only)
 ```
 
 | Layer | Do | Don't |
 |-------|-----|--------|
-| `routes/` | HTTP, delegate to services | Shelf algorithms, long CSV rules |
+| `routes/` | HTTP, dependency injection, delegate to services | Shelf algorithms, persistence rules |
 | `services/` | Orchestration, business validation | FastAPI route definitions |
 | `repository/` | Load/save abstraction | Ranking math |
 | `ranking/` | Pure DataFrame transforms | File I/O |
@@ -261,7 +269,7 @@ Always import with the `backend.` package prefix from repo root.
 | `books.py` | `GET /books?page&limit` (paginated), `/books/export`, `/books/import`, `/books/clear`, `/books/{id}/progress`, `/books/{id}` |
 | `recommendation.py` | `/recommend` |
 
-Most shelf logic lives in `services/books.py`. `GET /books` paginates in the route after `load_data()` (full CSV read until Postgres).
+Most PostgreSQL-backed shelf logic lives in `services/postgres_books.py`. Routes inject a database session with `get_db()` and preserve existing response formats.
 
 ### `frontend/`
 
@@ -298,7 +306,8 @@ Patch names **where they are used** in the module under test.
 |----------|---------|
 | API path or status code | `backend/routes/` |
 | Scoring or explanation text | `ranking/`, `services/recommendation_builder.py` |
-| CSV columns | `backend/book_data.py` |
+| PostgreSQL book schema | `backend/db/models.py` |
+| CSV compatibility columns | `backend/book_data.py` |
 | UI route or flow | `frontend/src/pages/` |
 | Deploy / env | [deployment.md](deployment.md) |
 | Past refactors | [devlogs/](../history/devlogs) |
@@ -307,7 +316,7 @@ Patch names **where they are used** in the module under test.
 
 ## Deployment notes
 
-See [deployment.md](deployment.md). Render runs a periodic self-ping to `/health` to reduce cold starts on free tier. CSV on Render filesystem may not survive redeploys—documented as an operational limitation in [scalability.md](scalability.md).
+See [deployment.md](deployment.md). Render runs a periodic self-ping to `/health` to reduce cold starts on free tier.
 
 ---
 
@@ -316,9 +325,9 @@ See [deployment.md](deployment.md). Render runs a periodic self-ping to `/health
 | Area | Status |
 |------|--------|
 | Layered routes + services | Mostly done |
-| `GET /books` via repository; server-side CSV paging | Minor gap |
+| `GET /books` via repository | Done |
 | Remove `api_draft.py` | Pending |
-| Postgres migration | Planned — [ROADMAP.md](../../ROADMAP.md) |
+| Postgres migration phases 1-7 | Complete — [postgres-migration-audit.md](postgres-migration-audit.md) |
 
 ---
 

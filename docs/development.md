@@ -4,15 +4,15 @@ Local setup and day-to-day commands. For production deployment, see [deployment.
 
 ## Current Storage Status
 
-ShelfTxt still uses CSV storage as the active production storage layer.
+ShelfTxt now uses PostgreSQL as the primary storage backend for book CRUD operations.
 
-Live application data is stored at:
+The active book CRUD path is:
 
 ```txt
-backend/data/processed/books.csv
+Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
 ```
 
-The PostgreSQL migration is in progress. PostgreSQL infrastructure, the initial SQLAlchemy foundation, Alembic migrations, and the first repository layer have been added. Routes and services have not been fully migrated yet, and CSV storage has not been removed.
+PostgreSQL migration phases 1-7 are complete. Book CRUD routes use database session injection through `get_db()` and call the PostgreSQL-backed service/repository layer. CSV support remains for import/export compatibility and for migration-adjacent workflows; CSV is no longer the source of truth for book CRUD routes.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ The PostgreSQL migration stack is installed through `requirements.txt`:
 
 ## Database Development Setup
 
-PostgreSQL is available for local migration work through Docker Compose. It is not the active runtime storage layer for routes, services, repositories, the CLI, or production data yet.
+PostgreSQL is available for local development through Docker Compose and is the active storage layer for book CRUD routes.
 
 ### Environment Variables
 
@@ -61,7 +61,7 @@ Required backend environment variables:
 
 | Variable | Purpose | Local development value |
 | --- | --- | --- |
-| `DATABASE_URL` | SQLAlchemy PostgreSQL connection string for migration work | `postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt` |
+| `DATABASE_URL` | SQLAlchemy PostgreSQL connection string for book CRUD | `postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt` |
 
 `.env` files are gitignored. `.env.example` is committed as the local development template.
 
@@ -115,7 +115,7 @@ These values are defined in `docker-compose.yml`:
 
 ## Database Layer
 
-The initial SQLAlchemy foundation has been added for the PostgreSQL migration.
+The SQLAlchemy foundation is used by the PostgreSQL-backed book CRUD API.
 
 Current database files:
 
@@ -132,13 +132,7 @@ Current database foundation:
 * `SessionLocal` is configured with `autocommit=False`, `autoflush=False`, and the shared engine.
 * `get_db()` yields a SQLAlchemy `Session` and closes it after use.
 * `Base` uses SQLAlchemy `DeclarativeBase`.
-* `Book` maps to the `books` table with fields for title, author, genre, status, rating, pages, and date strings.
-
-Important current limitations:
-
-* API routes do not use PostgreSQL yet.
-* Routes and services have not been fully migrated to PostgreSQL yet.
-* CSV remains the active production storage layer.
+* `Book` maps to the `books` table with fields for title, authors, stable external id, status, rating, pages, progress, and date values.
 
 ---
 
@@ -172,7 +166,7 @@ Current repository file:
 
 | File | Purpose |
 | --- | --- |
-| `backend/repository/books_repository.py` | Provides CRUD operations for `Book` records in PostgreSQL |
+| `backend/repository/postgres_books_repository.py` | Provides CRUD operations for `Book` records in PostgreSQL |
 
 Implemented repository operations:
 
@@ -184,11 +178,7 @@ Implemented repository operations:
 
 CRUD means create, read, update, and delete. These are the basic operations needed to manage records in a database.
 
-The repository CRUD operations have been successfully tested against PostgreSQL.
-
-Important current limitation:
-
-* The repository layer exists, but routes and services have not been fully migrated to use it yet.
+The repository CRUD operations are used by book CRUD routes through `backend/services/postgres_books.py`.
 
 ---
 
@@ -235,7 +225,7 @@ Completed migration phases:
 
 ### Phase 5: Repository Layer
 
-* Implemented repository CRUD operations in `backend/repository/books_repository.py`.
+* Implemented repository CRUD operations in `backend/repository/postgres_books_repository.py`.
 * Added `get_all_books()`.
 * Added `get_book_by_id()`.
 * Added `create_book()`.
@@ -243,7 +233,36 @@ Completed migration phases:
 * Added `delete_book()`.
 * Verified create, read, update, and delete operations against PostgreSQL.
 
-The migration is not complete. The application has not fully migrated away from CSV storage yet. Routes and services have not been fully migrated to PostgreSQL, and PostgreSQL should not be treated as the active production storage layer.
+### Phase 6: API Refactor
+
+* Refactored `GET /books` to use the PostgreSQL repository layer.
+* Refactored `GET /books/{id}` to use the PostgreSQL repository layer.
+* Refactored `POST /books` to use the PostgreSQL repository layer.
+* Refactored `PATCH /books` to use the PostgreSQL repository layer.
+* Refactored `DELETE /books` to use the PostgreSQL repository layer.
+* Added database session injection via `get_db`.
+* Preserved existing API response formats.
+* Migrated the book import endpoint to PostgreSQL-backed storage.
+* Repository layer is now used by book CRUD routes.
+
+### Phase 7: Schema Validation
+
+* Reviewed and updated book-related Pydantic schemas.
+* Added stronger request validation.
+* Added response models.
+* Added ORM compatibility via `ConfigDict(from_attributes=True)`.
+* Added validation constraints for ratings, page counts, statuses, import requests, and pagination metadata.
+* Updated progress status validation.
+* Verified compatibility with PostgreSQL-backed routes.
+
+Current migration status:
+
+* PostgreSQL migration phases 1-7 are complete.
+* PostgreSQL is now the primary storage backend for book CRUD operations.
+* Book CRUD operations use PostgreSQL as the source of truth.
+* CRUD routes no longer depend on CSV storage.
+* Existing API response compatibility is maintained.
+* 34 tests are passing.
 
 ---
 
@@ -302,7 +321,7 @@ Restart the frontend after modifying environment variables.
 python -m cli.manage_books
 ```
 
-The CLI currently shares the CSV storage layer with the API.
+The CLI may still use the legacy CSV helper path. Prefer the API for PostgreSQL-backed CRUD behavior.
 
 ---
 
@@ -336,22 +355,16 @@ for development workflow and architecture guidelines.
 
 ### Current Storage
 
-ShelfTxt currently uses:
-
-```txt
-backend/data/processed/books.csv
-```
-
-for live application data.
+ShelfTxt currently uses PostgreSQL for book CRUD operations. CSV remains available for export/import compatibility and local migration-adjacent workflows.
 
 ### Data Directories
 
 | Path | Git Status | Purpose |
 | --- | --- | --- |
 | `backend/data/raw/` | Tracked with `.gitkeep` | Optional CSV staging |
-| `backend/data/processed/books.csv` | Gitignored | Live library storage |
+| `backend/data/processed/books.csv` | Gitignored | Legacy CSV/import-export compatibility data |
 
-The API and CLI automatically create an empty `books.csv` if one does not exist.
+Legacy CSV helpers may create an empty `books.csv` if one does not exist.
 
 ---
 
@@ -361,7 +374,7 @@ The API and CLI automatically create an empty `books.csv` if one does not exist.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string for migration work |
+| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed book CRUD |
 
 ### Frontend
 

@@ -35,7 +35,7 @@ These dependencies are installed through `requirements.txt`.
 
 ## Database Development Setup
 
-ShelfTxt currently uses CSV storage in production. PostgreSQL infrastructure has been added to support the ongoing database migration.
+ShelfTxt uses PostgreSQL as the primary storage backend for book CRUD operations. Local development uses Docker Compose for PostgreSQL.
 
 ### Environment Variables
 
@@ -150,7 +150,7 @@ Restart the frontend after modifying environment variables.
 python -m cli.manage_books
 ```
 
-The CLI currently shares the CSV storage layer with the API.
+The CLI may still use the legacy CSV helper path. Prefer the API when verifying PostgreSQL-backed CRUD behavior.
 
 ---
 
@@ -182,22 +182,24 @@ for development workflow and architecture guidelines.
 
 ### Current Storage
 
-ShelfTxt currently uses:
+ShelfTxt currently uses PostgreSQL for book CRUD operations.
+
+The book CRUD flow is:
 
 ```txt
-backend/data/processed/books.csv
+Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
 ```
 
-for live application data.
+CSV remains available for import/export compatibility and legacy helper paths.
 
 ### Data Directories
 
 | Path                               | Git Status           | Purpose              |
 | ---------------------------------- | -------------------- | -------------------- |
 | `backend/data/raw/`                | Tracked (`.gitkeep`) | Optional CSV staging |
-| `backend/data/processed/books.csv` | Gitignored           | Live library storage |
+| `backend/data/processed/books.csv` | Gitignored           | Legacy CSV/import-export compatibility data |
 
-The API and CLI automatically create an empty `books.csv` if one does not exist.
+Legacy CSV helpers may create an empty `books.csv` if one does not exist.
 
 ---
 
@@ -207,7 +209,7 @@ The API and CLI automatically create an empty `books.csv` if one does not exist.
 
 | Variable       | Purpose                                         |
 | -------------- | ----------------------------------------------- |
-| `DATABASE_URL` | PostgreSQL connection string for migration work |
+| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed book CRUD |
 
 ### Frontend
 

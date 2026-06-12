@@ -4,7 +4,7 @@
 
 Help readers choose **what to read next** from their own to-read (TBR) list using signals from books they have **already finished**, with explanations a human can understand.
 
-ShelfTxt does **not** use collaborative filtering across users or external ML APIs. All signals come from **one library** (one CSV today).
+ShelfTxt does **not** use collaborative filtering across users or external ML APIs. All signals come from **one library**.
 
 ---
 
@@ -24,7 +24,7 @@ This trades “magic” for **inspectability**, which fits a pre-release tool ai
 
 ```mermaid
 flowchart LR
-  A[load books.csv] --> B[normalize_rating]
+  A[load library rows] --> B[normalize_rating]
   B --> C[compute_recency]
   C --> D[score_tbr_books]
   D --> E[head top 10]
