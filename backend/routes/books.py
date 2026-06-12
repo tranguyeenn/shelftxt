@@ -5,18 +5,18 @@ from sqlalchemy.orm import Session
 from backend.db.database import get_db
 from backend.schemas.books import (
     AddBook,
-    BooksPage,
-    PatchBook,
-    ImportBooks,
     BookProgressPatch,
+    BooksPage,
     ClearLibraryRequest,
+    ImportBooks,
+    PatchBook,
 )
-from backend.services.books import export_library_csv
 from backend.services.postgres_books import (
     add_book_service,
     clear_library_service,
     delete_book_by_id_service,
     delete_book_by_title_service,
+    export_library_csv,
     get_book_by_id_service,
     get_books_service,
     import_books_service,
@@ -37,8 +37,10 @@ async def get_books(
 
 
 @router.get("/books/export")
-async def export_books():
-    csv_content = export_library_csv()
+async def export_books(
+    db: Session = Depends(get_db),
+):
+    csv_content = export_library_csv(db)
 
     return Response(
         content=csv_content,

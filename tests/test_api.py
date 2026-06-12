@@ -1,15 +1,12 @@
 import unittest
 from unittest.mock import patch
 
-import numpy as np
-import pandas as pd
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend import api
-from backend.book_data import BOOKS_COLUMNS
 from backend.db.database import Base, get_db
 from backend.db.models import Book
 
@@ -349,6 +346,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["results"][0]["Title"], "Existing Book")
 
+    def test_export_library_csv(self):
+        _seed_book(
+            title="Export Me",
+            authors="Author",
+            isbn_uid="1",
+            total_pages=100,
+        )
+
+        response = self.client.get("/books/export")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response.headers.get("content-type", ""))
+        self.assertIn("Export Me", response.text)
+        self.assertIn("Author", response.text)
+        self.assertIn("ISBN/UID", response.text)
+
     @patch("backend.routes.recommendation.get_recommendation")
     def test_recommend_returns_structured_payload(self, mock_get_recommendation):
         mock_get_recommendation.return_value = [
@@ -385,33 +398,6 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
         mock_get_recommendation.assert_called_once_with(style="balanced")
-
-    @patch("backend.services.books.invalidate_recommendation_cache")
-    @patch("backend.services.books.save_books")
-    @patch("backend.services.books.get_all_books")
-    def test_export_library_csv(self, mock_get_all, mock_save, mock_invalidate):
-        mock_get_all.return_value = pd.DataFrame(
-            [
-                {
-                    "Title": "Export Me",
-                    "Authors": "Author",
-                    "ISBN/UID": "1",
-                    "Read Status": "to-read",
-                    "Star Rating": np.nan,
-                    "Last Date Read": None,
-                    "Progress (%)": 0,
-                    "Pages Read": 0,
-                    "Total Pages": 100,
-                }
-            ],
-            columns=BOOKS_COLUMNS,
-        )
-
-        response = self.client.get("/books/export")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("text/csv", response.headers.get("content-type", ""))
-        self.assertIn("Export Me", response.text)
 
 
 if __name__ == "__main__":

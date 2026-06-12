@@ -1,5 +1,7 @@
+import csv
 import uuid
 from datetime import date
+from io import StringIO
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -62,6 +64,31 @@ def get_book_by_id_service(db: Session, book_id: str):
         raise HTTPException(status_code=404, detail="Book not found")
 
     return book_to_dict(book)
+
+
+def export_library_csv(db: Session) -> str:
+    books = get_all_books(db)
+
+    fieldnames = [
+        "Title",
+        "Authors",
+        "ISBN/UID",
+        "Read Status",
+        "Star Rating",
+        "Last Date Read",
+        "Progress (%)",
+        "Pages Read",
+        "Total Pages",
+    ]
+
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for book in books:
+        writer.writerow(book_to_dict(book))
+
+    return output.getvalue()
 
 
 def add_book_service(db: Session, book):
