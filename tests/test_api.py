@@ -387,7 +387,9 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload[0]["book"]["title"], "Snow Crash")
         self.assertIn("explanation", payload[0])
         self.assertIn("similar_books", payload[0])
-        mock_get_recommendation.assert_called_once_with(style="balanced")
+
+        self.assertEqual(mock_get_recommendation.call_count, 1)
+        self.assertEqual(mock_get_recommendation.call_args.kwargs["style"], "balanced")
 
     @patch("backend.routes.recommendation.get_recommendation")
     def test_recommend_returns_empty_when_no_pick(self, mock_get_recommendation):
@@ -397,7 +399,9 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
-        mock_get_recommendation.assert_called_once_with(style="balanced")
+
+        self.assertEqual(mock_get_recommendation.call_count, 1)
+        self.assertEqual(mock_get_recommendation.call_args.kwargs["style"], "balanced")
 
 
 if __name__ == "__main__":
