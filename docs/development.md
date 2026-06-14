@@ -12,7 +12,7 @@ The active book CRUD path is:
 Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
 ```
 
-PostgreSQL migration phases 1-7 are complete. Book CRUD routes use database session injection through `get_db()` and call the PostgreSQL-backed service/repository layer. CSV support remains for import/export compatibility and for migration-adjacent workflows; CSV is no longer the source of truth for book CRUD routes.
+The PostgreSQL migration is complete for book CRUD. Routes use database session injection through `get_db()` and call the PostgreSQL-backed service/repository layer. CSV support remains for import/export compatibility and migration workflows; CSV is no longer the source of truth for book CRUD routes.
 
 ## Requirements
 
@@ -85,6 +85,30 @@ Expected local service:
 shelftxt-postgres
 ```
 
+### Stop PostgreSQL
+
+Stop the local database container without deleting the volume:
+
+```bash
+docker compose down
+```
+
+### Reset PostgreSQL
+
+Delete the local PostgreSQL volume, recreate the container, and rebuild the schema:
+
+```bash
+docker compose down -v
+docker compose up -d
+alembic upgrade head
+```
+
+To reload legacy CSV data after a reset:
+
+```bash
+python -m backend.scripts.migrate_csv_to_postgres --csv backend/data/processed/books.csv
+```
+
 ### Connect to PostgreSQL with psql
 
 Use `psql` inside the running container:
@@ -154,6 +178,28 @@ Current Alembic migration work:
 
 The `alembic_version` table is managed by Alembic. It records which migration has been applied so Alembic knows the current database version.
 
+### Run Migrations
+
+Apply all migrations from the repository root after PostgreSQL is running:
+
+```bash
+alembic upgrade head
+```
+
+### Create a Migration
+
+After changing SQLAlchemy models in `backend/db/models.py`, generate a migration:
+
+```bash
+alembic revision --autogenerate -m "describe schema change"
+```
+
+Review the generated file in `alembic/versions/`, then apply it:
+
+```bash
+alembic upgrade head
+```
+
 ---
 
 ## Repository Layer
@@ -182,87 +228,39 @@ The repository CRUD operations are used by book CRUD routes through `backend/ser
 
 ---
 
-## PostgreSQL Migration Progress
+## Storage Architecture
 
-Completed migration phases:
+PostgreSQL is the source of truth for book CRUD operations.
 
-### Phase 1: Local PostgreSQL Infrastructure
+| Layer | File | Responsibility |
+| --- | --- | --- |
+| Database setup | `backend/db/database.py` | Loads `.env`, reads `DATABASE_URL`, creates the SQLAlchemy engine, configures `SessionLocal`, defines `Base`, and provides `get_db()` |
+| Models | `backend/db/models.py` | Defines SQLAlchemy models, including the `Book` model mapped to the `books` table |
+| Repository | `backend/repository/postgres_books_repository.py` | Isolates SQLAlchemy queries and CRUD operations |
+| Services | `backend/services/postgres_books.py` | Applies book business rules while preserving API response shapes |
+| Routes | `backend/routes/books.py` | Handles HTTP requests and injects database sessions |
 
-* Added Docker Compose configuration.
-* Added local PostgreSQL container using `postgres:16`.
-* Added `.env` support.
-* Added `DATABASE_URL`.
-* Added `.env.example`.
-* Updated `.gitignore` for local environment files.
+Routes and services should not directly manipulate CSV files for primary book storage. CSV paths are compatibility boundaries for import, export, offline ingest, and migration utilities.
 
-### Phase 2: Database Dependencies
+## CSV Migration and Compatibility
 
-* Added SQLAlchemy.
-* Added psycopg.
-* Added Alembic.
-* Added python-dotenv.
-* Updated `requirements.txt`.
+### Migrate Legacy CSV Data
 
-### Phase 3: SQLAlchemy Foundation
+Run this after `docker compose up -d` and `alembic upgrade head`:
 
-* Added `backend/db/database.py`.
-* Added `backend/db/models.py`.
-* Configured the SQLAlchemy engine.
-* Configured `SessionLocal`.
-* Implemented `get_db()`.
-* Added the initial `Book` SQLAlchemy model.
+```bash
+python -m backend.scripts.migrate_csv_to_postgres --csv backend/data/processed/books.csv
+```
 
-### Phase 4: Alembic Migrations
+The `--csv` option is optional; the default path is `backend/data/processed/books.csv`. Imported rows are written to PostgreSQL. The migration utility skips duplicates by existing `ISBN/UID` or title, skips invalid rows, and prints a summary.
 
-* Initialized Alembic.
-* Connected Alembic to SQLAlchemy metadata.
-* Generated the initial migration.
-* Applied the migration to PostgreSQL.
-* Created the `books` table.
-* Created the `alembic_version` table.
-* Verified schema creation through PostgreSQL.
-* Confirmed the database schema can be recreated through migration files.
+### Import and Export
 
-### Phase 5: Repository Layer
+CSV remains supported for compatibility:
 
-* Implemented repository CRUD operations in `backend/repository/postgres_books_repository.py`.
-* Added `get_all_books()`.
-* Added `get_book_by_id()`.
-* Added `create_book()`.
-* Added `update_book()`.
-* Added `delete_book()`.
-* Verified create, read, update, and delete operations against PostgreSQL.
-
-### Phase 6: API Refactor
-
-* Refactored `GET /books` to use the PostgreSQL repository layer.
-* Refactored `GET /books/{id}` to use the PostgreSQL repository layer.
-* Refactored `POST /books` to use the PostgreSQL repository layer.
-* Refactored `PATCH /books` to use the PostgreSQL repository layer.
-* Refactored `DELETE /books` to use the PostgreSQL repository layer.
-* Added database session injection via `get_db`.
-* Preserved existing API response formats.
-* Migrated the book import endpoint to PostgreSQL-backed storage.
-* Repository layer is now used by book CRUD routes.
-
-### Phase 7: Schema Validation
-
-* Reviewed and updated book-related Pydantic schemas.
-* Added stronger request validation.
-* Added response models.
-* Added ORM compatibility via `ConfigDict(from_attributes=True)`.
-* Added validation constraints for ratings, page counts, statuses, import requests, and pagination metadata.
-* Updated progress status validation.
-* Verified compatibility with PostgreSQL-backed routes.
-
-Current migration status:
-
-* PostgreSQL migration phases 1-7 are complete.
-* PostgreSQL is now the primary storage backend for book CRUD operations.
-* Book CRUD operations use PostgreSQL as the source of truth.
-* CRUD routes no longer depend on CSV storage.
-* Existing API response compatibility is maintained.
-* 34 tests are passing.
+* `POST /books/import` accepts parsed CSV rows from the frontend, creates PostgreSQL rows, and skips duplicate titles.
+* `GET /books/export` returns the current PostgreSQL library as CSV.
+* The offline ingest pipeline in `backend/ingest/` can process external CSV schemas, but it does not replace PostgreSQL as the app storage backend.
 
 ---
 
@@ -330,7 +328,15 @@ The CLI may still use the legacy CSV helper path. Prefer the API for PostgreSQL-
 Run all tests:
 
 ```bash
-./.venv/bin/python -m unittest discover -s tests -v
+pytest
+```
+
+If `pytest` is not available in the active environment, install development dependencies with `pip install -r requirements-dev.txt`.
+
+The unittest runner is also supported:
+
+```bash
+python -m unittest discover -s tests -v
 ```
 
 ### Test Coverage
@@ -341,6 +347,8 @@ Run all tests:
 | `tests/test_flexible_pipeline.py` | Ingest, validation, ranking pipeline |
 | `tests/test_recommendation_builder.py` | Recommendation response construction |
 | `tests/test_score.py` | Ranking score helpers |
+
+DB-backed behavior should be tested through routes/services using database sessions or explicit test doubles. Keep CSV-specific tests focused on import/export compatibility and offline ingest behavior.
 
 See:
 

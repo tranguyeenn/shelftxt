@@ -1,6 +1,6 @@
 # Import and export flow
 
-ShelfTxt supports two related but **separate** CSV paths:
+ShelfTxt uses PostgreSQL as the primary storage backend. It still supports two related but **separate** CSV compatibility paths:
 
 1. **Live UI import / API export** — what readers use in Settings
 2. **Batch ingest pipeline** — developer/offline tool for foreign CSV schemas
@@ -26,12 +26,11 @@ flowchart TD
   E --> F[User clicks Import]
   F --> G[POST /books/import JSON body]
   G --> H[import_books_service]
-  H --> I{Title exists?}
+  H --> I{Title exists in PostgreSQL?}
   I -->|yes| J[skipped++]
-  I -->|no| K[append row to DataFrame]
-  K --> L[save_books + invalidate cache]
+  I -->|no| K[create PostgreSQL Book row]
   J --> M[Response imported/skipped]
-  L --> M
+  K --> M
 ```
 
 ### Expected CSV fields (UI parser)
@@ -46,7 +45,7 @@ The frontend accepts flexible header names:
 
 **Minimum:** at least one row with a non-empty title.
 
-Optional fields in the file beyond these three are **ignored** by UI import—not written to `books.csv`.
+Optional fields in the file beyond these three are **ignored** by UI import.
 
 ### API request shape
 
@@ -66,14 +65,12 @@ For each row:
 
 1. Strip title; skip if empty → `skipped`
 2. Skip if `Title` already in library (case-sensitive) → `skipped`
-3. Append row:
+3. Create a PostgreSQL row:
    - `Read Status` = `to-read`
    - `Progress (%)` = 0, `Pages Read` = 0
-   - `ISBN/UID` = timestamp-based unique string
+   - `ISBN/UID` = generated unique id
    - `Authors` = provided or `"Unknown"`
    - `Star Rating`, `Last Date Read` = empty
-
-If `imported > 0`: save and invalidate recommendation cache.
 
 ### Response
 
@@ -95,13 +92,13 @@ Backup, migration, editing in Excel/Sheets, or re-import elsewhere.
 flowchart LR
   A[User clicks Export] --> B[GET /books/export]
   B --> C[export_library_csv]
-  C --> D[pandas to_csv all BOOKS_COLUMNS]
+  C --> D[read PostgreSQL books]
   D --> E[Browser download shelftxt-library.csv]
 ```
 
 ### Exported fields
 
-All columns from `BOOKS_COLUMNS`:
+Export uses the CSV-compatible public fields:
 
 `Title`, `Authors`, `ISBN/UID`, `Read Status`, `Star Rating`, `Last Date Read`, `Progress (%)`, `Pages Read`, `Total Pages`
 
@@ -116,9 +113,9 @@ Export includes **full library state**, not only TBR.
 | Client parse | Papa Parse errors surfaced in Settings UI |
 | Client normalize | Invalid/missing pages → `null`; skip rows without title |
 | Server import | Pydantic validates JSON shape; per-row skip logic |
-| Server load (any read) | Missing columns added; status lowercased; dates coerced |
+| Server export | PostgreSQL rows are serialized to CSV-compatible field names |
 
-Invalid star ratings in a hand-edited CSV may survive load but affect normalization at recommend time (`errors="coerce"` paths).
+Invalid star ratings in a hand-edited CSV should be corrected before import. Recommendation-adjacent CSV helpers may still coerce legacy CSV values when those paths are used.
 
 ---
 
@@ -141,13 +138,13 @@ Invalid star ratings in a hand-edited CSV may survive load but affect normalizat
 - Export → edit → re-import: **duplicate titles skipped**, not updated. Re-import is additive only.
 - To “update” existing rows, use UI progress editor or `PATCH` endpoints—not import.
 - Preserving `ISBN/UID` on re-import is **not** supported through UI import (new ids assigned for new titles only).
-- Batch pipeline can map `Genre` and other fields into canonical form but does not automatically merge into live CSV unless operated separately ([batch pipeline](#batch-pipeline)).
+- Batch pipeline can map `Genre` and other fields into canonical form but does not automatically merge into PostgreSQL storage unless operated separately ([batch pipeline](#batch-pipeline)).
 
 ---
 
 ## Clear library (related)
 
-`POST /books/clear` with confirm resets CSV to headers-only. Distinct from export; irreversible without a backup file.
+`POST /books/clear` with confirm deletes PostgreSQL book rows. Distinct from export; irreversible without a backup file.
 
 ---
 
@@ -160,7 +157,7 @@ Batch ingestion for arbitrary user CSV schemas. Used from Python (`backend/inges
 | Entry | Settings / API | `backend/ingest/pipeline.py` |
 | Input | JSON from parsed CSV | File path + mapping JSON |
 | Schema | App columns only | Canonical schema + genre |
-| Writes live CSV | yes | only if operator saves output to processed path |
+| Writes app storage | yes, PostgreSQL rows | no automatic app storage write |
 
 Do not conflate the two when documenting user-facing behavior.
 

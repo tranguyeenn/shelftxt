@@ -69,12 +69,18 @@ Deeper docs: [documentation index](./docs/README.md) · [architecture](./docs/en
 
 ### Backend (required for API work)
 
+PostgreSQL is the primary storage backend for book CRUD data. Local development uses Docker Compose to run PostgreSQL, SQLAlchemy for database access, and Alembic for schema migrations.
+
 ```bash
 git clone https://github.com/tranguyeenn/shelftxt.git
 cd shelftxt
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+docker compose up -d
+docker compose ps
+alembic upgrade head
 uvicorn backend.api:app --reload
 ```
 
@@ -82,6 +88,67 @@ uvicorn backend.api:app --reload
 - Swagger: http://127.0.0.1:8000/docs  
 
 Run commands from the **repo root** so `backend` resolves as a package.
+
+#### Prerequisites
+
+- Python 3
+- Docker and Docker Compose
+- Local PostgreSQL through `docker compose`
+
+#### Environment
+
+Copy the example environment file, then adjust values if your local database differs:
+
+```bash
+cp .env.example .env
+```
+
+Required variable:
+
+```env
+DATABASE_URL=postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt
+```
+
+#### Database commands
+
+Start PostgreSQL and check the container:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Install dependencies and apply migrations:
+
+```bash
+pip install -r requirements.txt
+alembic upgrade head
+```
+
+Reset the local database from scratch:
+
+```bash
+docker compose down -v
+docker compose up -d
+alembic upgrade head
+```
+
+#### Migrating old CSV data
+
+After PostgreSQL is running and migrations have been applied, migrate an existing ShelfTxt CSV into PostgreSQL:
+
+```bash
+python -m backend.scripts.migrate_csv_to_postgres --csv backend/data/processed/books.csv
+```
+
+The `--csv` option is optional; when omitted, the script uses `backend/data/processed/books.csv`. Imported rows are stored in PostgreSQL. The migration skips duplicate rows when the `ISBN/UID` or title already exists, and reports imported, duplicate, and invalid row counts.
+
+#### CSV compatibility
+
+CSV is no longer the primary storage mechanism for book CRUD. CSV import and export remain supported for backups, spreadsheet workflows, and compatibility:
+
+- `POST /books/import` imports parsed rows into PostgreSQL and skips duplicate titles.
+- `GET /books/export` exports the current PostgreSQL library as `shelftxt-library.csv`.
 
 ### Frontend (optional)
 
@@ -94,15 +161,17 @@ Open http://localhost:3000. See [docs/contributors/development.md](docs/contribu
 ### Tests
 
 ```bash
-python -m unittest discover -s tests -v
+pytest
 ```
 
-Optional local tooling (if you prefer `pytest`):
+If `pytest` is not installed in your active environment:
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q
+python -m pytest
 ```
+
+`python -m unittest discover -s tests -v` is also supported.
 
 ---
 
