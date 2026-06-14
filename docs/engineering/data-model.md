@@ -2,18 +2,18 @@
 
 ## Overview
 
-ShelfTxt persists each user's library as rows in **`backend/data/processed/books.csv`**. The file is created empty (headers only) on first access. It is **gitignored** and lives on the server filesystem in production.
+ShelfTxt persists book CRUD data as rows in PostgreSQL through the SQLAlchemy `Book` model in `backend/db/models.py`. API responses still preserve the CSV-shaped field names used by the frontend and CSV export/import workflows.
 
 Two related schemas exist:
 
-1. **App CSV** — what the API and UI use today (`BOOKS_COLUMNS` in `book_data.py`)
+1. **App book model** — what the API and UI use today (`Book` in `backend/db/models.py`, exposed with CSV-compatible response keys)
 2. **Canonical schema** — used by the offline batch ingest pipeline (`backend/ingest/`)
 
-This document focuses on the **app CSV** unless noted.
+This document focuses on the **app book model** unless noted.
 
 ---
 
-## Current book fields (app CSV)
+## Current book fields (app model)
 
 | Column | Required on write | Type (logical) | Meaning |
 |--------|-------------------|----------------|---------|
@@ -122,15 +122,15 @@ See [recommendation-system.md](recommendation-system.md) for scoring detail.
 
 ### Export
 
-`GET /books/export` writes all `BOOKS_COLUMNS` via pandas `to_csv`.
+`GET /books/export` writes all `BOOKS_COLUMNS` as CSV for backup and spreadsheet workflows.
 
 ### Import (UI)
 
 Frontend accepts CSV headers: `title`/`Title`, `author`/`Author`, `total_pages`/`Total Pages`. Parsed client-side with Papa Parse, sent as JSON to the API.
 
-### Load repair
+### Legacy CSV load repair
 
-On `load_data()`:
+Legacy CSV helpers still normalize data when `load_data()` is used by CSV-adjacent or migration workflows:
 
 - Missing columns are added as NaN
 - Column order normalized to `BOOKS_COLUMNS`
@@ -141,7 +141,7 @@ Extra columns in an uploaded file are **not** persisted through UI import today�
 
 ### Batch pipeline (separate)
 
-Offline ingest can map external exports to canonical fields including **genre**. See [import-export.md](import-export.md#batch-pipeline). That path does not automatically merge into live `books.csv` unless run manually.
+Offline ingest can map external exports to canonical fields including **genre**. See [import-export.md](import-export.md#batch-pipeline). That path does not automatically merge into live PostgreSQL storage unless run manually.
 
 ---
 
@@ -159,7 +159,7 @@ Offline ingest can map external exports to canonical fields including **genre**.
 
 ---
 
-## Future fields (planned — not in app CSV today)
+## Future fields (planned — not in app model today)
 
 These appear in early reader feedback and design discussions. **Do not assume they exist in code** until implemented.
 

@@ -80,7 +80,7 @@ npm run build         # Full production build
 ## Where to put code
 
 ```text
-HTTP request  →  routes/  →  services/  →  repository/  →  book_data.py  →  CSV
+HTTP request  →  routes/  →  services/  →  repository/  →  SQLAlchemy  →  PostgreSQL
                                   ↘  preprocess/ , ranking/
 ```
 

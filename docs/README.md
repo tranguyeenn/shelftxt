@@ -58,7 +58,7 @@
 
 ## Code anchors
 
-- Persistence: [`backend/book_data.py`](../backend/book_data.py)
+- Persistence: [`backend/db/`](../backend/db) and [`backend/repository/postgres_books_repository.py`](../backend/repository/postgres_books_repository.py)
 - Routes: [`backend/routes/`](../backend/routes)
 - Services: [`backend/services/`](../backend/services)
 - Frontend API client: [`frontend/src/lib/api.ts`](../frontend/src/lib/api.ts)

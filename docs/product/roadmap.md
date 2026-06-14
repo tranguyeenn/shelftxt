@@ -57,7 +57,7 @@ ShelfTxt remains **pre-release**; order and scope will change.
 | Item | Rationale |
 |------|-----------|
 | Deterministic ranking tests | Safe refactors to scoring |
-| Complete repository consistency | e.g. `GET /books` via repository |
+| PostgreSQL CRUD follow-up | SQL-level pagination, remaining CSV-adjacent paths, DB integration tests |
 | Remove / archive `api_draft.py` | Reduce confusion |
 | Document OpenAPI ↔ system-design parity | Keep docs trustworthy |
 | Expand progress + patch test coverage | Shelf edge cases |
@@ -66,10 +66,10 @@ ShelfTxt remains **pre-release**; order and scope will change.
 
 | Item | Rationale |
 |------|-----------|
-| **PostgreSQL migration** | Durability, concurrency ([ROADMAP.md](../../ROADMAP.md)) |
+| Auth-aware storage | Per-user `library_id`, account-backed libraries |
 | Repository + service tests with real DB | Integration confidence |
 | UI pagination on Library (server `GET /books` already paginated) | Large libraries |
-| Structured response schemas | OpenAPI completeness |
+| Structured response schemas beyond book CRUD | OpenAPI completeness |
 | Optional Redis cache | Multi-instance recommend cache |
 
 ### Long-term

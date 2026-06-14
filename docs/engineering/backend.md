@@ -5,7 +5,10 @@
 ```text
 backend/
 ├── api.py                 # FastAPI app, CORS, lifespan, router includes
-├── book_data.py           # CSV load/save, BOOKS_COLUMNS
+├── book_data.py           # Legacy CSV helpers, BOOKS_COLUMNS
+├── db/
+│   ├── database.py        # SQLAlchemy engine, SessionLocal, get_db
+│   └── models.py          # Book ORM model
 ├── routes/
 │   ├── health.py          # GET/HEAD /health
 │   ├── books.py           # /books, import, export, clear, progress, delete by id
@@ -18,7 +21,8 @@ backend/
 │   ├── recommendation.py  # Cached get_recommendation()
 │   └── recommendation_builder.py  # Top-N + explanations + similar books
 ├── repository/
-│   └── books_repository.py
+│   ├── books_repository.py
+│   └── postgres_books_repository.py  # PostgreSQL CRUD repository
 ├── preprocess/
 │   └── normalize.py       # rating_norm, recency_norm
 ├── ranking/
@@ -50,13 +54,14 @@ backend/
 - Request validation at the HTTP boundary
 - Models today: `AddBook`, `PatchBook`, `ImportBooks`, `BookProgressPatch`, `ClearLibraryRequest`
 
-Response bodies are mostly plain dicts or DataFrame-derived records—not always wrapped in response schemas yet.
+Book-related schemas include stronger request validation, response models, pagination metadata constraints, and ORM compatibility via `ConfigDict(from_attributes=True)`.
 
 ### Repository / data access
 
-- `books_repository.py`: `get_all_books()`, `save_books(df)`, helpers
-- Underlying I/O: `book_data.load_data()` / `save_data()`
-- Intended swap point for PostgreSQL or similar without changing route signatures
+- `postgres_books_repository.py`: `get_all_books()`, `get_book_by_id()`, `get_book_by_isbn_uid()`, `create_book()`, `update_book()`, `delete_book()`
+- Underlying I/O: SQLAlchemy session operations against PostgreSQL
+- Book CRUD route flow: route → service → repository → SQLAlchemy → PostgreSQL
+- `books_repository.py` and `book_data.py` remain for legacy CSV-adjacent paths.
 
 ### Ranking / recommendation modules
 
@@ -69,10 +74,10 @@ Response bodies are mostly plain dicts or DataFrame-derived records—not always
 
 ## Why business logic stays out of route handlers
 
-1. **Testability** — services are unit-tested with mocked `get_all_books` / `save_books` without HTTP clients.
+1. **Testability** — services are unit-tested without forcing shelf rules into HTTP handlers.
 2. **Reuse** — CLI and future jobs can call the same functions as the API.
 3. **Cache invalidation** — one place (`services/books.py`) clears recommendation cache after writes.
-4. **Evolution** — swapping CSV for a database affects repository + services, not every route.
+4. **Evolution** — database changes are isolated behind repository + services instead of every route.
 
 Route handlers should read like: validate input → call service → return result.
 
@@ -87,13 +92,11 @@ sequenceDiagram
   participant R as POST /books
   participant S as add_book_service
   participant Repo as repository
-  participant Cache as invalidate_recommendation_cache
+  participant DB as PostgreSQL
 
   R->>S: AddBook
-  S->>Repo: get_all_books()
-  S->>S: append row (to-read, new ISBN/UID)
-  S->>Repo: save_books()
-  S->>Cache: clear
+  S->>Repo: create_book(db, data)
+  Repo->>DB: INSERT via SQLAlchemy
   S-->>R: { message }
 ```
 
@@ -103,18 +106,16 @@ sequenceDiagram
 sequenceDiagram
   participant R as PATCH /books/{id}/progress
   participant S as update_book_progress_by_id
-  participant API as book_api.series_to_api_book
+  participant Repo as postgres_books_repository
 
   R->>S: BookProgressPatch
-  S->>S: find row by ISBN/UID
+  S->>Repo: get_book_by_isbn_uid(db, id)
   S->>S: validate pages vs total_pages, status rules
-  S->>S: update Read Status / Progress / Pages / Rating if completed
-  S->>S: save + invalidate cache
-  S->>API: build response book object
-  S-->>R: { book: {...} }
+  S->>Repo: update_book(db, id, update_data)
+  S-->>R: book record
 ```
 
-Status mapping in API response (`not_started` | `reading` | `completed`) is computed in `book_api.py`, not stored as separate CSV columns.
+Status mapping in API responses preserves the existing public shape while storing PostgreSQL `read_status`, page, progress, rating, and date fields on the `Book` model.
 
 ### Patch shelf (legacy / advanced)
 
@@ -130,7 +131,7 @@ sequenceDiagram
 
   UI->>R: { books: [{ title, author?, total_pages? }] }
   S->>S: skip empty title or duplicate Title
-  S->>S: append new rows
+  S->>S: create new Book rows through repository
   S-->>R: { imported, skipped }
 ```
 
@@ -140,7 +141,7 @@ sequenceDiagram
 
 ### Clear library
 
-`POST /books/clear` with `{ "confirm": true }` → empty DataFrame with headers → save.
+`POST /books/clear` with `{ "confirm": true }` → delete current PostgreSQL book rows.
 
 ### Delete book
 

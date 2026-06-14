@@ -71,7 +71,7 @@ Production UI calls Render directly; local dev uses Vite proxy `/api/*` → `127
 
 Each object in `results` uses CSV column names. NaN values → `null`.
 
-**Notes:** Pagination reduces response payload size. The server still loads the full CSV via `load_data()` today; database-level paging is planned with PostgreSQL. Invalid `page` / `limit` (zero, negative, non-integer, `limit` > 100) return **422**. Empty library: `total: 0`, `results: []`.
+**Notes:** Pagination reduces response payload size and the route uses the PostgreSQL-backed repository layer. Invalid `page` / `limit` (zero, negative, non-integer, `limit` > 100) return **422**. Empty library: `total: 0`, `results: []`.
 
 ---
 
@@ -85,7 +85,7 @@ Each object in `results` uses CSV column names. NaN values → `null`.
 
 **POST body:** `{ "title", "author", "total_pages"? }` → `{ "message": "Book added" }`
 
-**Side effects:** New row with `Read Status=to-read`, new `ISBN/UID`, cache invalidation.
+**Side effects:** New PostgreSQL row with `Read Status=to-read` and a new `ISBN/UID`.
 
 **PATCH body:** `{ "title" (required), "new_title"?, "author"?, "total_pages"?, "pages_read"?, "move_to"?, "rating"?, "date_read"? }`
 
@@ -184,7 +184,7 @@ Frontend should display `detail` when present (`frontend/src/lib/api.ts`).
 
 ## Pydantic models
 
-Defined in `backend/schemas/books.py`: `AddBook`, `PatchBook`, `ImportBooks`, `BookProgressPatch`, `ClearLibraryRequest`.
+Defined in `backend/schemas/books.py`: `AddBook`, `PatchBook`, `ImportBooks`, `BookProgressPatch`, `ClearLibraryRequest`, `BookResponse`, `BooksPage`, `MessageResponse`, and `ImportResult`.
 
 Legacy monolith `backend/api_draft.py` is **not** loaded by production app.
 
@@ -201,9 +201,10 @@ Legacy monolith `backend/api_draft.py` is **not** loaded by production app.
 ### Clear validation
 
 - Request bodies validated by Pydantic at the boundary
+- Response models document paginated book list and common response shapes
 - Progress rules enforced in service layer with explicit HTTPException messages
 
-### Stable CSV behavior
+### Stable CSV compatibility
 
 - `BOOKS_COLUMNS` order preserved on export
 - Load repairs missing columns without crashing

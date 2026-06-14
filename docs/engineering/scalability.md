@@ -4,9 +4,15 @@ Honest assessment of where ShelfTxt works well today and where it will strain—
 
 ---
 
-## CSV persistence limitations
+## Persistence status
 
-**Current state:** one file, `backend/data/processed/books.csv`, read/written whole on each mutation via pandas.
+**Current state:** PostgreSQL is the primary storage backend for book CRUD operations. CRUD routes use `get_db()` session injection and flow through services, repository, SQLAlchemy, and PostgreSQL.
+
+Legacy CSV helpers still exist for export/import compatibility, recommendation-adjacent paths, and migration workflows.
+
+## Previous CSV persistence limitations
+
+Before the PostgreSQL CRUD migration, one file, `backend/data/processed/books.csv`, was read/written whole on each mutation via pandas.
 
 | Limitation | Impact |
 |------------|--------|
@@ -16,7 +22,7 @@ Honest assessment of where ShelfTxt works well today and where it will strain—
 | **Render ephemeral disk** | Free/low-tier redeploys may wipe data ([deployment.md](deployment.md)) |
 | **Single library** | No multi-user isolation |
 
-Acceptable for pre-release personal use; **not** a long-term production data layer without migration.
+These limitations are the reason PostgreSQL-backed CRUD now exists. Continue to avoid reintroducing direct CSV read/write behavior in book CRUD routes.
 
 ---
 
@@ -49,7 +55,7 @@ Benefits:
 
 | Cache | Scope | Invalidation |
 |-------|-------|--------------|
-| `get_recommendation` LRU | Process memory, per style | Any book write via `invalidate_recommendation_cache()` |
+| `get_recommendation` LRU | Process memory, per style | Legacy CSV service writes call `invalidate_recommendation_cache()`; PostgreSQL CRUD cache invalidation should be reviewed before expanding recommendation freshness guarantees |
 
 Not shared across Render instances if scaled horizontally—each instance would have its own cache (another reason CSV + LRU is single-instance minded).
 
@@ -59,35 +65,33 @@ Not shared across Render instances if scaled horizontally—each instance would 
 
 ## Database migration considerations
 
-Repository facade (`books_repository.py`) exists to limit blast radius:
+Repository facade exists to limit blast radius:
 
 ```text
-services → repository → book_data (today)
-services → repository → postgres adapter (future)
+routes → services → repository → SQLAlchemy → PostgreSQL
 ```
 
-Migration tasks likely include:
+Completed migration work includes:
 
-1. Schema mirroring `BOOKS_COLUMNS` + future optional columns
-2. Backfill from CSV export
-3. Switch `get_all_books` / `save_books` implementation
-4. Replace full-table scans with indexed queries where needed
-5. Per-user `library_id` if auth added
+1. Local PostgreSQL infrastructure
+2. SQLAlchemy, psycopg, Alembic, and dotenv dependencies
+3. SQLAlchemy foundation and `Book` ORM model
+4. Alembic migrations for the `books` table
+5. PostgreSQL repository CRUD operations
+6. Book CRUD route refactor to PostgreSQL-backed services
+7. Stronger Pydantic request/response validation
 
-### Possible direction: PostgreSQL / Supabase
+Remaining follow-up:
 
-Exploratory, not committed:
-
-- **PostgreSQL** on Render or external host
-- **Supabase** for Postgres + optional auth/storage
-
-Either would address durability, concurrency, and multi-user paths better than CSV.
+- Add DB-backed integration tests where useful
+- Move remaining CSV-adjacent paths when product requirements call for it
+- Add per-user `library_id` if auth is introduced
 
 ---
 
 ## Frontend scalability
 
-- `GET /books` is paginated on the wire (`page`, `limit`, max 100), but `load_data()` still reads the full CSV per request — fine for small shelves; PostgreSQL paging needed at scale
+- `GET /books` is paginated on the wire (`page`, `limit`, max 100) and uses the PostgreSQL-backed repository layer; SQL-level pagination remains a follow-up optimization
 - Settings in `localStorage` — no cross-device sync
 
 ---

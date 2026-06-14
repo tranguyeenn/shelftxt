@@ -14,7 +14,7 @@ Shelftxt is an open-source backend-driven recommendation system for organizing a
 
 ## Overview
 
-Shelftxt exposes a FastAPI service over a CSV-backed library (Postgres-ready layering). A Vite + React UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
+Shelftxt exposes a FastAPI service over a PostgreSQL-backed book CRUD API, with CSV import/export compatibility. A Vite + React UI and CLI share the same data model. Recommendation scoring runs in Python (`preprocess/` + `ranking/`) with transparent, inspectable logic—not a black-box API.
 
 The project is maintained in the open: architecture notes, ADRs, and [devlogs](docs/history/devlogs/) document how the backend evolves.
 
@@ -25,11 +25,11 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 - **Shelf management** — want-to-read, reading (progress %), read (ratings), DNF
 - **TBR ranking** — `GET /recommend` scores your to-read list from read-history author preferences
 - **REST API** — OpenAPI at `/docs`; Pydantic schemas in `backend/schemas/`
-- **CSV import** — bulk add via `POST /books/import`; duplicates skipped
+- **CSV import** — bulk add via `POST /books/import`; duplicates skipped and stored through PostgreSQL-backed routes
 - **Batch ingest pipeline** — map external exports to a canonical schema ([pipeline docs](docs/engineering/import-export.md#batch-pipeline))
 - **CLI** — `python -m cli.manage_books` for local shelf edits
 
-`backend/data/processed/books.csv` is created empty on first use (not committed).
+CSV export remains available for backups and spreadsheet workflows.
 
 ---
 
@@ -39,7 +39,7 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 |-------|--------|
 | **API** | Python, FastAPI, uvicorn, pandas |
 | **Ranking** | Custom scoring in `backend/ranking/`, features in `backend/preprocess/` |
-| **Persistence** | CSV today (`backend/book_data.py` + `backend/repository/`) |
+| **Persistence** | PostgreSQL for book CRUD (`backend/db/` + `backend/repository/postgres_books_repository.py`) |
 | **UI** | Vite, React, TypeScript |
 | **Deploy** | Render (API), Vercel (frontend) |
 
@@ -48,7 +48,7 @@ The project is maintained in the open: architecture notes, ADRs, and [devlogs](d
 ## Architecture
 
 ```text
-HTTP → routes/ → services/ → repository/ → book_data.py → books.csv
+HTTP → routes/ → services/ → repository/ → SQLAlchemy → PostgreSQL
                     ↘ preprocess/ + ranking/  (no I/O)
 ```
 
@@ -57,7 +57,7 @@ HTTP → routes/ → services/ → repository/ → book_data.py → books.csv
 | `backend/api.py` | App shell: CORS, lifespan, router registration |
 | `routes/` | HTTP only — parse request, call services |
 | `services/` | Business logic (shelves, recommendations) |
-| `repository/` | Persistence facade (swap for Postgres later) |
+| `repository/` | Persistence layer for PostgreSQL-backed book CRUD |
 | `schemas/` | Pydantic request/response models |
 | `ingest/` | Offline CSV pipeline (not live UI import) |
 
@@ -69,12 +69,18 @@ Deeper docs: [documentation index](./docs/README.md) · [architecture](./docs/en
 
 ### Backend (required for API work)
 
+PostgreSQL is the primary storage backend for book CRUD data. Local development uses Docker Compose to run PostgreSQL, SQLAlchemy for database access, and Alembic for schema migrations.
+
 ```bash
 git clone https://github.com/tranguyeenn/shelftxt.git
 cd shelftxt
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+docker compose up -d
+docker compose ps
+alembic upgrade head
 uvicorn backend.api:app --reload
 ```
 
@@ -82,6 +88,67 @@ uvicorn backend.api:app --reload
 - Swagger: http://127.0.0.1:8000/docs  
 
 Run commands from the **repo root** so `backend` resolves as a package.
+
+#### Prerequisites
+
+- Python 3
+- Docker and Docker Compose
+- Local PostgreSQL through `docker compose`
+
+#### Environment
+
+Copy the example environment file, then adjust values if your local database differs:
+
+```bash
+cp .env.example .env
+```
+
+Required variable:
+
+```env
+DATABASE_URL=postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt
+```
+
+#### Database commands
+
+Start PostgreSQL and check the container:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Install dependencies and apply migrations:
+
+```bash
+pip install -r requirements.txt
+alembic upgrade head
+```
+
+Reset the local database from scratch:
+
+```bash
+docker compose down -v
+docker compose up -d
+alembic upgrade head
+```
+
+#### Migrating old CSV data
+
+After PostgreSQL is running and migrations have been applied, migrate an existing ShelfTxt CSV into PostgreSQL:
+
+```bash
+python -m backend.scripts.migrate_csv_to_postgres --csv backend/data/processed/books.csv
+```
+
+The `--csv` option is optional; when omitted, the script uses `backend/data/processed/books.csv`. Imported rows are stored in PostgreSQL. The migration skips duplicate rows when the `ISBN/UID` or title already exists, and reports imported, duplicate, and invalid row counts.
+
+#### CSV compatibility
+
+CSV is no longer the primary storage mechanism for book CRUD. CSV import and export remain supported for backups, spreadsheet workflows, and compatibility:
+
+- `POST /books/import` imports parsed rows into PostgreSQL and skips duplicate titles.
+- `GET /books/export` exports the current PostgreSQL library as `shelftxt-library.csv`.
 
 ### Frontend (optional)
 
@@ -94,15 +161,17 @@ Open http://localhost:3000. See [docs/contributors/development.md](docs/contribu
 ### Tests
 
 ```bash
-python -m unittest discover -s tests -v
+pytest
 ```
 
-Optional local tooling (if you prefer `pytest`):
+If `pytest` is not installed in your active environment:
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q
+python -m pytest
 ```
+
+`python -m unittest discover -s tests -v` is also supported.
 
 ---
 
@@ -127,7 +196,7 @@ Full reference: [docs/engineering/api.md](docs/engineering/api.md) · [Documenta
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for current capabilities and planned work (Postgres, caching, auth, analytics).
+See [ROADMAP.md](ROADMAP.md) for current capabilities and planned work (remaining PostgreSQL follow-up, caching, auth, analytics).
 
 Engineering history: [DEVLOG.md](DEVLOG.md) · [docs/history/devlogs/](docs/history/devlogs/)
 

@@ -1,15 +1,18 @@
-# Development & operations
+# Development & Operations
 
-Local setup and day-to-day commands. For production deploy, see [deployment.md](../engineering/deployment.md).
+Local setup and day-to-day commands. For production deployment, see [deployment.md](../engineering/deployment.md).
 
 ## Requirements
 
-- Python 3.12+ (matches CI; see `requirements.txt`)
-- Node.js 20+ for frontend
+* Python 3.12+
+* Node.js 20+
+* Docker Desktop (required for local PostgreSQL development)
 
-### Install Python deps
+---
 
-From repo root:
+## Install Python Dependencies
+
+From the repository root:
 
 ```bash
 python3 -m venv .venv
@@ -17,9 +20,82 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Database Migration Dependencies
+
+The PostgreSQL migration stack includes:
+
+* SQLAlchemy (ORM and database access)
+* psycopg (PostgreSQL driver)
+* Alembic (database migrations)
+* python-dotenv (environment variable loading)
+
+These dependencies are installed through `requirements.txt`.
+
 ---
 
-## Running locally
+## Database Development Setup
+
+ShelfTxt uses PostgreSQL as the primary storage backend for book CRUD operations. Local development uses Docker Compose for PostgreSQL.
+
+### Environment Variables
+
+Create a local `.env` file in the repository root:
+
+```env
+DATABASE_URL=postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt
+```
+
+Alternatively:
+
+```bash
+cp .env.example .env
+```
+
+### Start PostgreSQL
+
+From the repository root:
+
+```bash
+docker compose up -d
+```
+
+Verify the container is running:
+
+```bash
+docker compose ps
+```
+
+Expected container:
+
+```txt
+shelftxt-postgres
+```
+
+### Connect to PostgreSQL
+
+```bash
+docker exec -it shelftxt-postgres psql -U shelftxt -d shelftxt
+```
+
+Exit PostgreSQL:
+
+```sql
+\q
+```
+
+### Local Database Credentials
+
+| Setting  | Value                 |
+| -------- | --------------------- |
+| Host     | localhost             |
+| Port     | 5432                  |
+| Database | shelftxt              |
+| Username | shelftxt              |
+| Password | shelftxt_dev_password |
+
+---
+
+## Running Locally
 
 ### API
 
@@ -28,29 +104,45 @@ source .venv/bin/activate
 uvicorn backend.api:app --reload
 ```
 
-- http://127.0.0.1:8000
-- Swagger: http://127.0.0.1:8000/docs
+Available at:
 
-Legacy: `uvicorn api:app --reload` via root shim.
+* http://127.0.0.1:8000
+* Swagger UI: http://127.0.0.1:8000/docs
+
+Legacy entrypoint:
+
+```bash
+uvicorn api:app --reload
+```
 
 ### Frontend
 
 ```bash
-cd frontend && npm install && npm run dev
+cd frontend
+npm install
+npm run dev
 ```
 
-Open http://localhost:3000.
+Open:
 
-**Backend target in dev:**
+```txt
+http://localhost:3000
+```
 
-| Mode | Config | Browser calls |
-|------|--------|---------------|
-| Local API (default) | none | `/api/*` → Vite proxy → `127.0.0.1:8000` |
-| Remote API only | `frontend/.env.local` with `VITE_API_BASE_URL=https://shelftxt.onrender.com` | direct or `/api` rewrites on Vercel |
+### Backend Target Configuration
 
-Copy [`frontend/.env.local.example`](../../frontend/.env.local.example) to get started.
+| Mode                | Config                | Browser Calls                            |
+| ------------------- | --------------------- | ---------------------------------------- |
+| Local API (default) | None                  | `/api/*` → Vite proxy → `127.0.0.1:8000` |
+| Remote API          | `frontend/.env.local` | Direct requests to deployed API          |
 
-Restart `npm run dev` after env changes.
+Create local frontend environment variables:
+
+```bash
+cp frontend/.env.local.example frontend/.env.local
+```
+
+Restart the frontend after modifying environment variables.
 
 ### CLI
 
@@ -58,57 +150,94 @@ Restart `npm run dev` after env changes.
 python -m cli.manage_books
 ```
 
-Shares `backend/data/processed/books.csv` with the API.
+The CLI may still use the legacy CSV helper path. Prefer the API when verifying PostgreSQL-backed CRUD behavior.
 
 ---
 
-## Tests
+## Testing
+
+Run all tests:
 
 ```bash
 ./.venv/bin/python -m unittest discover -s tests -v
 ```
 
-| File | Coverage |
-|------|----------|
-| `tests/test_api.py` | `backend.api.app` — routes + services (mocked `load_data` / `get_recommendation`) |
-| `tests/test_flexible_pipeline.py` | Ingest, validation, ranking |
+### Test Coverage
 
-See [engineering/architecture.md](../engineering/architecture.md) for layer rules and [contributing.md](contributing.md) for workflow.
+| File                              | Coverage                             |
+| --------------------------------- | ------------------------------------ |
+| `tests/test_api.py`               | API routes and services              |
+| `tests/test_flexible_pipeline.py` | Ingest, validation, ranking pipeline |
 
----
+See:
 
-## Data directories
+* [architecture.md](../engineering/architecture.md)
+* [contributing.md](contributing.md)
 
-| Path | Git | Purpose |
-|------|-----|---------|
-| `backend/data/raw/` | tracked (`.gitkeep`) | Optional CSV staging |
-| `backend/data/processed/books.csv` | gitignored | Live library |
-
-First API/CLI access creates empty `books.csv` with correct headers.
+for development workflow and architecture guidelines.
 
 ---
 
-## Environment variables (local)
+## Data Storage
 
-| Variable | File | Purpose |
-|----------|------|---------|
-| `VITE_API_BASE_URL` | `frontend/.env.local` | Optional; override API host in dev or prod builds |
+### Current Storage
 
-Full reference: [deployment.md#environment-variable-reference](../engineering/deployment.md#environment-variable-reference).
+ShelfTxt currently uses PostgreSQL for book CRUD operations.
+
+The book CRUD flow is:
+
+```txt
+Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
+```
+
+CSV remains available for import/export compatibility and legacy helper paths.
+
+### Data Directories
+
+| Path                               | Git Status           | Purpose              |
+| ---------------------------------- | -------------------- | -------------------- |
+| `backend/data/raw/`                | Tracked (`.gitkeep`) | Optional CSV staging |
+| `backend/data/processed/books.csv` | Gitignored           | Legacy CSV/import-export compatibility data |
+
+Legacy CSV helpers may create an empty `books.csv` if one does not exist.
+
+---
+
+## Environment Variables
+
+### Backend
+
+| Variable       | Purpose                                         |
+| -------------- | ----------------------------------------------- |
+| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed book CRUD |
+
+### Frontend
+
+| Variable            | Purpose                  |
+| ------------------- | ------------------------ |
+| `VITE_API_BASE_URL` | Override backend API URL |
+
+Full deployment configuration:
+
+[deployment.md](../engineering/deployment.md#environment-variable-reference)
 
 ---
 
 ## Deployment
 
-Production runbook (Render + Vercel): **[deployment.md](../engineering/deployment.md)**
+Production deployment documentation:
 
-Issues: **[troubleshooting.md](troubleshooting.md)**
+* [deployment.md](../engineering/deployment.md)
+
+Troubleshooting:
+
+* [troubleshooting.md](troubleshooting.md)
 
 ---
 
-## Related docs
+## Related Documentation
 
-- [architecture.md](../engineering/architecture.md)
-- [api.md](../engineering/api.md)
-- [pipeline.md](../engineering/import-export.md#batch-pipeline)
-- [decisions.md](../product/decisions.md)
+* [architecture.md](../engineering/architecture.md)
+* [api.md](../engineering/api.md)
+* [import-export.md](../engineering/import-export.md#batch-pipeline)
+* [decisions.md](../product/decisions.md)

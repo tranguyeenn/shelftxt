@@ -96,13 +96,14 @@ First request after idle may wait 30–60s (Render cold start).
 | Variable | Where set | Consumed by | Purpose |
 |----------|-----------|-------------|---------|
 | `PORT` | Render (injected) | uvicorn | Listen port |
+| `DATABASE_URL` | Render / `.env` | SQLAlchemy | PostgreSQL connection string for book CRUD |
 | `VITE_API_BASE_URL` | Vercel / `.env.local` | `frontend/src/lib/api.ts` | Production or custom API base URL |
 
 ---
 
 ## Persistence (production)
 
-`backend/data/processed/books.csv` lives on Render's filesystem. Free-tier instances may **lose data** on redeploy or long spin-down. Document this for users; plan Postgres/S3 when the product outgrows CSV.
+Book CRUD data lives in PostgreSQL through SQLAlchemy. CSV import/export compatibility still exists, but CRUD routes should not rely on Render's ephemeral filesystem as the source of truth.
 
 ---
 

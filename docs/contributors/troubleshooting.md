@@ -146,8 +146,8 @@ git remote set-url origin https://github.com/tranguyeenn/shelftxt.git
 
 | Endpoint | Patch |
 |----------|--------|
-| Add / patch / import | `backend.routes.books.load_data`, `save_data` |
-| Delete / remove | `backend.services.books.get_all_books`, `save_books` |
+| Add / patch / import | `backend.services.postgres_books` or `backend.repository.postgres_books_repository` |
+| Delete / remove | `backend.services.postgres_books` or `backend.repository.postgres_books_repository` |
 | Recommend | `backend.routes.recommendation.get_recommendation` |
 
 ---
