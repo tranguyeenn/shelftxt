@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, Float, Integer, String
+from sqlalchemy import Date, DateTime, Float, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,7 @@ class Profile(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
         nullable=False,
     )
 
@@ -40,6 +41,7 @@ class Profile(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
         nullable=False,
     )
 
