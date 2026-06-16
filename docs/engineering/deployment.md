@@ -1,11 +1,12 @@
 # Deployment
 
-Production split: **API on Render**, **UI on Vercel**. Both deploy from the same GitHub repo (`tranguyeenn/shelftxt`).
+Production split: **API on Render**, **UI on Vercel**, **Auth on Supabase**. All application code deploys from the same GitHub repo (`tranguyeenn/shelftxt`).
 
 | Service | URL | Platform |
 |---------|-----|----------|
 | Backend | https://shelftxt.onrender.com | Render (Python) |
 | Frontend | https://shelftxt.vercel.app | Vercel (Vite SPA) |
+| Auth | Supabase project URL | Supabase Auth |
 | API docs | https://shelftxt.onrender.com/docs | Swagger (Render) |
 
 ---
@@ -35,7 +36,8 @@ Optional Blueprint: [`render.yaml`](../../render.yaml).
 |---------|-------|-----|
 | `requirements.txt` not found | Root Directory = `backend` or `frontend` | Clear Root Directory |
 | `Could not import module "api"` | Old start command after `backend/` move | Use `backend.api:app` or deploy shim |
-| Empty library after redeploy | Ephemeral disk on free tier | Expected — plan persistent disk or external DB later |
+| `Supabase environment variables are not configured` | Missing backend auth env | Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on Render |
+| 401 on protected routes | Missing/expired frontend Bearer token or missing profile | Log in again and verify profile creation |
 
 ### Health check
 
@@ -61,16 +63,21 @@ If deploy fails with “No Next.js version detected”, the project is still on 
 | Key | Environments | Value |
 |-----|--------------|-------|
 | `VITE_API_BASE_URL` | Production | `https://shelftxt.onrender.com` |
+| `VITE_SUPABASE_URL` | Production | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Production | Supabase anon/publishable key |
 
 Remove legacy `NEXT_PUBLIC_API_BASE_URL` if still set.
+
+Only public Supabase browser credentials belong in Vercel. Never set `SUPABASE_SERVICE_ROLE_KEY` in frontend/Vercel env.
 
 See [`frontend/.env.local.example`](../../frontend/.env.local.example).
 
 ### Post-deploy verification
 
 1. https://shelftxt.onrender.com/health → `{"status":"healthy",...}`
-2. https://shelftxt.vercel.app/ → library loads (empty `[]` is OK)
-3. Browser DevTools → Network → requests go to **`shelftxt.onrender.com`**, not `vercel.app/api/*`
+2. https://shelftxt.vercel.app/ → unauthenticated users see login/register, authenticated users see the app
+3. Browser DevTools → Network → protected API requests include `Authorization: Bearer ...`
+4. Browser DevTools → Network → requests go to **`shelftxt.onrender.com`**, not `vercel.app/api/*`
 
 ### CORS
 
@@ -96,14 +103,18 @@ First request after idle may wait 30–60s (Render cold start).
 | Variable | Where set | Consumed by | Purpose |
 |----------|-----------|-------------|---------|
 | `PORT` | Render (injected) | uvicorn | Listen port |
-| `DATABASE_URL` | Render / `.env` | SQLAlchemy | PostgreSQL connection string for book CRUD |
+| `DATABASE_URL` | Render / `.env` | SQLAlchemy | PostgreSQL connection string for profiles and book CRUD |
+| `SUPABASE_URL` | Render / `.env` | `backend/auth/dependencies.py` | Supabase project URL for backend token verification |
+| `SUPABASE_SERVICE_ROLE_KEY` | Render / `.env` | `backend/auth/dependencies.py` | Server-only Supabase key for validating users |
+| `VITE_SUPABASE_URL` | Vercel / `.env.local` | `frontend/src/lib/supabase.ts` | Supabase project URL for browser auth |
+| `VITE_SUPABASE_ANON_KEY` | Vercel / `.env.local` | `frontend/src/lib/supabase.ts` | Public anon/publishable key for browser auth |
 | `VITE_API_BASE_URL` | Vercel / `.env.local` | `frontend/src/lib/api.ts` | Production or custom API base URL |
 
 ---
 
 ## Persistence (production)
 
-Book CRUD data lives in PostgreSQL through SQLAlchemy. CSV import/export compatibility still exists, but CRUD routes should not rely on Render's ephemeral filesystem as the source of truth.
+Profiles and user-owned book CRUD data live in PostgreSQL through SQLAlchemy. Supabase Auth owns identity and session issuance. CSV import/export compatibility still exists, but CRUD routes do not rely on Render's filesystem as the source of truth.
 
 ---
 

@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
@@ -116,6 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) {
       throw error;
     }
+
+    setSession(data.session);
   }, []);
 
   const register = useCallback(async ({ email, password, username }: RegisterInput) => {
@@ -135,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (data.user && data.session) {
       await ensureProfile(data.user, username);
+      setSession(data.session);
     }
 
     return { needsEmailConfirmation: Boolean(data.user && !data.session) };

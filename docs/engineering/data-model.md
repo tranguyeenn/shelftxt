@@ -2,14 +2,25 @@
 
 ## Overview
 
-ShelfTxt persists book CRUD data as rows in PostgreSQL through the SQLAlchemy `Book` model in `backend/db/models.py`. API responses still preserve the CSV-shaped field names used by the frontend and CSV export/import workflows.
+ShelfTxt persists profiles and book CRUD data as rows in PostgreSQL through the SQLAlchemy `Profile` and `Book` models in `backend/db/models.py`. Supabase Auth owns identity and issues access tokens; the backend maps verified Supabase users to `profiles` rows. API responses still preserve CSV-compatible field names used by the frontend and CSV export/import workflows.
 
 Two related schemas exist:
 
-1. **App book model** — what the API and UI use today (`Book` in `backend/db/models.py`, exposed with CSV-compatible response keys)
+1. **App models** — what the API and UI use today (`Profile` and `Book` in `backend/db/models.py`, with books exposed through CSV-compatible response keys)
 2. **Canonical schema** — used by the offline batch ingest pipeline (`backend/ingest/`)
 
-This document focuses on the **app book model** unless noted.
+This document focuses on the **app profile and book models** unless noted.
+
+---
+
+## Identity and ownership
+
+| Model | Key | Meaning |
+|-------|-----|---------|
+| `Profile` | `id` | Supabase user id for the application user |
+| `Book` | `user_id` | Owning profile id; every book query/mutation is scoped by this value |
+
+Protected API routes validate `Authorization: Bearer <supabase_access_token>`, load the matching `Profile`, and pass `current_user.id` into services and repository functions. A book id (`ISBN/UID`) is only unique within the current user's accessible API surface.
 
 ---
 
@@ -17,6 +28,7 @@ This document focuses on the **app book model** unless noted.
 
 | Column | Required on write | Type (logical) | Meaning |
 |--------|-------------------|----------------|---------|
+| `user_id` | set by backend | UUID | Owning `profiles.id`; not accepted from client bodies |
 | `Title` | yes (for identity in legacy PATCH/DELETE) | string | Display title; duplicate titles rejected on import |
 | `Authors` | yes on add | string | Author name(s); used for author-preference scoring |
 | `ISBN/UID` | auto-generated | string | Stable book id for UI routes and `DELETE /books/{id}` |
@@ -83,7 +95,7 @@ Implementation: `recordToApiBook()` in `frontend/src/lib/books.ts`.
 ### Import (`POST /books/import`)
 
 - Each row needs non-empty `title`
-- Skips if `Title` already exists (**case-sensitive** match)
+- Skips if `Title` already exists in the current user's library (**case-sensitive** match)
 - Empty author defaults to `"Unknown"` in service
 
 ### Progress (`PATCH /books/{book_id}/progress`)
@@ -122,11 +134,11 @@ See [recommendation-system.md](recommendation-system.md) for scoring detail.
 
 ### Export
 
-`GET /books/export` writes all `BOOKS_COLUMNS` as CSV for backup and spreadsheet workflows.
+`GET /books/export` writes all `BOOKS_COLUMNS` as CSV for the authenticated user's backup and spreadsheet workflows.
 
 ### Import (UI)
 
-Frontend accepts CSV headers: `title`/`Title`, `author`/`Author`, `total_pages`/`Total Pages`. Parsed client-side with Papa Parse, sent as JSON to the API.
+Frontend accepts CSV headers: `title`/`Title`, `author`/`Author`, `total_pages`/`Total Pages`. Parsed client-side with Papa Parse, sent as JSON to the authenticated API, and inserted for the current user.
 
 ### Legacy CSV load repair
 
@@ -188,6 +200,6 @@ These appear in early reader feedback and design discussions. **Do not assume th
 |-----------|-----|
 | UI book routes, progress, delete | `ISBN/UID` |
 | Legacy PATCH / DELETE by title | `Title` (exact match) |
-| Import deduplication | `Title` (case-sensitive) |
+| Import deduplication | `Title` within current user's library (case-sensitive) |
 
-Using title as a key is fragile for renames and duplicates; prefer id for new features.
+Using title as a key is fragile for renames and duplicates; prefer id plus authenticated user scope for new features.

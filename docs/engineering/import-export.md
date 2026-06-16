@@ -1,6 +1,6 @@
 # Import and export flow
 
-ShelfTxt uses PostgreSQL as the primary storage backend. It still supports two related but **separate** CSV compatibility paths:
+ShelfTxt uses PostgreSQL as the primary storage backend for user-owned libraries. It still supports two related but **separate** CSV compatibility paths:
 
 1. **Live UI import / API export** — what readers use in Settings
 2. **Batch ingest pipeline** — developer/offline tool for foreign CSV schemas
@@ -15,6 +15,8 @@ This document covers **(1)** in depth and references **(2)** where it diverges.
 
 Bulk add books to the TBR shelf without manual entry—typical after exporting from a spreadsheet or another tool (with compatible columns).
 
+Live import is authenticated. The frontend sends `Authorization: Bearer <supabase_access_token>`, and imported rows are created for the signed-in user only.
+
 ### Flow
 
 ```mermaid
@@ -24,9 +26,9 @@ flowchart TD
   C -->|no| D[Show parse error]
   C -->|yes| E[Preview titles in UI]
   E --> F[User clicks Import]
-  F --> G[POST /books/import JSON body]
+  F --> G[POST /books/import JSON body + Bearer token]
   G --> H[import_books_service]
-  H --> I{Title exists in PostgreSQL?}
+  H --> I{Title exists for user?}
   I -->|yes| J[skipped++]
   I -->|no| K[create PostgreSQL Book row]
   J --> M[Response imported/skipped]
@@ -64,8 +66,9 @@ After client parsing:
 For each row:
 
 1. Strip title; skip if empty → `skipped`
-2. Skip if `Title` already in library (case-sensitive) → `skipped`
+2. Skip if `Title` already in the signed-in user's library (case-sensitive) → `skipped`
 3. Create a PostgreSQL row:
+   - `user_id` = authenticated profile id
    - `Read Status` = `to-read`
    - `Progress (%)` = 0, `Pages Read` = 0
    - `ISBN/UID` = generated unique id
@@ -86,13 +89,15 @@ For each row:
 
 Backup, migration, editing in Excel/Sheets, or re-import elsewhere.
 
+Export is authenticated and includes only the signed-in user's library.
+
 ### Flow
 
 ```mermaid
 flowchart LR
   A[User clicks Export] --> B[GET /books/export]
   B --> C[export_library_csv]
-  C --> D[read PostgreSQL books]
+  C --> D[read user's PostgreSQL books]
   D --> E[Browser download shelftxt-library.csv]
 ```
 
@@ -102,7 +107,7 @@ Export uses the CSV-compatible public fields:
 
 `Title`, `Authors`, `ISBN/UID`, `Read Status`, `Star Rating`, `Last Date Read`, `Progress (%)`, `Pages Read`, `Total Pages`
 
-Export includes **full library state**, not only TBR.
+Export includes the signed-in user's **full library state**, not only TBR.
 
 ---
 
@@ -144,7 +149,7 @@ Invalid star ratings in a hand-edited CSV should be corrected before import. Rec
 
 ## Clear library (related)
 
-`POST /books/clear` with confirm deletes PostgreSQL book rows. Distinct from export; irreversible without a backup file.
+`POST /books/clear` with confirm deletes the signed-in user's PostgreSQL book rows. Distinct from export; irreversible without a backup file.
 
 ---
 
@@ -157,7 +162,7 @@ Batch ingestion for arbitrary user CSV schemas. Used from Python (`backend/inges
 | Entry | Settings / API | `backend/ingest/pipeline.py` |
 | Input | JSON from parsed CSV | File path + mapping JSON |
 | Schema | App columns only | Canonical schema + genre |
-| Writes app storage | yes, PostgreSQL rows | no automatic app storage write |
+| Writes app storage | yes, authenticated user-owned PostgreSQL rows | no automatic app storage write |
 
 Do not conflate the two when documenting user-facing behavior.
 

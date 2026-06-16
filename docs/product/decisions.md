@@ -83,9 +83,9 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 **Status:** Accepted
 
-**Decision:** `get_recommendation()` uses `@lru_cache(maxsize=32)` keyed by style. Legacy CSV service writes call `invalidate_recommendation_cache()`; PostgreSQL CRUD freshness should be reviewed before stronger recommendation cache guarantees are documented.
+**Decision:** Earlier recommendation work introduced an `@lru_cache` helper, but the current authenticated HTTP path builds recommendations from a fresh PostgreSQL read scoped by `user_id`.
 
-**Consequences:** (+) Fewer repeated scoring runs (−) In-process cache only; not shared across Render instances.
+**Consequences:** (+) Simpler multi-user correctness and fresher reads (+) No cross-user cache-key risk (−) Repeated recommendation requests recompute scores.
 
 ---
 
@@ -109,7 +109,19 @@ Lightweight ADRs. Format: context → decision → consequences.
 
 **Decision:** Book CRUD routes use PostgreSQL as the source of truth through the flow `routes -> services -> repository -> SQLAlchemy -> PostgreSQL`. Existing API response formats are preserved, including CSV-compatible field names for `GET /books`.
 
-**Consequences:** (+) Book CRUD no longer depends on direct CSV reads/writes (+) Stronger request validation and documented response models (+) Durable database foundation for future auth/multi-user work (−) CSV export/import compatibility and recommendation-adjacent paths still need careful follow-up.
+**Consequences:** (+) Book CRUD no longer depends on direct CSV reads/writes (+) Stronger request validation and documented response models (+) Durable database foundation for authenticated multi-user ownership (−) CSV export/import compatibility and recommendation-adjacent paths still need careful follow-up.
+
+---
+
+## ADR-010: Supabase Auth and user-owned libraries
+
+**Status:** Accepted
+
+**Context:** Multi-user ShelfTxt needs account identity, session persistence, and authorization without hand-rolling password storage.
+
+**Decision:** Supabase Auth owns registration, login, token issuance, session refresh, and logout. The frontend uses `@supabase/supabase-js`; protected React routes require a session. Backend routes validate `Authorization: Bearer <access_token>` in `backend/auth/dependencies.py`, load the matching `profiles` row, and scope book CRUD plus recommendations by `current_user.id`.
+
+**Consequences:** (+) No custom password handling (+) Libraries are isolated by `books.user_id` (+) Frontend sessions persist and refresh through Supabase (−) Backend and frontend deployments both need correct Supabase environment variables.
 
 ---
 

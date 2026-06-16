@@ -4,15 +4,17 @@ Local setup and day-to-day commands. For production deployment, see [deployment.
 
 ## Current Storage Status
 
-ShelfTxt now uses PostgreSQL as the primary storage backend for book CRUD operations.
+ShelfTxt now uses PostgreSQL as the primary storage backend for profiles and user-owned book CRUD operations. Supabase provides registration, login, persisted sessions, and backend token verification.
 
 The active book CRUD path is:
 
 ```txt
-Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
+Supabase session -> Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
 ```
 
-The PostgreSQL migration is complete for book CRUD. Routes use database session injection through `get_db()` and call the PostgreSQL-backed service/repository layer. CSV support remains for import/export compatibility and migration workflows; CSV is no longer the source of truth for book CRUD routes.
+During Supabase Auth integration testing, the final PostgreSQL hop must be the same database that contains the Supabase-backed `public.profiles` rows. Local Docker Postgres is useful for isolated backend work, but it will not automatically contain profiles created by hosted Supabase Auth.
+
+The PostgreSQL migration is complete for book CRUD. Routes use database session injection through `get_db()`, validate the current Supabase user through `get_current_user()`, and call the PostgreSQL-backed service/repository layer with that user id. CSV support remains for import/export compatibility and migration workflows; CSV is no longer the source of truth for book CRUD routes.
 
 ## Requirements
 
@@ -61,9 +63,33 @@ Required backend environment variables:
 
 | Variable | Purpose | Local development value |
 | --- | --- | --- |
-| `DATABASE_URL` | SQLAlchemy PostgreSQL connection string for book CRUD | `postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt` |
+| `DATABASE_URL` | SQLAlchemy PostgreSQL connection string for profiles and book CRUD | Supabase Postgres for auth integration tests; local Docker Postgres for isolated backend work |
+| `SUPABASE_URL` | Supabase project URL used by the backend auth dependency | `https://your-project.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only key used to verify Supabase access tokens | Supabase service role key |
 
 `.env` files are gitignored. `.env.example` is committed as the local development template.
+
+Do not put `SUPABASE_SERVICE_ROLE_KEY` in frontend environment files.
+
+### Supabase Auth integration database
+
+The frontend creates `profiles` rows through the Supabase browser client, so those rows are stored in the Supabase project configured by `VITE_SUPABASE_URL`. The backend validates the JWT with `SUPABASE_URL`, then queries `profiles` through SQLAlchemy using `DATABASE_URL`.
+
+For end-to-end local auth testing:
+
+* `SUPABASE_URL` and `VITE_SUPABASE_URL` must refer to the same Supabase project.
+* `DATABASE_URL` must point to that project's Postgres database, where `public.profiles` lives.
+* Keep `SUPABASE_SERVICE_ROLE_KEY` backend-only. Use the frontend anon/publishable key in `frontend/.env.local`.
+
+Local Docker Postgres is valid only when the `profiles` table in that local database contains rows whose `id` values match the Supabase auth user UUIDs in your test tokens.
+
+### Troubleshooting `User profile not found`
+
+**Error:** `{"detail":"User profile not found"}`
+
+**Cause:** The Supabase Auth user exists and the JWT is valid, but the backend database named by `DATABASE_URL` does not contain a matching `profiles.id`.
+
+**Fix:** Point backend `DATABASE_URL` to the same Supabase Postgres database where the frontend creates `public.profiles`, or manually create the matching profile row in the database currently used by the backend.
 
 ### Start PostgreSQL
 
@@ -146,7 +172,7 @@ Current database files:
 | File | Purpose |
 | --- | --- |
 | `backend/db/database.py` | Loads `.env`, reads `DATABASE_URL`, creates the SQLAlchemy engine, configures `SessionLocal`, defines `Base`, and provides `get_db()` |
-| `backend/db/models.py` | Defines the initial `Book` SQLAlchemy model |
+| `backend/db/models.py` | Defines `Profile` and `Book` SQLAlchemy models |
 
 Current database foundation:
 
@@ -156,7 +182,8 @@ Current database foundation:
 * `SessionLocal` is configured with `autocommit=False`, `autoflush=False`, and the shared engine.
 * `get_db()` yields a SQLAlchemy `Session` and closes it after use.
 * `Base` uses SQLAlchemy `DeclarativeBase`.
-* `Book` maps to the `books` table with fields for title, authors, stable external id, status, rating, pages, progress, and date values.
+* `Profile` maps Supabase users to app profiles.
+* `Book` maps to the `books` table with fields for owning `user_id`, title, authors, stable external id, status, rating, pages, progress, and date values.
 
 ---
 
@@ -172,7 +199,8 @@ Current Alembic migration work:
 * Alembic is connected to SQLAlchemy metadata.
 * The initial migration has been generated.
 * The initial migration has been applied to local PostgreSQL.
-* The `books` table has been created.
+* The `profiles` and `books` tables have been created.
+* The `books.user_id` ownership column scopes libraries by Supabase profile id.
 * The `alembic_version` table has been created.
 * Schema creation was verified directly through PostgreSQL.
 
@@ -214,7 +242,7 @@ Current repository file:
 | --- | --- |
 | `backend/repository/postgres_books_repository.py` | Provides CRUD operations for `Book` records in PostgreSQL |
 
-Implemented repository operations:
+Implemented repository operations are scoped by `user_id`:
 
 * `get_all_books()`
 * `get_book_by_id()`
@@ -224,19 +252,20 @@ Implemented repository operations:
 
 CRUD means create, read, update, and delete. These are the basic operations needed to manage records in a database.
 
-The repository CRUD operations are used by book CRUD routes through `backend/services/postgres_books.py`.
+The repository CRUD operations are used by book CRUD routes through `backend/services/postgres_books.py`. Routes pass `current_user.id` from the Supabase auth dependency into those services.
 
 ---
 
 ## Storage Architecture
 
-PostgreSQL is the source of truth for book CRUD operations.
+PostgreSQL is the source of truth for profiles and user-owned book CRUD operations.
 
 | Layer | File | Responsibility |
 | --- | --- | --- |
 | Database setup | `backend/db/database.py` | Loads `.env`, reads `DATABASE_URL`, creates the SQLAlchemy engine, configures `SessionLocal`, defines `Base`, and provides `get_db()` |
 | Models | `backend/db/models.py` | Defines SQLAlchemy models, including the `Book` model mapped to the `books` table |
-| Repository | `backend/repository/postgres_books_repository.py` | Isolates SQLAlchemy queries and CRUD operations |
+| Auth | `backend/auth/dependencies.py` | Validates Supabase Bearer tokens and loads the current profile |
+| Repository | `backend/repository/postgres_books_repository.py` | Isolates user-scoped SQLAlchemy queries and CRUD operations |
 | Services | `backend/services/postgres_books.py` | Applies book business rules while preserving API response shapes |
 | Routes | `backend/routes/books.py` | Handles HTTP requests and injects database sessions |
 
@@ -252,14 +281,14 @@ Run this after `docker compose up -d` and `alembic upgrade head`:
 python -m backend.scripts.migrate_csv_to_postgres --csv backend/data/processed/books.csv
 ```
 
-The `--csv` option is optional; the default path is `backend/data/processed/books.csv`. Imported rows are written to PostgreSQL. The migration utility skips duplicates by existing `ISBN/UID` or title, skips invalid rows, and prints a summary.
+The `--csv` option is optional; the default path is `backend/data/processed/books.csv`. This utility is for old pre-auth local data. For normal multi-user libraries, import through the authenticated UI/API path so rows are created for the signed-in user.
 
 ### Import and Export
 
 CSV remains supported for compatibility:
 
-* `POST /books/import` accepts parsed CSV rows from the frontend, creates PostgreSQL rows, and skips duplicate titles.
-* `GET /books/export` returns the current PostgreSQL library as CSV.
+* `POST /books/import` accepts parsed CSV rows from the frontend, creates PostgreSQL rows for the signed-in user, and skips duplicate titles in that user's library.
+* `GET /books/export` returns the signed-in user's PostgreSQL library as CSV.
 * The offline ingest pipeline in `backend/ingest/` can process external CSV schemas, but it does not replace PostgreSQL as the app storage backend.
 
 ---
@@ -289,6 +318,7 @@ uvicorn api:app --reload
 ```bash
 cd frontend
 npm install
+cp .env.local.example .env.local
 npm run dev
 ```
 
@@ -312,6 +342,18 @@ cp frontend/.env.local.example frontend/.env.local
 ```
 
 Restart the frontend after modifying environment variables.
+
+Required frontend auth variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase project URL used by the browser client |
+| `VITE_SUPABASE_ANON_KEY` | Public anon/publishable key used by the browser client |
+| `VITE_API_BASE_URL` | Optional backend API override; omit for Vite proxy mode |
+
+The frontend login/register flow stores the Supabase session in the browser through `@supabase/supabase-js`. `frontend/src/lib/api.ts` reads the current session and attaches `Authorization: Bearer <access_token>` to backend requests.
+
+On registration/session restore, `frontend/src/contexts/AuthContext.tsx` checks `profiles` for the Supabase user id and inserts a row with `id`, `email`, and `username` when needed. This uses the Supabase project configured in `frontend/.env.local`.
 
 ### CLI
 
@@ -363,7 +405,7 @@ for development workflow and architecture guidelines.
 
 ### Current Storage
 
-ShelfTxt currently uses PostgreSQL for book CRUD operations. CSV remains available for export/import compatibility and local migration-adjacent workflows.
+ShelfTxt currently uses PostgreSQL for profiles and user-owned book CRUD operations. CSV remains available for export/import compatibility and local migration-adjacent workflows.
 
 ### Data Directories
 
@@ -382,12 +424,16 @@ Legacy CSV helpers may create an empty `books.csv` if one does not exist.
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed book CRUD |
+| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed profiles and book CRUD. Use Supabase Postgres for Supabase Auth integration testing. |
+| `SUPABASE_URL` | Supabase project URL for backend token verification |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key for backend Supabase client |
 
 ### Frontend
 
 | Variable | Purpose |
 | --- | --- |
+| `VITE_SUPABASE_URL` | Supabase project URL for browser auth |
+| `VITE_SUPABASE_ANON_KEY` | Public anon/publishable key for browser auth |
 | `VITE_API_BASE_URL` | Override backend API URL |
 
 Full deployment configuration:

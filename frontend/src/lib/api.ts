@@ -1,6 +1,19 @@
 import { assertDemoWritable, resolveApiBase } from "@/lib/demoMode";
 import { supabase } from "@/lib/supabase";
 
+export const AUTH_REQUIRED_MESSAGE = "Please sign in to view your library.";
+
+export class AuthRequiredError extends Error {
+  constructor(message = AUTH_REQUIRED_MESSAGE) {
+    super(message);
+    this.name = "AuthRequiredError";
+  }
+}
+
+type ApiFetchInit = RequestInit & {
+  requireAuth?: boolean;
+};
+
 /**
  * Browser fetch target for the FastAPI backend.
  *
@@ -18,20 +31,27 @@ export function apiUrl(path: string): string {
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-async function authHeaders(initHeaders?: HeadersInit): Promise<Headers> {
+async function authHeaders(initHeaders?: HeadersInit, requireAuth = true): Promise<Headers> {
   const headers = new Headers(initHeaders);
   const {
-    data: { session }
+    data: { session },
+    error
   } = await supabase.auth.getSession();
 
   if (session?.access_token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
+    return headers;
+  }
+
+  if (requireAuth && !headers.has("Authorization")) {
+    throw new AuthRequiredError(error?.message ? AUTH_REQUIRED_MESSAGE : undefined);
   }
 
   return headers;
 }
 
-export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(path: string, init?: ApiFetchInit): Promise<Response> {
+  const { requireAuth = true, ...fetchInit } = init ?? {};
   const method = (init?.method ?? "GET").toUpperCase();
   if (MUTATING_METHODS.has(method)) {
     assertDemoWritable();
@@ -39,24 +59,35 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
   return fetch(apiUrl(path), {
     cache: "no-store",
-    ...init,
-    headers: await authHeaders(init?.headers)
+    ...fetchInit,
+    headers: await authHeaders(fetchInit.headers, requireAuth)
   });
 }
 
-export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function getApiErrorMessage(
+  response: Response,
+  fallback = `Request failed (${response.status})`
+): Promise<string> {
+  if (response.status === 401 || response.status === 403) {
+    return AUTH_REQUIRED_MESSAGE;
+  }
+
+  try {
+    const body = (await response.json()) as { detail?: string };
+    if (typeof body?.detail === "string" && body.detail.trim()) {
+      return body.detail;
+    }
+  } catch {
+    /* keep fallback */
+  }
+
+  return fallback;
+}
+
+export async function fetchJson<T>(path: string, init?: ApiFetchInit): Promise<T> {
   const response = await apiFetch(path, init);
   if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (typeof body?.detail === "string" && body.detail.trim()) {
-        message = body.detail;
-      }
-    } catch {
-      /* keep default */
-    }
-    throw new Error(message);
+    throw new Error(await getApiErrorMessage(response));
   }
   return response.json() as Promise<T>;
 }

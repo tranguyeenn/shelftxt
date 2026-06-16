@@ -6,6 +6,12 @@ Symptoms → likely cause → fix. See also [deployment.md](../engineering/deplo
 
 ## Backend (local)
 
+### `User profile not found`
+
+**Cause:** The backend received a valid Supabase JWT, but the database configured by `DATABASE_URL` does not contain a `profiles.id` row matching that Supabase auth user id. This usually happens when the frontend uses hosted Supabase Auth and creates `profiles` rows in Supabase Postgres, while the backend still points at local Docker Postgres.
+
+**Fix:** For Supabase Auth integration testing, set backend `DATABASE_URL` to the same Supabase Postgres database where `public.profiles` lives. If you intentionally use local Docker Postgres, manually insert a local profile row with the same UUID as the Supabase auth user.
+
 ### `ModuleNotFoundError: No module named 'apscheduler'`
 
 **Cause:** System Python or wrong venv.
