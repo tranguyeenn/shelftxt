@@ -12,12 +12,25 @@ class AddBook(BaseModel):
 class PatchBook(BaseModel):
     title: str = Field(min_length=1)
     new_title: str | None = Field(default=None, min_length=1)
-    author: str | None = Field(default=None, min_length=1)
+    author: str | None = None
+    isbn_uid: str | None = Field(default=None, min_length=1)
     total_pages: int | None = Field(default=None, gt=0)
     pages_read: int | None = Field(default=None, ge=0)
     move_to: Literal["want", "reading", "read", "dnf"] | None = None
+    read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
+    status: Literal["not_started", "reading", "completed", "dnf"] | None = None
     rating: float | None = Field(default=None, ge=1, le=5)
     date_read: str | None = None
+
+
+class PatchBookById(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+    author: str | None = None
+    isbn_uid: str | None = Field(default=None, min_length=1)
+    total_pages: int | None = Field(default=None, gt=0)
+    pages_read: int | None = Field(default=None, ge=0)
+    read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
+    status: Literal["not_started", "reading", "completed", "dnf"] | None = None
 
 
 class ImportRow(BaseModel):
@@ -37,6 +50,11 @@ class ImportRow(BaseModel):
     )
 
     title: str = Field(min_length=1)
+    isbn_uid: str | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias=AliasChoices("isbn_uid", "ISBN/UID", "isbn", "ISBN"),
+    )
     author: str | None = Field(
         default=None,
         min_length=1,

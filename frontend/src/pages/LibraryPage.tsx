@@ -87,7 +87,7 @@ export function LibraryPage() {
             type="button"
             onClick={() => setFilter(value)}
             className={[
-              "rounded-lg px-3 py-1.5 text-sm transition-colors",
+              "cursor-pointer rounded-lg px-3 py-1.5 text-sm transition-colors",
               filter === value
                 ? "bg-accent-muted text-accent"
                 : "text-text-muted hover:bg-surface-hover hover:text-text"

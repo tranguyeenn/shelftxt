@@ -47,7 +47,7 @@ export function Sidebar() {
       <div className="hidden border-t border-border-subtle px-4 py-3 md:block">
         <p className="truncate text-xs text-text-muted">{user?.email}</p>
         <button
-          className="mt-2 text-xs text-text-dim transition-colors hover:text-text"
+          className="mt-2 cursor-pointer text-xs text-text-dim transition-colors hover:text-text"
           type="button"
           onClick={() => void logout()}
         >
@@ -56,7 +56,7 @@ export function Sidebar() {
         <p className="mt-3 font-mono text-[10px] leading-relaxed text-text-dim">v0.2.0 · rule-based ranker</p>
       </div>
       <button
-        className="shrink-0 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+        className="shrink-0 cursor-pointer rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text md:hidden"
         type="button"
         onClick={() => void logout()}
       >

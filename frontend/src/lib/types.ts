@@ -1,4 +1,4 @@
-export type ReadingStatus = "not_started" | "reading" | "completed";
+export type ReadingStatus = "not_started" | "reading" | "completed" | "dnf";
 
 export type ApiBook = {
   id: string;

@@ -12,6 +12,7 @@ from backend import api
 from backend.auth.dependencies import get_current_user
 from backend.db.database import Base, get_db
 from backend.db.models import Book, Profile
+from backend.services.page_lookup import BookMetadata
 from backend.services.recommendation import get_recommendation
 
 
@@ -134,6 +135,7 @@ class ApiTests(unittest.TestCase):
         import_row_properties = schema["ImportRow"]["properties"]
 
         self.assertIn("title", import_row_properties)
+        self.assertIn("isbn_uid", import_row_properties)
         self.assertIn("author", import_row_properties)
         self.assertIn("total_pages", import_row_properties)
         self.assertIn("read_status", import_row_properties)
@@ -353,6 +355,37 @@ class ApiTests(unittest.TestCase):
         payload = self.client.get("/books/1").json()
         self.assertEqual(payload["Read Status"], "dnf")
         self.assertEqual(payload["Star Rating"], 1)
+
+    def test_patch_book_by_id_updates_editable_metadata(self):
+        _seed_book(
+            title="Old",
+            authors="A",
+            isbn_uid="old-id",
+            total_pages=100,
+            pages_read=20,
+            progress_percent=20,
+        )
+
+        response = self.client.patch(
+            "/books/old-id",
+            json={
+                "title": "New",
+                "author": "",
+                "isbn_uid": "new-id",
+                "total_pages": 120,
+                "status": "completed",
+                "pages_read": 10,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Title"], "New")
+        self.assertEqual(payload["Authors"], "Unknown")
+        self.assertEqual(payload["ISBN/UID"], "new-id")
+        self.assertEqual(payload["Total Pages"], 120)
+        self.assertEqual(payload["Pages Read"], 120)
+        self.assertEqual(payload["Read Status"], "read")
 
     def test_patch_cannot_update_other_user_book(self):
         _seed_profile(
@@ -593,9 +626,11 @@ class ApiTests(unittest.TestCase):
         self.assertIsNotNone(current_user_book)
         self.assertIsNone(other_user_book)
 
-    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=592)
-    def test_import_accepts_authors_alias(self, mock_lookup_total_pages, mock_lookup_author_name):
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(total_pages=592),
+    )
+    def test_import_accepts_authors_alias(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "Dune", "Authors": "Frank Herbert"}]},
@@ -605,13 +640,14 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Authors"], "Frank Herbert")
         self.assertEqual(book["Total Pages"], 592)
-        mock_lookup_total_pages.assert_called_once_with("Dune", "Frank Herbert")
-        mock_lookup_author_name.assert_not_called()
+        mock_lookup_book_metadata.assert_called_once_with("Dune", "Frank Herbert", None)
 
-    @patch("backend.services.postgres_books.lookup_author_name", return_value="Frank Herbert")
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=592)
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(authors="Frank Herbert", total_pages=592),
+    )
     def test_import_title_only_enriches_pages_and_author(
-        self, mock_lookup_total_pages, mock_lookup_author_name
+        self, mock_lookup_book_metadata
     ):
         response = self.client.post(
             "/books/import",
@@ -622,13 +658,31 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Authors"], "Frank Herbert")
         self.assertEqual(book["Total Pages"], 592)
-        mock_lookup_total_pages.assert_called_once_with("Dune", None)
-        mock_lookup_author_name.assert_called_once_with("Dune")
+        mock_lookup_book_metadata.assert_called_once_with("Dune", None, None)
 
-    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=592)
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(authors="Frank Herbert", total_pages=592),
+    )
+    def test_import_uses_isbn_uid_for_metadata_lookup(self, mock_lookup_book_metadata):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Dune", "ISBN/UID": "9780441172719"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["ISBN/UID"], "9780441172719")
+        self.assertEqual(book["Authors"], "Frank Herbert")
+        self.assertEqual(book["Total Pages"], 592)
+        mock_lookup_book_metadata.assert_called_once_with("Dune", None, "9780441172719")
+
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(total_pages=592),
+    )
     def test_import_unknown_author_uses_authorless_lookup(
-        self, mock_lookup_total_pages, mock_lookup_author_name
+        self, mock_lookup_book_metadata
     ):
         response = self.client.post(
             "/books/import",
@@ -639,13 +693,11 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Authors"], "Unknown")
         self.assertEqual(book["Total Pages"], 592)
-        mock_lookup_total_pages.assert_called_once_with("Dune", None)
-        mock_lookup_author_name.assert_called_once_with("Dune")
+        mock_lookup_book_metadata.assert_called_once_with("Dune", None, None)
 
-    @patch("backend.services.postgres_books.lookup_author_name", side_effect=RuntimeError("boom"))
-    @patch("backend.services.postgres_books.lookup_total_pages", side_effect=RuntimeError("boom"))
+    @patch("backend.services.postgres_books.lookup_book_metadata", side_effect=RuntimeError("boom"))
     def test_import_does_not_crash_when_lookup_raises(
-        self, mock_lookup_total_pages, mock_lookup_author_name
+        self, mock_lookup_book_metadata
     ):
         response = self.client.post(
             "/books/import",
@@ -661,13 +713,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(book["Title"], "Dune")
         self.assertEqual(book["Authors"], "Unknown")
         self.assertIsNone(book["Total Pages"])
-        mock_lookup_total_pages.assert_called_once_with("Dune", None)
-        mock_lookup_author_name.assert_not_called()
+        mock_lookup_book_metadata.assert_called_once_with("Dune", None, None)
 
-    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=100)
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(total_pages=100),
+    )
     def test_bulk_import_caps_page_lookup_count(
-        self, mock_lookup_total_pages, mock_lookup_author_name
+        self, mock_lookup_book_metadata
     ):
         response = self.client.post(
             "/books/import",
@@ -685,16 +738,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["enriched_count"], 10)
         self.assertEqual(payload["enrichment_skipped_count"], 90)
         self.assertEqual(payload["enrichment_failed_count"], 0)
-        self.assertEqual(mock_lookup_total_pages.call_count, 10)
-        mock_lookup_author_name.assert_not_called()
+        self.assertEqual(mock_lookup_book_metadata.call_count, 10)
 
-    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
     @patch(
-        "backend.services.postgres_books.lookup_total_pages",
+        "backend.services.postgres_books.lookup_book_metadata",
         side_effect=httpx.TimeoutException("timeout"),
     )
     def test_import_timeout_disables_remaining_enrichment(
-        self, mock_lookup_total_pages, mock_lookup_author_name
+        self, mock_lookup_book_metadata
     ):
         response = self.client.post(
             "/books/import",
@@ -710,15 +761,13 @@ class ApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["imported_count"], 5)
         self.assertEqual(payload["enriched_count"], 0)
-        self.assertEqual(payload["enrichment_failed_count"], 1)
-        self.assertEqual(payload["enrichment_skipped_count"], 4)
-        mock_lookup_total_pages.assert_called_once_with("Timeout Book 0", "Author")
-        mock_lookup_author_name.assert_not_called()
+        self.assertEqual(payload["enrichment_failed_count"], 2)
+        self.assertEqual(payload["enrichment_skipped_count"], 3)
+        self.assertEqual(mock_lookup_book_metadata.call_count, 2)
 
-    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    @patch("backend.services.postgres_books.lookup_book_metadata", return_value=None)
     def test_import_succeeds_when_all_attempted_enrichment_fails(
-        self, mock_lookup_total_pages, mock_lookup_author_name
+        self, mock_lookup_book_metadata
     ):
         response = self.client.post(
             "/books/import",
@@ -734,13 +783,12 @@ class ApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["imported_count"], 5)
         self.assertEqual(payload["enriched_count"], 0)
-        self.assertEqual(payload["enrichment_failed_count"], 1)
-        self.assertEqual(payload["enrichment_skipped_count"], 4)
-        self.assertEqual(mock_lookup_total_pages.call_count, 1)
-        mock_lookup_author_name.assert_not_called()
+        self.assertEqual(payload["enrichment_failed_count"], 5)
+        self.assertEqual(payload["enrichment_skipped_count"], 0)
+        self.assertEqual(mock_lookup_book_metadata.call_count, 5)
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
-    def test_import_normalizes_read_to_completed(self, mock_lookup_total_pages):
+    @patch("backend.services.postgres_books.lookup_book_metadata", return_value=None)
+    def test_import_normalizes_read_to_completed(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "Read Book", "author": "A", "Read Status": "Read"}]},
@@ -751,10 +799,10 @@ class ApiTests(unittest.TestCase):
         book = payload["results"][0]
         self.assertEqual(book["Read Status"], "read")
         self.assertEqual(book["Progress (%)"], 100)
-        mock_lookup_total_pages.assert_called_once()
+        mock_lookup_book_metadata.assert_called_once()
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
-    def test_import_normalizes_completed_to_completed(self, mock_lookup_total_pages):
+    @patch("backend.services.postgres_books.lookup_book_metadata", return_value=None)
+    def test_import_normalizes_completed_to_completed(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "Completed Book", "author": "A", "status": "Completed"}]},
@@ -764,10 +812,10 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Read Status"], "read")
         self.assertEqual(book["Progress (%)"], 100)
-        mock_lookup_total_pages.assert_called_once()
+        mock_lookup_book_metadata.assert_called_once()
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
-    def test_import_normalizes_finished_to_completed(self, mock_lookup_total_pages):
+    @patch("backend.services.postgres_books.lookup_book_metadata", return_value=None)
+    def test_import_normalizes_finished_to_completed(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "Finished Book", "author": "A", "read_status": "Finished"}]},
@@ -777,10 +825,13 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Read Status"], "read")
         self.assertEqual(book["Progress (%)"], 100)
-        mock_lookup_total_pages.assert_called_once()
+        mock_lookup_book_metadata.assert_called_once()
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=300)
-    def test_import_normalizes_reading_to_reading(self, mock_lookup_total_pages):
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(total_pages=300),
+    )
+    def test_import_normalizes_reading_to_reading(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={
@@ -801,10 +852,10 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(book["Pages Read"], 75)
         self.assertEqual(book["Total Pages"], 300)
         self.assertEqual(book["Progress (%)"], 25)
-        mock_lookup_total_pages.assert_called_once()
+        mock_lookup_book_metadata.assert_called_once()
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
-    def test_import_normalizes_to_read_to_not_started(self, mock_lookup_total_pages):
+    @patch("backend.services.postgres_books.lookup_book_metadata", return_value=None)
+    def test_import_normalizes_to_read_to_not_started(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "Unread Book", "author": "A", "Read Status": "To Read"}]},
@@ -815,10 +866,13 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(book["Read Status"], "to-read")
         self.assertEqual(book["Pages Read"], 0)
         self.assertEqual(book["Progress (%)"], 0)
-        mock_lookup_total_pages.assert_called_once()
+        mock_lookup_book_metadata.assert_called_once()
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=412)
-    def test_import_missing_page_count_triggers_lookup(self, mock_lookup_total_pages):
+    @patch(
+        "backend.services.postgres_books.lookup_book_metadata",
+        return_value=BookMetadata(total_pages=412),
+    )
+    def test_import_missing_page_count_triggers_lookup(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "Needs Pages", "author": "A"}]},
@@ -827,10 +881,10 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Total Pages"], 412)
-        mock_lookup_total_pages.assert_called_once_with("Needs Pages", "A")
+        mock_lookup_book_metadata.assert_called_once_with("Needs Pages", "A", None)
 
-    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
-    def test_import_failed_page_count_lookup_does_not_crash(self, mock_lookup_total_pages):
+    @patch("backend.services.postgres_books.lookup_book_metadata", return_value=None)
+    def test_import_failed_page_count_lookup_does_not_crash(self, mock_lookup_book_metadata):
         response = self.client.post(
             "/books/import",
             json={"books": [{"title": "No Pages Found", "author": "A"}]},
@@ -842,7 +896,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["enrichment_failed_count"], 1)
         book = self.client.get("/books").json()["results"][0]
         self.assertIsNone(book["Total Pages"])
-        mock_lookup_total_pages.assert_called_once_with("No Pages Found", "A")
+        mock_lookup_book_metadata.assert_called_once_with("No Pages Found", "A", None)
 
     def test_export_library_csv(self):
         _seed_book(

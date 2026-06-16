@@ -68,6 +68,7 @@ export function recordToApiBook(book: BookRecord): ApiBook {
   const st = statusNorm(book["Read Status"]);
   let status: ReadingStatus = "not_started";
   if (st === "read") status = "completed";
+  else if (st === "dnf") status = "dnf";
   else if (st === "to-read" && (progress > 0 || pagesRead > 0)) status = "reading";
 
   return {
@@ -81,6 +82,25 @@ export function recordToApiBook(book: BookRecord): ApiBook {
     rating: starRating(book),
     read_status: String(book["Read Status"] ?? "")
   };
+}
+
+export type BookPatchPayload = {
+  title: string;
+  author: string;
+  isbn_uid: string;
+  total_pages: number | null;
+  status: ReadingStatus;
+  pages_read: number;
+};
+
+export async function patchBook(bookId: string, payload: BookPatchPayload): Promise<ApiBook> {
+  const encodedId = encodeURIComponent(bookId);
+  const result = await fetchJson<BookRecord>(`/books/${encodedId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return recordToApiBook(result);
 }
 
 export function derivedShelf(book: BookRecord): DerivedShelf {

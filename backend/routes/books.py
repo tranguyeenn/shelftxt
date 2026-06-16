@@ -13,6 +13,7 @@ from backend.schemas.books import (
     ImportBooks,
     ImportResult,
     PatchBook,
+    PatchBookById,
 )
 from backend.services.postgres_books import (
     add_book_service,
@@ -24,6 +25,7 @@ from backend.services.postgres_books import (
     get_books_service,
     import_books_service,
     patch_book_service,
+    patch_book_by_id_service,
     update_book_progress_by_id_service,
 )
 
@@ -108,6 +110,16 @@ async def get_book_by_id_route(
     current_user: Profile = Depends(get_current_user),
 ):
     return get_book_by_id_service(db, book_id, current_user.id)
+
+
+@router.patch("/books/{book_id}")
+async def patch_book_by_id_route(
+    book_id: str,
+    body: PatchBookById,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return patch_book_by_id_service(db, book_id, body, current_user.id)
 
 
 @router.patch("/books/{book_id}/progress")

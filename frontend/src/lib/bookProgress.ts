@@ -1,5 +1,6 @@
 import { fetchJson } from "@/lib/api";
-import type { ApiBook, BookProgressResponse, ReadingStatus } from "@/lib/types";
+import { recordToApiBook, type BookRecord } from "@/lib/books";
+import type { ApiBook, ReadingStatus } from "@/lib/types";
 
 export type ProgressValidation = {
   valid: boolean;
@@ -43,12 +44,12 @@ export async function patchBookProgress(
   payload: { status: ReadingStatus; pages_read: number }
 ): Promise<ApiBook> {
   const encodedId = encodeURIComponent(bookId);
-  const result = await fetchJson<BookProgressResponse>(`/books/${encodedId}/progress`, {
+  const result = await fetchJson<BookRecord>(`/books/${encodedId}/progress`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  return result.book;
+  return recordToApiBook(result);
 }
 
 export function statusLabel(status: ReadingStatus): string {
@@ -59,5 +60,7 @@ export function statusLabel(status: ReadingStatus): string {
       return "Reading";
     case "completed":
       return "Completed";
+    case "dnf":
+      return "DNF";
   }
 }

@@ -7,6 +7,7 @@ import { demoReadOnlyMessage, isReadOnlyDemo } from "@/lib/demoMode";
 
 type ImportRow = {
   title: string;
+  isbn_uid: string | null;
   author: string | null;
   total_pages: number | null;
   read_status: string | null;
@@ -46,6 +47,9 @@ export function CsvImportSection() {
       .map((row): ImportRow | null => {
         const title = String(row.title ?? row.Title ?? "").trim();
         if (!title) return null;
+        const isbnUid = String(
+          row.isbn_uid ?? row.isbn ?? row.ISBN ?? row["ISBN/UID"] ?? ""
+        ).trim();
         const author = String(row.author ?? row.authors ?? row.Author ?? row.Authors ?? "").trim();
         const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
         const pagesNum = pagesRaw ? Number(pagesRaw) : null;
@@ -57,6 +61,7 @@ export function CsvImportSection() {
 
         return {
           title,
+          isbn_uid: isbnUid || null,
           author: author || null,
           total_pages:
             Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null,

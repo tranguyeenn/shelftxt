@@ -93,7 +93,7 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
           <select
             value={status}
             onChange={(e) => handleStatusChange(e.target.value as ReadingStatus)}
-            className="rounded-lg border border-border bg-surface px-3 py-2 text-text"
+            className="cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-text"
           >
             <option value="not_started">{statusLabel("not_started")}</option>
             <option value="reading">{statusLabel("reading")}</option>

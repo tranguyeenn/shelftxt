@@ -13,7 +13,7 @@ import {
 } from "@/lib/userSettings";
 
 const selectClass =
-  "w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text sm:w-auto";
+  "w-full cursor-pointer rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text sm:w-auto";
 
 export function SettingsPage() {
   const { logout, user } = useAuth();
@@ -120,7 +120,7 @@ export function SettingsPage() {
                   aria-pressed={active}
                   onClick={() => updateSettings({ accentColor: key })}
                   className={[
-                    "h-9 w-9 rounded-full border-2 transition-transform",
+                    "h-9 w-9 cursor-pointer rounded-full border-2 transition-transform",
                     active ? "scale-110 border-text" : "border-transparent hover:scale-105"
                   ].join(" ")}
                   style={{ backgroundColor: preset.accent }}

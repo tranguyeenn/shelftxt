@@ -15,13 +15,14 @@ from backend.repository.postgres_books_repository import (
     get_book_by_isbn_uid,
     update_book,
 )
-from backend.services.page_lookup import lookup_author_name, lookup_total_pages
+from backend.services.page_lookup import lookup_book_metadata
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
 logger = logging.getLogger(__name__)
 
 MAX_IMPORT_ENRICHMENT_LOOKUPS = 10
+MAX_IMPORT_ENRICHMENT_TIMEOUTS = 2
 
 
 def book_to_dict(book):
@@ -127,29 +128,103 @@ def _usable_import_author(author: str | None) -> str | None:
     return cleaned
 
 
-def _lookup_total_pages_for_import(title: str, author: str | None) -> tuple[int | None, bool]:
+def _lookup_metadata_for_import(
+    title: str,
+    author: str | None,
+    isbn_uid: str | None,
+) -> tuple[object | None, bool, bool]:
     try:
-        pages = lookup_total_pages(title, author)
-    except Exception:
-        logger.exception("Import page count lookup crashed for %r", title)
-        return None, True
+        metadata = lookup_book_metadata(title, author, isbn_uid)
+    except Exception as exc:
+        logger.warning("Import metadata lookup crashed for %r: %s", title, exc, exc_info=True)
+        is_timeout = "timeout" in exc.__class__.__name__.lower()
+        return None, True, is_timeout
 
-    return pages, pages is None
+    return metadata, metadata is None, False
 
 
-def _lookup_author_name_for_import(title: str) -> tuple[str | None, bool]:
-    try:
-        author = lookup_author_name(title)
-    except Exception:
-        logger.exception("Import author lookup crashed for %r", title)
-        return None, True
+def _status_patch_value(body) -> str | None:
+    return getattr(body, "status", None) or getattr(body, "read_status", None)
 
-    return author, author is None
+
+def _apply_status_and_progress(
+    update_data: dict,
+    status: str | None,
+    pages_read: int | None,
+    total_pages: int | None,
+    current_pages_read: int | None,
+):
+    if status is None and pages_read is None:
+        return
+
+    next_pages_read = int(pages_read if pages_read is not None else current_pages_read or 0)
+    if next_pages_read < 0:
+        raise HTTPException(status_code=400, detail="pages_read cannot be negative")
+
+    total_pages_int = int(total_pages) if total_pages is not None else None
+    if total_pages_int is not None and next_pages_read > total_pages_int:
+        raise HTTPException(status_code=400, detail="pages_read cannot exceed total_pages")
+
+    if status == "not_started":
+        update_data.update({"read_status": "to-read", "pages_read": 0, "progress_percent": 0})
+        return
+
+    if status == "completed":
+        if total_pages_int is not None:
+            next_pages_read = total_pages_int
+        update_data.update(
+            {
+                "read_status": "read",
+                "pages_read": next_pages_read,
+                "progress_percent": 100,
+                "last_date_read": parse_date_or_today(None),
+            }
+        )
+        return
+
+    if status == "reading":
+        update_data.update(
+            {
+                "read_status": "to-read",
+                "pages_read": next_pages_read,
+                "progress_percent": round((next_pages_read / total_pages_int) * 100, 2)
+                if total_pages_int
+                else 0,
+            }
+        )
+        return
+
+    if status == "dnf":
+        update_data.update(
+            {
+                "read_status": "dnf",
+                "pages_read": next_pages_read,
+                "progress_percent": round((next_pages_read / total_pages_int) * 100, 2)
+                if total_pages_int
+                else 0,
+                "last_date_read": parse_date_or_today(None),
+            }
+        )
+        return
+
+    if status is None:
+        update_data.update(
+            {
+                "pages_read": next_pages_read,
+                "progress_percent": round((next_pages_read / total_pages_int) * 100, 2)
+                if total_pages_int
+                else 0,
+            }
+        )
+        return
+
+    raise HTTPException(status_code=400, detail="Invalid status")
 
 
 def import_books_service(db: Session, data, user_id: UUID):
     books = get_all_books(db, user_id)
     existing_titles = {book.title for book in books}
+    existing_isbn_uids = {book.isbn_uid for book in books}
 
     imported = 0
     skipped = 0
@@ -157,12 +232,14 @@ def import_books_service(db: Session, data, user_id: UUID):
     enrichment_skipped = 0
     enrichment_failed = 0
     enrichment_lookups = 0
+    enrichment_timeouts = 0
     enrichment_enabled = True
 
     for book in data.books:
         title = (book.title or "").strip()
+        isbn_uid = (getattr(book, "isbn_uid", None) or "").strip() or None
 
-        if not title or title in existing_titles:
+        if not title or title in existing_titles or (isbn_uid is not None and isbn_uid in existing_isbn_uids):
             skipped += 1
             continue
 
@@ -177,25 +254,26 @@ def import_books_service(db: Session, data, user_id: UUID):
         total_pages = book.total_pages
         stored_author = author
 
-        if total_pages is None:
+        if total_pages is None or stored_author is None:
             if enrichment_enabled and enrichment_lookups < MAX_IMPORT_ENRICHMENT_LOOKUPS:
                 enrichment_lookups += 1
-                total_pages, failed = _lookup_total_pages_for_import(title, author)
-                if total_pages is not None:
+                metadata, failed, timed_out = _lookup_metadata_for_import(title, author, isbn_uid)
+                if metadata is not None:
+                    if total_pages is None:
+                        total_pages = getattr(metadata, "total_pages", None)
+                    if stored_author is None:
+                        stored_author = _usable_import_author(getattr(metadata, "authors", None))
+                if metadata is not None and (
+                    getattr(metadata, "total_pages", None) is not None
+                    or getattr(metadata, "authors", None) is not None
+                ):
                     enriched += 1
                 if failed:
                     enrichment_failed += 1
-                    enrichment_enabled = False
-            else:
-                enrichment_skipped += 1
-
-        if stored_author is None:
-            if enrichment_enabled and enrichment_lookups < MAX_IMPORT_ENRICHMENT_LOOKUPS:
-                enrichment_lookups += 1
-                stored_author, failed = _lookup_author_name_for_import(title)
-                if failed:
-                    enrichment_failed += 1
-                    enrichment_enabled = False
+                if timed_out:
+                    enrichment_timeouts += 1
+                    if enrichment_timeouts >= MAX_IMPORT_ENRICHMENT_TIMEOUTS:
+                        enrichment_enabled = False
             else:
                 enrichment_skipped += 1
 
@@ -217,7 +295,7 @@ def import_books_service(db: Session, data, user_id: UUID):
             {
                 "title": title,
                 "authors": stored_author,
-                "isbn_uid": f"uid-{uuid.uuid4()}",
+                "isbn_uid": isbn_uid or f"uid-{uuid.uuid4()}",
                 "read_status": database_status_from_normalized(normalized_status),
                 "star_rating": None,
                 "last_date_read": None,
@@ -229,6 +307,8 @@ def import_books_service(db: Session, data, user_id: UUID):
         )
 
         existing_titles.add(title)
+        if isbn_uid is not None:
+            existing_isbn_uids.add(isbn_uid)
         imported += 1
 
     return {
@@ -296,7 +376,14 @@ def patch_book_service(db: Session, p, user_id: UUID):
         update_data["title"] = p.new_title
 
     if p.author is not None:
-        update_data["authors"] = p.author
+        update_data["authors"] = p.author.strip() or "Unknown"
+
+    if getattr(p, "isbn_uid", None) is not None:
+        next_isbn = p.isbn_uid.strip()
+        duplicate = next((b for b in books if b.isbn_uid == next_isbn and b.id != book.id), None)
+        if duplicate is not None:
+            raise HTTPException(status_code=400, detail="ISBN/UID already exists")
+        update_data["isbn_uid"] = next_isbn
 
     if p.total_pages is not None:
         update_data["total_pages"] = p.total_pages
@@ -373,9 +460,66 @@ def patch_book_service(db: Session, p, user_id: UUID):
         else:
             raise HTTPException(status_code=400, detail="Invalid move target")
 
+    if _status_patch_value(p) is not None or p.pages_read is not None:
+        total_pages = update_data.get("total_pages", book.total_pages)
+        _apply_status_and_progress(
+            update_data,
+            _status_patch_value(p),
+            p.pages_read,
+            total_pages,
+            book.pages_read,
+        )
+
     update_book(db, book.id, update_data, user_id)
 
     return {"message": "Book updated"}
+
+
+def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
+    books = get_all_books(db, user_id)
+    book = get_book_by_isbn_uid(db, book_id, user_id)
+
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    update_data = {}
+    fields_set = getattr(body, "model_fields_set", set())
+
+    if "title" in fields_set and body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Title is required")
+        duplicate = next((b for b in books if b.title == title and b.id != book.id), None)
+        if duplicate is not None:
+            raise HTTPException(status_code=400, detail="Title already exists")
+        update_data["title"] = title
+
+    if "author" in fields_set:
+        update_data["authors"] = (body.author or "").strip() or "Unknown"
+
+    if "isbn_uid" in fields_set and body.isbn_uid is not None:
+        isbn_uid = body.isbn_uid.strip()
+        duplicate = next((b for b in books if b.isbn_uid == isbn_uid and b.id != book.id), None)
+        if duplicate is not None:
+            raise HTTPException(status_code=400, detail="ISBN/UID already exists")
+        update_data["isbn_uid"] = isbn_uid
+
+    if "total_pages" in fields_set:
+        update_data["total_pages"] = body.total_pages
+
+    total_pages = update_data.get("total_pages", book.total_pages)
+    pages_read = body.pages_read if "pages_read" in fields_set else None
+    _apply_status_and_progress(
+        update_data,
+        _status_patch_value(body),
+        pages_read,
+        total_pages,
+        book.pages_read,
+    )
+
+    updated = update_book(db, book.id, update_data, user_id)
+
+    return book_to_dict(updated)
 
 
 def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id: UUID):

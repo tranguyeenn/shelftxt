@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
+import { BookEditModal } from "@/components/books/BookEditModal";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
@@ -12,6 +14,7 @@ import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
 import { statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, recordToApiBook, type BookRecord } from "@/lib/books";
+import { isReadOnlyDemo } from "@/lib/demoMode";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
 export function BookDetailPage() {
@@ -21,6 +24,7 @@ export function BookDetailPage() {
   const [, setLibrary] = useState<BookRecord[]>([]);
   const [recommendation, setRecommendation] = useState<RecommendationItem | null>(null);
   const [book, setBook] = useState<ApiBook | null>(null);
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -111,6 +115,14 @@ export function BookDetailPage() {
             </div>
           </Card>
 
+          {!isReadOnlyDemo ? (
+            <div>
+              <Button variant="secondary" onClick={() => setEditing(true)}>
+                Edit book
+              </Button>
+            </div>
+          ) : null}
+
           <BookProgressEditor
             book={book}
             onUpdated={(updated) => {
@@ -145,6 +157,16 @@ export function BookDetailPage() {
               onDeleted={() => navigate("/library")}
             />
           </Card>
+          {editing ? (
+            <BookEditModal
+              book={book}
+              onClose={() => setEditing(false)}
+              onUpdated={(updated) => {
+                setBook(updated);
+                void load();
+              }}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

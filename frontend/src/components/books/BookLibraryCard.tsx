@@ -1,10 +1,14 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 
+import { BookEditModal } from "@/components/books/BookEditModal";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { statusLabel } from "@/lib/bookProgress";
+import { isReadOnlyDemo } from "@/lib/demoMode";
 import type { ApiBook } from "@/lib/types";
 
 type BookLibraryCardProps = {
@@ -14,6 +18,7 @@ type BookLibraryCardProps = {
 };
 
 export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardProps) {
+  const [editing, setEditing] = useState(false);
   const tone =
     book.status === "completed" ? "success" : book.status === "reading" ? "accent" : "neutral";
 
@@ -31,7 +36,14 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
           </h3>
           <p className="mt-1 text-sm text-text-muted">{book.author}</p>
         </div>
-        <Badge tone={tone}>{statusLabel(book.status)}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone={tone}>{statusLabel(book.status)}</Badge>
+          {!isReadOnlyDemo ? (
+            <Button variant="ghost" onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -61,6 +73,13 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
         onDeleted={() => onDeleted?.(book.id)}
         compact
       />
+      {editing ? (
+        <BookEditModal
+          book={book}
+          onClose={() => setEditing(false)}
+          onUpdated={onUpdated}
+        />
+      ) : null}
     </Card>
   );
 }

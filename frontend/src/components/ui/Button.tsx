@@ -20,7 +20,7 @@ export function Button({ variant = "secondary", className = "", ...props }: Butt
   return (
     <button
       type="button"
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors ${variantClass[variant]} ${className}`}
+      className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed ${variantClass[variant]} ${className}`}
       {...props}
     />
   );
