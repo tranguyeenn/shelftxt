@@ -90,12 +90,20 @@ export function CsvImportSection() {
     setError("");
     setMessage("");
     try {
-      const result = await fetchJson<{ imported: number; skipped: number }>("/books/import", {
+      const result = await fetchJson<{
+        imported_count: number;
+        skipped_duplicates: number;
+        enriched_count: number;
+        enrichment_skipped_count: number;
+        enrichment_failed_count: number;
+      }>("/books/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ books: rows })
       });
-      setMessage(`Imported ${result.imported} books, skipped ${result.skipped}.`);
+      setMessage(
+        `Imported ${result.imported_count} books, skipped ${result.skipped_duplicates}, enriched ${result.enriched_count}.`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
     } finally {

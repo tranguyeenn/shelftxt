@@ -11,6 +11,7 @@ from backend.schemas.books import (
     BooksPage,
     ClearLibraryRequest,
     ImportBooks,
+    ImportResult,
     PatchBook,
 )
 from backend.services.postgres_books import (
@@ -91,7 +92,7 @@ async def patch_book(
     return patch_book_service(db, p, current_user.id)
 
 
-@router.post("/books/import")
+@router.post("/books/import", response_model=ImportResult)
 async def import_books(
     data: ImportBooks,
     db: Session = Depends(get_db),

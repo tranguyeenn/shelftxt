@@ -1,4 +1,5 @@
 import csv
+import logging
 import uuid
 from datetime import date
 from io import StringIO
@@ -16,6 +17,11 @@ from backend.repository.postgres_books_repository import (
 )
 from backend.services.page_lookup import lookup_author_name, lookup_total_pages
 from backend.services.status import database_status_from_normalized, normalize_status
+
+
+logger = logging.getLogger(__name__)
+
+MAX_IMPORT_ENRICHMENT_LOOKUPS = 10
 
 
 def book_to_dict(book):
@@ -121,12 +127,37 @@ def _usable_import_author(author: str | None) -> str | None:
     return cleaned
 
 
+def _lookup_total_pages_for_import(title: str, author: str | None) -> tuple[int | None, bool]:
+    try:
+        pages = lookup_total_pages(title, author)
+    except Exception:
+        logger.exception("Import page count lookup crashed for %r", title)
+        return None, True
+
+    return pages, pages is None
+
+
+def _lookup_author_name_for_import(title: str) -> tuple[str | None, bool]:
+    try:
+        author = lookup_author_name(title)
+    except Exception:
+        logger.exception("Import author lookup crashed for %r", title)
+        return None, True
+
+    return author, author is None
+
+
 def import_books_service(db: Session, data, user_id: UUID):
     books = get_all_books(db, user_id)
     existing_titles = {book.title for book in books}
 
     imported = 0
     skipped = 0
+    enriched = 0
+    enrichment_skipped = 0
+    enrichment_failed = 0
+    enrichment_lookups = 0
+    enrichment_enabled = True
 
     for book in data.books:
         title = (book.title or "").strip()
@@ -143,8 +174,32 @@ def import_books_service(db: Session, data, user_id: UUID):
             progress_percent=progress_percent,
             pages_read=pages_read,
         )
-        total_pages = book.total_pages or lookup_total_pages(title, author)
-        stored_author = author or lookup_author_name(title) or "Unknown"
+        total_pages = book.total_pages
+        stored_author = author
+
+        if total_pages is None:
+            if enrichment_enabled and enrichment_lookups < MAX_IMPORT_ENRICHMENT_LOOKUPS:
+                enrichment_lookups += 1
+                total_pages, failed = _lookup_total_pages_for_import(title, author)
+                if total_pages is not None:
+                    enriched += 1
+                if failed:
+                    enrichment_failed += 1
+                    enrichment_enabled = False
+            else:
+                enrichment_skipped += 1
+
+        if stored_author is None:
+            if enrichment_enabled and enrichment_lookups < MAX_IMPORT_ENRICHMENT_LOOKUPS:
+                enrichment_lookups += 1
+                stored_author, failed = _lookup_author_name_for_import(title)
+                if failed:
+                    enrichment_failed += 1
+                    enrichment_enabled = False
+            else:
+                enrichment_skipped += 1
+
+        stored_author = stored_author or "Unknown"
 
         if normalized_status == "completed":
             progress_percent = 100
@@ -177,8 +232,11 @@ def import_books_service(db: Session, data, user_id: UUID):
         imported += 1
 
     return {
-        "imported": imported,
-        "skipped": skipped,
+        "imported_count": imported,
+        "skipped_duplicates": skipped,
+        "enriched_count": enriched,
+        "enrichment_skipped_count": enrichment_skipped,
+        "enrichment_failed_count": enrichment_failed,
     }
 
 

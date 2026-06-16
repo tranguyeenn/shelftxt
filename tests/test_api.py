@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -527,7 +528,8 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"imported": 1, "skipped": 1})
+        self.assertEqual(response.json()["imported_count"], 1)
+        self.assertEqual(response.json()["skipped_duplicates"], 1)
 
         payload = self.client.get("/books").json()
         self.assertEqual(payload["total"], 2)
@@ -549,8 +551,8 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["imported"], 0)
-        self.assertEqual(response.json()["skipped"], 1)
+        self.assertEqual(response.json()["imported_count"], 0)
+        self.assertEqual(response.json()["skipped_duplicates"], 1)
 
         payload = self.client.get("/books").json()
         self.assertEqual(payload["total"], 1)
@@ -569,7 +571,7 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["imported"], 1)
+        self.assertEqual(response.json()["imported_count"], 1)
 
         db = TestingSessionLocal()
         try:
@@ -639,6 +641,103 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(book["Total Pages"], 592)
         mock_lookup_total_pages.assert_called_once_with("Dune", None)
         mock_lookup_author_name.assert_called_once_with("Dune")
+
+    @patch("backend.services.postgres_books.lookup_author_name", side_effect=RuntimeError("boom"))
+    @patch("backend.services.postgres_books.lookup_total_pages", side_effect=RuntimeError("boom"))
+    def test_import_does_not_crash_when_lookup_raises(
+        self, mock_lookup_total_pages, mock_lookup_author_name
+    ):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Dune", "read_status": "To Read"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["imported_count"], 1)
+        self.assertEqual(response.json()["skipped_duplicates"], 0)
+        self.assertEqual(response.json()["enrichment_failed_count"], 1)
+
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Title"], "Dune")
+        self.assertEqual(book["Authors"], "Unknown")
+        self.assertIsNone(book["Total Pages"])
+        mock_lookup_total_pages.assert_called_once_with("Dune", None)
+        mock_lookup_author_name.assert_not_called()
+
+    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=100)
+    def test_bulk_import_caps_page_lookup_count(
+        self, mock_lookup_total_pages, mock_lookup_author_name
+    ):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {"title": f"Bulk Book {i}", "author": "Author"}
+                    for i in range(100)
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["imported_count"], 100)
+        self.assertEqual(payload["enriched_count"], 10)
+        self.assertEqual(payload["enrichment_skipped_count"], 90)
+        self.assertEqual(payload["enrichment_failed_count"], 0)
+        self.assertEqual(mock_lookup_total_pages.call_count, 10)
+        mock_lookup_author_name.assert_not_called()
+
+    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
+    @patch(
+        "backend.services.postgres_books.lookup_total_pages",
+        side_effect=httpx.TimeoutException("timeout"),
+    )
+    def test_import_timeout_disables_remaining_enrichment(
+        self, mock_lookup_total_pages, mock_lookup_author_name
+    ):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {"title": f"Timeout Book {i}", "author": "Author"}
+                    for i in range(5)
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["imported_count"], 5)
+        self.assertEqual(payload["enriched_count"], 0)
+        self.assertEqual(payload["enrichment_failed_count"], 1)
+        self.assertEqual(payload["enrichment_skipped_count"], 4)
+        mock_lookup_total_pages.assert_called_once_with("Timeout Book 0", "Author")
+        mock_lookup_author_name.assert_not_called()
+
+    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    def test_import_succeeds_when_all_attempted_enrichment_fails(
+        self, mock_lookup_total_pages, mock_lookup_author_name
+    ):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {"title": f"Failed Enrichment Book {i}", "author": "Author"}
+                    for i in range(5)
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["imported_count"], 5)
+        self.assertEqual(payload["enriched_count"], 0)
+        self.assertEqual(payload["enrichment_failed_count"], 1)
+        self.assertEqual(payload["enrichment_skipped_count"], 4)
+        self.assertEqual(mock_lookup_total_pages.call_count, 1)
+        mock_lookup_author_name.assert_not_called()
 
     @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
     def test_import_normalizes_read_to_completed(self, mock_lookup_total_pages):
@@ -738,7 +837,9 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"imported": 1, "skipped": 0})
+        self.assertEqual(response.json()["imported_count"], 1)
+        self.assertEqual(response.json()["skipped_duplicates"], 0)
+        self.assertEqual(response.json()["enrichment_failed_count"], 1)
         book = self.client.get("/books").json()["results"][0]
         self.assertIsNone(book["Total Pages"])
         mock_lookup_total_pages.assert_called_once_with("No Pages Found", "A")
