@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from backend.db.database import Base
 from backend.db.models import Book, Profile
 from backend.services.page_count_lookup import (
+    PageCountResult,
     backfill_missing_page_counts,
     filter_page_count_outliers,
     fetch_openlibrary_pages_by_isbn,
@@ -160,4 +161,40 @@ class PageCountLookupTests(unittest.TestCase):
         self.assertIsNone(book.total_pages)
         self.assertTrue(book.page_count_checked)
         self.assertEqual(book.page_count_source, "unavailable")
+        session.close()
+
+    def test_backfill_respects_limit(self):
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        SessionLocal = sessionmaker(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        user_id = UUID("00000000-0000-0000-0000-000000000003")
+        session = SessionLocal()
+        session.add(Profile(id=user_id, email="c@example.com", username="c"))
+        session.add_all(
+            [
+                Book(
+                    title=f"Missing {i}",
+                    authors="A",
+                    isbn_uid=f"m-{i}",
+                    user_id=user_id,
+                    total_pages=None,
+                    page_count_checked=False,
+                )
+                for i in range(5)
+            ]
+        )
+        session.commit()
+
+        with patch(
+            "backend.services.page_count_lookup.lookup_page_count_result",
+            return_value=PageCountResult(123, "median_editions"),
+        ) as mock_lookup:
+            updated = backfill_missing_page_counts(session, limit=2)
+
+        self.assertEqual(updated, 2)
+        self.assertEqual(mock_lookup.call_count, 2)
+        checked_count = session.query(Book).filter(Book.page_count_checked.is_(True)).count()
+        unchecked_count = session.query(Book).filter(Book.page_count_checked.is_(False)).count()
+        self.assertEqual(checked_count, 2)
+        self.assertEqual(unchecked_count, 3)
         session.close()

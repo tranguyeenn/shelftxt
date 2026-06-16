@@ -108,6 +108,15 @@ class ApiTests(unittest.TestCase):
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         _seed_profile()
+        self.backfill_patcher = patch("backend.routes.books.backfill_missing_page_counts")
+        self.mock_backfill_missing_page_counts = self.backfill_patcher.start()
+        self.addCleanup(self.backfill_patcher.stop)
+        self.page_count_http_patcher = patch(
+            "backend.services.page_count_lookup.httpx.get",
+            side_effect=AssertionError("real HTTP call in API test"),
+        )
+        self.mock_page_count_http_get = self.page_count_http_patcher.start()
+        self.addCleanup(self.page_count_http_patcher.stop)
         self.client = TestClient(api.app)
 
     def test_get_books_default_pagination(self):
@@ -754,7 +763,8 @@ class ApiTests(unittest.TestCase):
         return_value=BookMetadata(total_pages=100),
     )
     def test_bulk_import_caps_page_lookup_count(
-        self, mock_lookup_open_library_by_title
+        self,
+        mock_lookup_open_library_by_title,
     ):
         response = self.client.post(
             "/books/import",
@@ -773,6 +783,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["enrichment_skipped_count"], 90)
         self.assertEqual(payload["enrichment_failed_count"], 0)
         self.assertEqual(mock_lookup_open_library_by_title.call_count, 10)
+        self.mock_backfill_missing_page_counts.assert_called_once_with()
+        self.mock_page_count_http_get.assert_not_called()
 
     @patch(
         "backend.services.postgres_books.lookup_open_library_by_title",
