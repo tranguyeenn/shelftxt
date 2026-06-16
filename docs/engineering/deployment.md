@@ -43,6 +43,38 @@ Optional Blueprint: [`render.yaml`](../../render.yaml).
 
 Render should use `/health`. Keep-warm job in `backend/api.py` pings the same path every 14 minutes.
 
+### Supabase schema migrations
+
+Render may time out while applying schema changes against Supabase if PostgreSQL is waiting on locks. For schema-only changes such as adding nullable columns, do not backfill data inside the migration.
+
+If a Render deploy times out during an Alembic migration:
+
+1. Open Supabase SQL editor and manually run the schema-only DDL, for example:
+
+   ```sql
+   ALTER TABLE books ADD COLUMN IF NOT EXISTS start_date DATE;
+   ALTER TABLE books ADD COLUMN IF NOT EXISTS end_date DATE;
+   ```
+
+2. Verify the columns exist before changing Alembic state:
+
+   ```sql
+   SELECT column_name
+   FROM information_schema.columns
+   WHERE table_name = 'books'
+     AND column_name IN ('start_date', 'end_date');
+   ```
+
+3. Stamp Alembic only after the live schema matches the migration:
+
+   ```bash
+   alembic stamp 9c2e1d4a8b77
+   ```
+
+4. Redeploy Render.
+
+Never stamp a migration merely to skip a failing deploy; stamp only after Supabase has the expected schema.
+
 ---
 
 ## Frontend — Vercel

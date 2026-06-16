@@ -8,7 +8,6 @@ Create Date: 2026-06-16 00:00:01.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = "9c2e1d4a8b77"
@@ -18,10 +17,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("books", sa.Column("start_date", sa.Date(), nullable=True))
-    op.add_column("books", sa.Column("end_date", sa.Date(), nullable=True))
+    # Nullable columns with no defaults avoid a table rewrite on PostgreSQL.
+    # IF NOT EXISTS keeps deploys safe if Supabase was patched manually after
+    # a Render timeout or if only one column was added before interruption.
+    op.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS start_date DATE")
+    op.execute("ALTER TABLE books ADD COLUMN IF NOT EXISTS end_date DATE")
 
 
 def downgrade() -> None:
-    op.drop_column("books", "end_date")
-    op.drop_column("books", "start_date")
+    op.execute("ALTER TABLE books DROP COLUMN IF EXISTS end_date")
+    op.execute("ALTER TABLE books DROP COLUMN IF EXISTS start_date")
