@@ -10,9 +10,12 @@ from backend.db.database import Base
 from backend.db.models import Book, Profile
 from backend.services.page_count_lookup import (
     backfill_missing_page_counts,
+    filter_page_count_outliers,
     fetch_openlibrary_pages_by_isbn,
     fetch_openlibrary_pages_by_title,
     lookup_page_count,
+    lookup_page_count_result,
+    median_page_count,
 )
 
 
@@ -37,21 +40,72 @@ class PageCountLookupTests(unittest.TestCase):
     def test_isbn_failure_falls_back_to_title_lookup(self):
         with (
             patch("backend.services.page_count_lookup.fetch_openlibrary_pages_by_isbn", return_value=None),
-            patch("backend.services.page_count_lookup.fetch_openlibrary_pages_by_title", return_value=222) as title_lookup,
+            patch(
+                "backend.services.page_count_lookup.lookup_page_count_by_title",
+                return_value=type("Result", (), {"pages": 222, "source": "median_editions"})(),
+            ) as title_lookup,
         ):
             self.assertEqual(lookup_page_count("Title", "Author", "9781234567890"), 222)
             title_lookup.assert_called_once_with("Title", "Author")
 
-    def test_title_lookup_fetches_edition_records(self):
+    def test_single_edition_returns_page_count(self):
         with patch("backend.services.page_count_lookup.httpx.get") as mock_get:
             mock_get.side_effect = [
-                FakeResponse({"docs": [{"edition_key": ["OL1M", "OL2M"]}]}),
-                FakeResponse({"number_of_pages": None}),
+                FakeResponse({"docs": [{"edition_key": ["OL2M"]}]}),
                 FakeResponse({"number_of_pages": 444}),
             ]
 
             self.assertEqual(fetch_openlibrary_pages_by_title("Kindred", "Octavia Butler"), 444)
-            self.assertEqual(mock_get.call_count, 3)
+            self.assertEqual(mock_get.call_count, 2)
+
+    def test_multiple_editions_return_median(self):
+        self.assertEqual(median_page_count([180, 208, 256, 270, 272, 280, 300]), 270)
+
+    def test_outlier_editions_are_removed(self):
+        values = [180, 208, 256, 270, 272, 280, 300, 1200]
+
+        self.assertEqual(filter_page_count_outliers(values), [180, 208, 256, 270, 272, 280, 300])
+        self.assertEqual(median_page_count(values), 270)
+
+    def test_empty_edition_list_returns_none(self):
+        with patch("backend.services.page_count_lookup.httpx.get") as mock_get:
+            mock_get.return_value = FakeResponse({"docs": [{"edition_key": []}]})
+
+            self.assertIsNone(fetch_openlibrary_pages_by_title("Missing", "A"))
+
+    def test_missing_page_counts_are_ignored(self):
+        with patch("backend.services.page_count_lookup.httpx.get") as mock_get:
+            mock_get.side_effect = [
+                FakeResponse({"docs": [{"edition_key": ["OL1M", "OL2M", "OL3M"]}]}),
+                FakeResponse({"number_of_pages": None}),
+                FakeResponse({"number_of_pages": 250}),
+                FakeResponse({}),
+            ]
+
+            self.assertEqual(fetch_openlibrary_pages_by_title("Known", "A"), 250)
+
+    def test_isbn_lookup_takes_precedence_over_median_calculation(self):
+        with (
+            patch("backend.services.page_count_lookup.fetch_openlibrary_pages_by_isbn", return_value=321),
+            patch("backend.services.page_count_lookup.lookup_page_count_by_title") as title_lookup,
+        ):
+            result = lookup_page_count_result("Title", "Author", "9781234567890")
+
+        self.assertEqual(result.pages, 321)
+        self.assertEqual(result.source, "exact_isbn")
+        title_lookup.assert_not_called()
+
+    def test_exact_edition_lookup_runs_before_title_median(self):
+        with (
+            patch("backend.services.page_count_lookup.fetch_openlibrary_pages_by_isbn", return_value=None),
+            patch("backend.services.page_count_lookup.fetch_openlibrary_pages_by_edition", return_value=333),
+            patch("backend.services.page_count_lookup.lookup_page_count_by_title") as title_lookup,
+        ):
+            result = lookup_page_count_result("Title", "Author", "9781234567890", "OL123M")
+
+        self.assertEqual(result.pages, 333)
+        self.assertEqual(result.source, "exact_edition")
+        title_lookup.assert_not_called()
 
     def test_backfill_only_processes_unchecked_and_does_not_overwrite(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -69,12 +123,16 @@ class PageCountLookupTests(unittest.TestCase):
         )
         session.commit()
 
-        with patch("backend.services.page_count_lookup.lookup_page_count", return_value=250) as mock_lookup:
+        with patch(
+            "backend.services.page_count_lookup.lookup_page_count_result",
+            return_value=type("Result", (), {"pages": 250, "source": "median_editions"})(),
+        ) as mock_lookup:
             updated = backfill_missing_page_counts(session)
 
         books = {book.title: book for book in session.query(Book).all()}
         self.assertEqual(updated, 1)
         self.assertEqual(books["Needs Pages"].total_pages, 250)
+        self.assertEqual(books["Needs Pages"].page_count_source, "median_editions")
         self.assertTrue(books["Needs Pages"].page_count_checked)
         self.assertEqual(books["Already Has Pages"].total_pages, 100)
         self.assertIsNone(books["Checked"].total_pages)
@@ -91,11 +149,15 @@ class PageCountLookupTests(unittest.TestCase):
         session.add(Book(title="Missing", authors="A", isbn_uid="m", user_id=user_id, total_pages=None, page_count_checked=False))
         session.commit()
 
-        with patch("backend.services.page_count_lookup.lookup_page_count", return_value=None):
+        with patch(
+            "backend.services.page_count_lookup.lookup_page_count_result",
+            return_value=type("Result", (), {"pages": None, "source": "unavailable"})(),
+        ):
             updated = backfill_missing_page_counts(session)
 
         book = session.query(Book).filter_by(title="Missing").one()
         self.assertEqual(updated, 0)
         self.assertIsNone(book.total_pages)
         self.assertTrue(book.page_count_checked)
+        self.assertEqual(book.page_count_source, "unavailable")
         session.close()

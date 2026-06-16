@@ -22,6 +22,7 @@ def upgrade() -> None:
         "books",
         sa.Column("page_count_checked", sa.Boolean(), server_default=sa.false(), nullable=False),
     )
+    op.add_column("books", sa.Column("page_count_source", sa.String(), nullable=True))
     op.add_column("books", sa.Column("subjects", sa.JSON(), nullable=True))
     op.add_column("books", sa.Column("genres", sa.JSON(), nullable=True))
     op.add_column("books", sa.Column("language", sa.String(), nullable=True))
@@ -35,4 +36,5 @@ def downgrade() -> None:
     op.drop_column("books", "language")
     op.drop_column("books", "genres")
     op.drop_column("books", "subjects")
+    op.drop_column("books", "page_count_source")
     op.drop_column("books", "page_count_checked")

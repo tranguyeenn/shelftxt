@@ -58,6 +58,7 @@ def book_to_dict(book):
         "Work Key": book.work_key,
         "Edition Key": book.edition_key,
         "page_count_checked": book.page_count_checked,
+        "page_count_source": book.page_count_source,
     }
 
 

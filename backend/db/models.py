@@ -130,6 +130,11 @@ class Book(Base):
         nullable=False,
     )
 
+    page_count_source: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
     subjects: Mapped[list[str] | None] = mapped_column(
         JSON,
         nullable=True,
