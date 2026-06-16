@@ -78,6 +78,26 @@ class PageLookupTests(unittest.TestCase):
             metadata,
             BookMetadata(title="Kindred", authors="Octavia E. Butler", total_pages=288),
         )
+        self.assertTrue(mock_get.call_args.kwargs["follow_redirects"])
+
+    @patch("backend.services.page_lookup.httpx.get")
+    def test_open_library_isbn_redirects_are_followed(self, mock_get):
+        mock_get.return_value = FakeResponse(
+            {
+                "title": "Dune",
+                "authors": [{"name": "Frank Herbert"}],
+                "number_of_pages": 592,
+            }
+        )
+
+        metadata = lookup_open_library_by_isbn("9780441172719")
+
+        self.assertEqual(metadata.total_pages, 592)
+        mock_get.assert_called_once_with(
+            "https://openlibrary.org/isbn/9780441172719.json",
+            timeout=2.0,
+            follow_redirects=True,
+        )
 
     @patch("backend.services.page_lookup.httpx.get")
     def test_title_only_fallback(self, mock_get):

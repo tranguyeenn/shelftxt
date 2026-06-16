@@ -139,6 +139,8 @@ class MessageResponse(BaseModel):
 
 class ImportResult(BaseModel):
     imported_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    duplicate_count: int = Field(ge=0)
     skipped_duplicates: int = Field(ge=0)
     enriched_count: int = Field(ge=0)
     enrichment_skipped_count: int = Field(ge=0)

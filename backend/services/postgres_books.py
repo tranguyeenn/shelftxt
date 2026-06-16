@@ -15,14 +15,27 @@ from backend.repository.postgres_books_repository import (
     get_book_by_isbn_uid,
     update_book,
 )
-from backend.services.page_lookup import lookup_book_metadata
+from backend.services.page_lookup import (
+    BookMetadata,
+    GoogleBooksRateLimited,
+    OpenLibraryTimeout,
+    lookup_google_books_by_isbn,
+    lookup_open_library_by_isbn,
+    lookup_open_library_by_title,
+    normalize_isbn,
+)
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
 logger = logging.getLogger(__name__)
 
-MAX_IMPORT_ENRICHMENT_LOOKUPS = 10
-MAX_IMPORT_ENRICHMENT_TIMEOUTS = 2
+MAX_ENRICH_LOOKUPS_PER_IMPORT = 10
+MAX_ENRICH_FAILURES_PER_IMPORT = 3
+MAX_GOOGLE_429_PER_IMPORT = 1
+MAX_OPEN_LIBRARY_TIMEOUTS_PER_IMPORT = 2
+
+# Backward-compatible alias for older tests/imports.
+MAX_IMPORT_ENRICHMENT_LOOKUPS = MAX_ENRICH_LOOKUPS_PER_IMPORT
 
 
 def book_to_dict(book):
@@ -128,19 +141,160 @@ def _usable_import_author(author: str | None) -> str | None:
     return cleaned
 
 
+def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> BookMetadata:
+    if next_metadata is None:
+        return base
+    return BookMetadata(
+        title=base.title or next_metadata.title,
+        authors=base.authors or next_metadata.authors,
+        total_pages=base.total_pages or next_metadata.total_pages,
+    )
+
+
+def _metadata_has_value(metadata: BookMetadata | None) -> bool:
+    return bool(metadata and (metadata.title or metadata.authors or metadata.total_pages))
+
+
+def _new_enrichment_state() -> dict[str, int | bool]:
+    return {
+        "lookups": 0,
+        "failures": 0,
+        "google_429s": 0,
+        "open_library_timeouts": 0,
+        "google_enabled": True,
+        "open_library_enabled": True,
+    }
+
+
+def _enrichment_budget_available(state: dict[str, int | bool]) -> bool:
+    return (
+        int(state["lookups"]) < MAX_ENRICH_LOOKUPS_PER_IMPORT
+        and int(state["failures"]) < MAX_ENRICH_FAILURES_PER_IMPORT
+    )
+
+
+def _record_enrichment_failure(state: dict[str, int | bool]) -> None:
+    state["failures"] = int(state["failures"]) + 1
+    if int(state["failures"]) >= MAX_ENRICH_FAILURES_PER_IMPORT:
+        state["google_enabled"] = False
+        state["open_library_enabled"] = False
+
+
+def _record_google_429(state: dict[str, int | bool]) -> None:
+    state["google_429s"] = int(state["google_429s"]) + 1
+    if int(state["google_429s"]) >= MAX_GOOGLE_429_PER_IMPORT:
+        state["google_enabled"] = False
+
+
+def _record_open_library_timeout(state: dict[str, int | bool]) -> None:
+    state["open_library_timeouts"] = int(state["open_library_timeouts"]) + 1
+    if int(state["open_library_timeouts"]) >= MAX_OPEN_LIBRARY_TIMEOUTS_PER_IMPORT:
+        state["open_library_enabled"] = False
+
+
+def _try_google_isbn_for_import(
+    isbn: str,
+    state: dict[str, int | bool],
+) -> BookMetadata | None:
+    if not state["google_enabled"] or not _enrichment_budget_available(state):
+        return None
+
+    state["lookups"] = int(state["lookups"]) + 1
+    try:
+        metadata = lookup_google_books_by_isbn(isbn)
+    except GoogleBooksRateLimited:
+        _record_google_429(state)
+        _record_enrichment_failure(state)
+        return None
+    except Exception as exc:
+        logger.warning("Google Books import lookup crashed for %r: %s", isbn, exc, exc_info=True)
+        _record_enrichment_failure(state)
+        return None
+
+    if metadata is None:
+        _record_enrichment_failure(state)
+    return metadata
+
+
+def _try_open_library_isbn_for_import(
+    isbn: str,
+    state: dict[str, int | bool],
+) -> BookMetadata | None:
+    if not state["open_library_enabled"] or not _enrichment_budget_available(state):
+        return None
+
+    state["lookups"] = int(state["lookups"]) + 1
+    try:
+        metadata = lookup_open_library_by_isbn(isbn)
+    except OpenLibraryTimeout:
+        _record_open_library_timeout(state)
+        _record_enrichment_failure(state)
+        return None
+    except Exception as exc:
+        logger.warning("Open Library ISBN import lookup crashed for %r: %s", isbn, exc, exc_info=True)
+        _record_enrichment_failure(state)
+        return None
+
+    if metadata is None:
+        _record_enrichment_failure(state)
+    return metadata
+
+
+def _try_open_library_title_for_import(
+    title: str,
+    author: str | None,
+    state: dict[str, int | bool],
+) -> BookMetadata | None:
+    if not state["open_library_enabled"] or not _enrichment_budget_available(state):
+        return None
+
+    state["lookups"] = int(state["lookups"]) + 1
+    try:
+        metadata = lookup_open_library_by_title(title, author)
+    except OpenLibraryTimeout:
+        _record_open_library_timeout(state)
+        _record_enrichment_failure(state)
+        return None
+    except Exception as exc:
+        logger.warning("Open Library title import lookup crashed for %r: %s", title, exc, exc_info=True)
+        _record_enrichment_failure(state)
+        return None
+
+    if metadata is None:
+        _record_enrichment_failure(state)
+    return metadata
+
+
 def _lookup_metadata_for_import(
     title: str,
     author: str | None,
     isbn_uid: str | None,
-) -> tuple[object | None, bool, bool]:
-    try:
-        metadata = lookup_book_metadata(title, author, isbn_uid)
-    except Exception as exc:
-        logger.warning("Import metadata lookup crashed for %r: %s", title, exc, exc_info=True)
-        is_timeout = "timeout" in exc.__class__.__name__.lower()
-        return None, True, is_timeout
+    state: dict[str, int | bool],
+) -> tuple[BookMetadata | None, bool]:
+    metadata = BookMetadata()
+    attempted = False
+    isbn = normalize_isbn(isbn_uid)
 
-    return metadata, metadata is None, False
+    if isbn:
+        lookups_before = int(state["lookups"])
+        google_metadata = _try_google_isbn_for_import(isbn, state)
+        attempted = attempted or int(state["lookups"]) > lookups_before
+        metadata = _merge_metadata(metadata, google_metadata)
+        if metadata.total_pages and (metadata.authors or author):
+            return metadata, attempted
+
+        lookups_before = int(state["lookups"])
+        open_library_metadata = _try_open_library_isbn_for_import(isbn, state)
+        attempted = attempted or int(state["lookups"]) > lookups_before
+        metadata = _merge_metadata(metadata, open_library_metadata)
+        return (metadata if _metadata_has_value(metadata) else None), attempted
+
+    lookups_before = int(state["lookups"])
+    title_metadata = _try_open_library_title_for_import(title, author, state)
+    attempted = attempted or int(state["lookups"]) > lookups_before
+    metadata = _merge_metadata(metadata, title_metadata)
+
+    return (metadata if _metadata_has_value(metadata) else None), attempted
 
 
 def _status_patch_value(body) -> str | None:
@@ -230,10 +384,7 @@ def import_books_service(db: Session, data, user_id: UUID):
     skipped = 0
     enriched = 0
     enrichment_skipped = 0
-    enrichment_failed = 0
-    enrichment_lookups = 0
-    enrichment_timeouts = 0
-    enrichment_enabled = True
+    enrichment_state = _new_enrichment_state()
 
     for book in data.books:
         title = (book.title or "").strip()
@@ -255,9 +406,13 @@ def import_books_service(db: Session, data, user_id: UUID):
         stored_author = author
 
         if total_pages is None or stored_author is None:
-            if enrichment_enabled and enrichment_lookups < MAX_IMPORT_ENRICHMENT_LOOKUPS:
-                enrichment_lookups += 1
-                metadata, failed, timed_out = _lookup_metadata_for_import(title, author, isbn_uid)
+            if _enrichment_budget_available(enrichment_state):
+                metadata, attempted = _lookup_metadata_for_import(
+                    title,
+                    author,
+                    isbn_uid,
+                    enrichment_state,
+                )
                 if metadata is not None:
                     if total_pages is None:
                         total_pages = getattr(metadata, "total_pages", None)
@@ -268,12 +423,8 @@ def import_books_service(db: Session, data, user_id: UUID):
                     or getattr(metadata, "authors", None) is not None
                 ):
                     enriched += 1
-                if failed:
-                    enrichment_failed += 1
-                if timed_out:
-                    enrichment_timeouts += 1
-                    if enrichment_timeouts >= MAX_IMPORT_ENRICHMENT_TIMEOUTS:
-                        enrichment_enabled = False
+                if not attempted:
+                    enrichment_skipped += 1
             else:
                 enrichment_skipped += 1
 
@@ -313,10 +464,12 @@ def import_books_service(db: Session, data, user_id: UUID):
 
     return {
         "imported_count": imported,
+        "skipped_count": skipped,
+        "duplicate_count": skipped,
         "skipped_duplicates": skipped,
         "enriched_count": enriched,
         "enrichment_skipped_count": enrichment_skipped,
-        "enrichment_failed_count": enrichment_failed,
+        "enrichment_failed_count": int(enrichment_state["failures"]),
     }
 
 

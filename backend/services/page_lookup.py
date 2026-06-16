@@ -9,6 +9,14 @@ logger = logging.getLogger(__name__)
 LOOKUP_TIMEOUT_SECONDS = 2.0
 
 
+class GoogleBooksRateLimited(Exception):
+    pass
+
+
+class OpenLibraryTimeout(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class BookMetadata:
     title: str | None = None
@@ -76,6 +84,12 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
         )
         response.raise_for_status()
         payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429:
+            logger.warning("Google Books ISBN lookup rate limited for %r", isbn)
+            raise GoogleBooksRateLimited(str(exc)) from exc
+        logger.warning("Google Books ISBN lookup failed for %r: %s", isbn, exc)
+        return None
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Google Books ISBN lookup failed for %r: %s", isbn, exc)
         return None
@@ -111,9 +125,13 @@ def lookup_open_library_by_isbn(isbn: str) -> BookMetadata | None:
         response = httpx.get(
             f"https://openlibrary.org/isbn/{isbn}.json",
             timeout=LOOKUP_TIMEOUT_SECONDS,
+            follow_redirects=True,
         )
         response.raise_for_status()
         payload = response.json()
+    except httpx.TimeoutException as exc:
+        logger.warning("Open Library ISBN lookup timed out for %r: %s", isbn, exc)
+        raise OpenLibraryTimeout(str(exc)) from exc
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Open Library ISBN lookup failed for %r: %s", isbn, exc)
         return None
@@ -149,6 +167,9 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
         )
         response.raise_for_status()
         payload = response.json()
+    except httpx.TimeoutException as exc:
+        logger.warning("Open Library title lookup timed out for %r: %s", query, exc)
+        raise OpenLibraryTimeout(str(exc)) from exc
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Open Library title lookup failed for %r: %s", query, exc)
         return None
@@ -181,22 +202,34 @@ def lookup_book_metadata(
     metadata = BookMetadata()
     isbn = normalize_isbn(isbn_uid)
     if isbn:
-        metadata = _merge_metadata(metadata, lookup_google_books_by_isbn(isbn))
+        try:
+            metadata = _merge_metadata(metadata, lookup_google_books_by_isbn(isbn))
+        except GoogleBooksRateLimited:
+            pass
         if _metadata_complete(metadata):
             return metadata
 
-        metadata = _merge_metadata(metadata, lookup_open_library_by_isbn(isbn))
+        try:
+            metadata = _merge_metadata(metadata, lookup_open_library_by_isbn(isbn))
+        except OpenLibraryTimeout:
+            pass
         if _metadata_complete(metadata):
             return metadata
 
     clean_title = (title or "").strip()
     if clean_title and author:
-        metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title, author))
+        try:
+            metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title, author))
+        except OpenLibraryTimeout:
+            pass
         if _metadata_complete(metadata):
             return metadata
 
     if clean_title:
-        metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title))
+        try:
+            metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title))
+        except OpenLibraryTimeout:
+            pass
 
     return metadata if _metadata_has_value(metadata) else None
 
