@@ -32,6 +32,11 @@ def books_to_dataframe(books) -> pd.DataFrame:
                 "Progress (%)": book.progress_percent,
                 "Pages Read": book.pages_read,
                 "Total Pages": book.total_pages,
+                "Subjects": book.subjects or [],
+                "Genres": book.genres or [],
+                "Language": book.language,
+                "Work Key": book.work_key,
+                "Edition Key": book.edition_key,
             }
         )
 

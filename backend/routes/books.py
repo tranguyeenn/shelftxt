@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,7 @@ from backend.services.postgres_books import (
     patch_book_by_id_service,
     update_book_progress_by_id_service,
 )
+from backend.services.page_count_lookup import backfill_missing_page_counts
 
 router = APIRouter()
 
@@ -97,10 +98,13 @@ async def patch_book(
 @router.post("/books/import", response_model=ImportResult)
 async def import_books(
     data: ImportBooks,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    return import_books_service(db, data, current_user.id)
+    result = import_books_service(db, data, current_user.id)
+    background_tasks.add_task(backfill_missing_page_counts)
+    return result
 
 
 @router.get("/books/{book_id}")

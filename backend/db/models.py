@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Uuid, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, Uuid, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
@@ -120,5 +120,37 @@ class Book(Base):
 
     total_pages: Mapped[int | None] = mapped_column(
         Integer,
+        nullable=True,
+    )
+
+    page_count_checked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+        nullable=False,
+    )
+
+    subjects: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    genres: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    language: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    work_key: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    edition_key: Mapped[str | None] = mapped_column(
+        String,
         nullable=True,
     )

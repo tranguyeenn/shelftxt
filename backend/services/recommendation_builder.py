@@ -3,41 +3,16 @@ import pandas as pd
 from backend.preprocess.normalize import normalize_rating, compute_recency
 from backend.ranking.score import score_tbr_books, _resolve_column
 from backend.services.book_api import series_to_api_book
+from backend.services.recommendation_signals import meaningful_similar_books, read_dataframe
 
 
 def _read_books(df: pd.DataFrame) -> pd.DataFrame:
-    status_col = _resolve_column(df, ["read_status", "Read Status"])
-    if status_col is None:
-        return df.iloc[0:0].copy()
-    return df[df[status_col].astype(str).str.strip().str.lower() == "read"].copy()
+    return read_dataframe(df)
 
 
-def _similar_books(read_df: pd.DataFrame, author: str, title_col: str, author_col: str, limit: int = 3):
-    if read_df.empty:
-        return []
-
-    author_norm = author.strip().lower()
-    same_author = read_df[
-        read_df[author_col].astype(str).str.strip().str.lower() == author_norm
-    ].copy()
-
-    if "rating_norm" in same_author.columns:
-        same_author = same_author.sort_values("rating_norm", ascending=False)
-    elif "Star Rating" in same_author.columns:
-        same_author = same_author.sort_values("Star Rating", ascending=False)
-
-    picks = same_author.head(limit)
-    if len(picks) < limit:
-        remaining = limit - len(picks)
-        others = read_df[~read_df.index.isin(picks.index)].copy()
-        if "rating_norm" in others.columns:
-            others = others.sort_values("rating_norm", ascending=False)
-        elif "Star Rating" in others.columns:
-            others = others.sort_values("Star Rating", ascending=False)
-        picks = pd.concat([picks, others.head(remaining)], ignore_index=False)
-
+def _similar_books(candidate: pd.Series, read_df: pd.DataFrame, title_col: str, author_col: str, limit: int = 3):
     similar = []
-    for _, row in picks.iterrows():
+    for row, _ in meaningful_similar_books(candidate, read_df, limit=limit):
         similar.append(
             {
                 "id": str(row.get("ISBN/UID", "")).strip(),
@@ -48,34 +23,22 @@ def _similar_books(read_df: pd.DataFrame, author: str, title_col: str, author_co
     return similar[:limit]
 
 
-def _explanation(
-    author: str, author_read_count: int, author_score: float, style: str = "balanced"
-) -> str:
-    style = (style or "balanced").strip().lower()
-    if style == "popular" and author_read_count > 0:
-        return (
-            f"Recommended because {author} is among your highest-rated authors "
-            f"({author_read_count} finished book{'s' if author_read_count != 1 else ''})."
-        )
-    if style == "discovery" and author_read_count == 0:
-        return (
-            f"Recommended as a discovery pick — {author} is new to your finished reads "
-            "but fits your broader rating patterns."
-        )
-    if author_read_count > 0:
-        return (
-            f"Recommended because you have finished {author_read_count} book(s) by {author} "
-            f"and rated them highly (preference score {author_score:.2f})."
-        )
-    if author_score >= 0.6:
-        return (
-            "Recommended because it aligns with authors and rating patterns "
-            "from books you have already read."
-        )
-    return (
-        "Recommended because it shares similar reading patterns with books you have "
-        "already completed, based on your library ratings."
-    )
+def _explanation(candidate: pd.Series, read_df: pd.DataFrame) -> str:
+    pages_read = candidate.get("Pages Read", candidate.get("pages_read", 0)) or 0
+    try:
+        if float(pages_read) > 0:
+            return "You already started this book."
+    except (TypeError, ValueError):
+        pass
+
+    similar = meaningful_similar_books(candidate, read_df, limit=5)
+    if any(similarity.same_author for _, similarity in similar):
+        return "You’ve read books by this author."
+    if any(similarity.shared_genres or similarity.shared_subjects for _, similarity in similar):
+        return "This matches genres you’ve read before."
+    if any(float(row.get("rating_norm", 0.0) or 0.0) >= 0.8 for row, _ in similar):
+        return "You rated similar books highly."
+    return "Recommended as a discovery pick from your unread books."
 
 
 def _rank_tbr_for_style(df: pd.DataFrame, style: str) -> pd.DataFrame:
@@ -110,15 +73,7 @@ def build_recommendations(df: pd.DataFrame, top_n: int = 10, style: str = "balan
     results = []
 
     for _, row in top.iterrows():
-        author = str(row.get(author_col, "Unknown")).strip()
-        author_read_count = int(
-            (
-                read_df[author_col].astype(str).str.strip().str.lower()
-                == author.lower()
-            ).sum()
-        )
         score = float(row.get("score", row.get("author_score", 0.5)) or 0.5)
-        author_score = float(row.get("author_score", score) or score)
 
         book_api = series_to_api_book(row)
 
@@ -130,11 +85,9 @@ def build_recommendations(df: pd.DataFrame, top_n: int = 10, style: str = "balan
                     "author": book_api["author"],
                 },
                 "score": round(min(1.0, max(0.0, score)), 4),
-                "explanation": _explanation(
-                    author, author_read_count, author_score, style=style
-                ),
+                "explanation": _explanation(row, read_df),
                 "similar_books": _similar_books(
-                    read_df, author, title_col, author_col, limit=3
+                    row, read_df, title_col, author_col, limit=3
                 ),
             }
         )

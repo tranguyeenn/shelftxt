@@ -1,7 +1,7 @@
 import csv
 import logging
 import uuid
-from datetime import date
+from datetime import date, datetime
 from io import StringIO
 from uuid import UUID
 
@@ -24,6 +24,7 @@ from backend.services.page_lookup import (
     lookup_open_library_by_title,
     normalize_isbn,
 )
+from backend.services.metadata_normalization import normalize_language
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
@@ -51,6 +52,12 @@ def book_to_dict(book):
         "Progress (%)": book.progress_percent,
         "Pages Read": book.pages_read,
         "Total Pages": book.total_pages,
+        "Subjects": book.subjects,
+        "Genres": book.genres,
+        "Language": book.language,
+        "Work Key": book.work_key,
+        "Edition Key": book.edition_key,
+        "page_count_checked": book.page_count_checked,
     }
 
 
@@ -65,6 +72,26 @@ def parse_date_or_today(date_str):
             pass
 
     return date.today()
+
+
+def parse_import_finish_date(value) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+
+    logger.warning("Could not parse imported Last Date Read value %r", raw)
+    return None
 
 
 def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
@@ -105,7 +132,7 @@ def export_library_csv(db: Session, user_id: UUID) -> str:
     ]
 
     output = StringIO()
-    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
 
     for book in books:
@@ -148,11 +175,47 @@ def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> B
         title=base.title or next_metadata.title,
         authors=base.authors or next_metadata.authors,
         total_pages=base.total_pages or next_metadata.total_pages,
+        subjects=base.subjects or next_metadata.subjects,
+        genres=base.genres or next_metadata.genres,
+        language=base.language or next_metadata.language,
+        work_key=base.work_key or next_metadata.work_key,
+        edition_key=base.edition_key or next_metadata.edition_key,
     )
 
 
 def _metadata_has_value(metadata: BookMetadata | None) -> bool:
-    return bool(metadata and (metadata.title or metadata.authors or metadata.total_pages))
+    return bool(
+        metadata
+        and (
+            metadata.title
+            or metadata.authors
+            or metadata.total_pages
+            or metadata.subjects
+            or metadata.genres
+            or metadata.language
+            or metadata.work_key
+            or metadata.edition_key
+        )
+    )
+
+
+def _metadata_update_fields(metadata: BookMetadata | None) -> dict:
+    if metadata is None:
+        return {}
+    data = {}
+    if metadata.subjects:
+        data["subjects"] = metadata.subjects
+    if metadata.genres:
+        data["genres"] = metadata.genres
+    elif metadata.subjects:
+        data["genres"] = metadata.subjects
+    if metadata.language:
+        data["language"] = normalize_language(metadata.language)
+    if metadata.work_key:
+        data["work_key"] = metadata.work_key
+    if metadata.edition_key:
+        data["edition_key"] = metadata.edition_key
+    return data
 
 
 def _new_enrichment_state() -> dict[str, int | bool]:
@@ -404,6 +467,9 @@ def import_books_service(db: Session, data, user_id: UUID):
         )
         total_pages = book.total_pages
         stored_author = author
+        page_count_attempted = False
+        metadata = None
+        imported_finish_date = parse_import_finish_date(getattr(book, "last_date_read", None))
 
         if total_pages is None or stored_author is None:
             if _enrichment_budget_available(enrichment_state):
@@ -413,6 +479,7 @@ def import_books_service(db: Session, data, user_id: UUID):
                     isbn_uid,
                     enrichment_state,
                 )
+                page_count_attempted = attempted and total_pages is None
                 if metadata is not None:
                     if total_pages is None:
                         total_pages = getattr(metadata, "total_pages", None)
@@ -449,10 +516,12 @@ def import_books_service(db: Session, data, user_id: UUID):
                 "isbn_uid": isbn_uid or f"uid-{uuid.uuid4()}",
                 "read_status": database_status_from_normalized(normalized_status),
                 "star_rating": None,
-                "last_date_read": None,
+                "last_date_read": imported_finish_date if normalized_status == "completed" else None,
                 "progress_percent": progress_percent,
                 "pages_read": pages_read,
                 "total_pages": total_pages,
+                "page_count_checked": total_pages is not None or page_count_attempted,
+                **_metadata_update_fields(metadata),
             },
             user_id,
         )

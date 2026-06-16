@@ -56,10 +56,6 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
             ))}
           </ul>
         </div>
-      ) : showExplanation ? (
-        <p className="text-sm text-text-dim">
-          Finish more books to build similarity signals for this pick.
-        </p>
       ) : null}
     </Card>
   );

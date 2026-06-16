@@ -65,6 +65,10 @@ class ImportRow(BaseModel):
         default=None,
         validation_alias=AliasChoices("read_status", "status", "Read Status"),
     )
+    last_date_read: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("last_date_read", "Last Date Read", "date_read", "Date Read"),
+    )
     pages_read: int | None = Field(
         default=None,
         ge=0,

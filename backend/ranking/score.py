@@ -1,4 +1,15 @@
 import numpy as np
+import pandas as pd
+
+from backend.services.recommendation_signals import (
+    infer_language,
+    meaningful_similar_books,
+    read_dataframe,
+    row_author,
+    row_genres,
+    row_subjects,
+    user_primary_language,
+)
 
 def _resolve_column(df, candidates):
     for col in candidates:
@@ -79,10 +90,7 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
 
     global_avg = read_df["rating_norm"].mean() if not read_df.empty else 0.5
 
-    tbr_df["author_score"] = (
-        tbr_df["author_score"]
-        .fillna(global_avg)
-    )
+    tbr_df["author_score"] = tbr_df["author_score"].fillna(0.5)
 
     noise = np.random.uniform(
         -randomness_strength,
@@ -90,7 +98,69 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         len(tbr_df)
     )
 
-    tbr_df["score"] = tbr_df["author_score"] + noise
+    completed_df = read_dataframe(df)
+    primary_language = user_primary_language(completed_df)
+
+    scores = []
+    for idx, (_, row) in enumerate(tbr_df.iterrows()):
+        similar = meaningful_similar_books(row, completed_df, limit=5)
+        author = row_author(row)
+        has_author = bool(author and author != "unknown")
+        pages_value = row.get("Total Pages", row.get("total_pages"))
+        has_pages = pages_value is not None and not pd.isna(pages_value)
+        has_genre_metadata = bool(row_genres(row) or row_subjects(row))
+        in_progress = float(row.get("Pages Read", row.get("pages_read", 0)) or 0) > 0
+
+        same_author = any(similarity.same_author for _, similarity in similar)
+        genre_hits = sum(len(similarity.shared_genres) for _, similarity in similar)
+        subject_hits = sum(len(similarity.shared_subjects) for _, similarity in similar)
+        keyword_hits = sum(len(similarity.keyword_overlap) for _, similarity in similar)
+        high_rating_supported = any(
+            float(similar_row.get("rating_norm", 0.0) or 0.0) >= 0.8
+            for similar_row, _ in similar
+        )
+
+        score = 0.57
+        if same_author:
+            score += 0.4 * float(row.get("author_score", 0.5) or 0.5)
+        elif similar:
+            score += 0.08 * min(1.0, global_avg)
+
+        score += min(0.18, 0.05 * genre_hits)
+        score += min(0.14, 0.035 * subject_hits)
+        score += min(0.08, 0.025 * keyword_hits)
+        if high_rating_supported:
+            score += 0.15
+        if in_progress:
+            score += 0.22
+
+        metadata_confidence = 0
+        metadata_confidence += 1 if has_author else 0
+        metadata_confidence += 1 if has_pages else 0
+        metadata_confidence += 1 if has_genre_metadata else 0
+        score += 0.03 * metadata_confidence
+
+        if not has_author:
+            score -= 0.08
+        if not has_pages:
+            score -= 0.06
+        if not has_genre_metadata:
+            score -= 0.09
+        if completed_df.shape[0] > 0 and not similar and not in_progress:
+            score -= 0.12
+
+        candidate_language = infer_language(row)
+        if (
+            primary_language
+            and candidate_language
+            and candidate_language != primary_language
+            and not similar
+        ):
+            score -= 0.12
+
+        scores.append(score + noise[idx])
+
+    tbr_df["score"] = scores
 
     # Keep score in clean range
     tbr_df["score"] = tbr_df["score"].clip(0, 1)

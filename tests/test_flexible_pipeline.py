@@ -59,6 +59,42 @@ class FlexiblePipelineTests(unittest.TestCase):
         self.assertEqual(df.loc[0, "author"], "Frank Herbert")
         self.assertEqual(report["errors"], [])
 
+    def test_load_csv_accepts_slash_separated_finish_date(self):
+        rows = [
+            {
+                "Title": "Dune",
+                "Authors": "Frank Herbert",
+                "Read Status": "read",
+                "Last Date Read": "2025/02/02",
+            }
+        ]
+        temp_dir, csv_path = self._write_csv(rows)
+        self.addCleanup(temp_dir.cleanup)
+
+        df, report = load_csv(csv_path)
+
+        self.assertEqual(report["errors"], [])
+        self.assertEqual(df.loc[0, "last_date_read"].date().isoformat(), "2025-02-02")
+
+    def test_load_csv_reports_invalid_finish_date(self):
+        rows = [
+            {
+                "Title": "Dune",
+                "Authors": "Frank Herbert",
+                "Read Status": "read",
+                "Last Date Read": "not-a-date",
+            }
+        ]
+        temp_dir, csv_path = self._write_csv(rows)
+        self.addCleanup(temp_dir.cleanup)
+
+        with self.assertLogs("backend.ingest.load_csv", level="WARNING") as logs:
+            df, report = load_csv(csv_path)
+
+        self.assertTrue(df.loc[0, "last_date_read"] is None or str(df.loc[0, "last_date_read"]) == "NaT")
+        self.assertTrue(any("Could not parse imported date value" in line for line in logs.output))
+        self.assertTrue(any("Could not parse imported date value" in warning for warning in report["warnings"]))
+
     def test_validate_uploaded_csv_rejects_missing_required_fields(self):
         rows = [
             {

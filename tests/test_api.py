@@ -836,6 +836,50 @@ class ApiTests(unittest.TestCase):
         mock_lookup_open_library_by_title.assert_called_once()
 
     @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
+    def test_import_stores_last_date_read_from_slash_date(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Dated Book",
+                        "author": "A",
+                        "Read Status": "Read",
+                        "Last Date Read": "2025/02/02",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Read Status"], "read")
+        self.assertEqual(book["Last Date Read"], "2025-02-02")
+        mock_lookup_open_library_by_title.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
+    def test_import_stores_last_date_read_from_us_date(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "US Dated Book",
+                        "author": "A",
+                        "read_status": "Finished",
+                        "last_date_read": "02/03/2025",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Read Status"], "read")
+        self.assertEqual(book["Last Date Read"], "2025-02-03")
+        mock_lookup_open_library_by_title.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
     def test_import_normalizes_completed_to_completed(self, mock_lookup_open_library_by_title):
         response = self.client.post(
             "/books/import",

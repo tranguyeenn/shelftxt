@@ -9,6 +9,7 @@ from backend.demo_mode import is_demo_read_only
 from backend.routes.books import router as books_router
 from backend.routes.health import router as health_router
 from backend.routes.recommendation import router as recommendations_router
+from backend.services.page_count_lookup import backfill_missing_page_counts
 
 
 # -----------------------------
@@ -37,6 +38,8 @@ async def lifespan(app: FastAPI):
         "interval",
         minutes=14
     )
+
+    scheduler.add_job(backfill_missing_page_counts, "date")
 
     scheduler.start()
 

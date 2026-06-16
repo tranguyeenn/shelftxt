@@ -4,6 +4,13 @@ from dataclasses import dataclass
 
 import httpx
 
+from backend.services.metadata_normalization import (
+    normalize_language,
+    normalize_values,
+    filter_specific_genres,
+    filter_specific_subjects,
+)
+
 logger = logging.getLogger(__name__)
 
 LOOKUP_TIMEOUT_SECONDS = 2.0
@@ -22,6 +29,11 @@ class BookMetadata:
     title: str | None = None
     authors: str | None = None
     total_pages: int | None = None
+    subjects: list[str] | None = None
+    genres: list[str] | None = None
+    language: str | None = None
+    work_key: str | None = None
+    edition_key: str | None = None
 
 
 def looks_like_isbn(value: str | None) -> bool:
@@ -58,7 +70,19 @@ def _authors_from_open_library_doc(doc: dict) -> str | None:
 
 
 def _metadata_has_value(metadata: BookMetadata | None) -> bool:
-    return bool(metadata and (metadata.title or metadata.authors or metadata.total_pages))
+    return bool(
+        metadata
+        and (
+            metadata.title
+            or metadata.authors
+            or metadata.total_pages
+            or metadata.subjects
+            or metadata.genres
+            or metadata.language
+            or metadata.work_key
+            or metadata.edition_key
+        )
+    )
 
 
 def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> BookMetadata:
@@ -68,11 +92,65 @@ def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> B
         title=base.title or next_metadata.title,
         authors=base.authors or next_metadata.authors,
         total_pages=base.total_pages or next_metadata.total_pages,
+        subjects=base.subjects or next_metadata.subjects,
+        genres=base.genres or next_metadata.genres,
+        language=base.language or next_metadata.language,
+        work_key=base.work_key or next_metadata.work_key,
+        edition_key=base.edition_key or next_metadata.edition_key,
     )
 
 
 def _metadata_complete(metadata: BookMetadata) -> bool:
     return bool(metadata.title and metadata.authors and metadata.total_pages)
+
+
+def _key_from_open_library_ref(value: object) -> str | None:
+    if isinstance(value, dict):
+        key = value.get("key")
+        return key if isinstance(key, str) and key.strip() else None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _first_key(values: object) -> str | None:
+    if isinstance(values, list):
+        for value in values:
+            key = _key_from_open_library_ref(value)
+            if key:
+                return key
+    return _key_from_open_library_ref(values)
+
+
+def _language_from_open_library(value: object) -> str | None:
+    if isinstance(value, list):
+        for item in value:
+            language = _language_from_open_library(item)
+            if language:
+                return language
+        return None
+    key = _key_from_open_library_ref(value)
+    if key:
+        return normalize_language(key.rsplit("/", 1)[-1])
+    if isinstance(value, str):
+        normalized = normalize_language(value)
+        return normalized or None
+    return None
+
+
+def _metadata_from_open_library_payload(payload: dict, *, edition_key: str | None = None) -> BookMetadata:
+    subjects = filter_specific_subjects(payload.get("subjects") or payload.get("subject"))
+    genres = filter_specific_genres(payload.get("genres"))
+    return BookMetadata(
+        title=payload.get("title") if isinstance(payload.get("title"), str) else None,
+        authors=_authors_from_open_library_doc(payload),
+        total_pages=_positive_int(payload.get("number_of_pages")),
+        subjects=subjects or None,
+        genres=genres or subjects or None,
+        language=_language_from_open_library(payload.get("languages") or payload.get("language")),
+        work_key=_first_key(payload.get("works") or payload.get("key")),
+        edition_key=edition_key or _first_key(payload.get("edition_key") or payload.get("key")),
+    )
 
 
 def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
@@ -112,6 +190,9 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
             if isinstance(authors, list)
             else None,
             total_pages=_positive_int(info.get("pageCount")),
+            subjects=filter_specific_subjects(info.get("categories")) or None,
+            genres=filter_specific_genres(info.get("categories")) or None,
+            language=normalize_language(info.get("language")) or None,
         )
         if _metadata_has_value(metadata):
             return metadata
@@ -140,11 +221,7 @@ def lookup_open_library_by_isbn(isbn: str) -> BookMetadata | None:
         logger.warning("Open Library ISBN lookup returned malformed payload for %r", isbn)
         return None
 
-    metadata = BookMetadata(
-        title=payload.get("title") if isinstance(payload.get("title"), str) else None,
-        authors=_authors_from_open_library_doc(payload),
-        total_pages=_positive_int(payload.get("number_of_pages")),
-    )
+    metadata = _metadata_from_open_library_payload(payload)
     if _metadata_has_value(metadata):
         return metadata
     return None
@@ -161,7 +238,7 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             params={
                 "q": query,
                 "limit": 5,
-                "fields": "title,author_name,number_of_pages_median",
+                "fields": "title,author_name,edition_key,subject,language,key,number_of_pages_median",
             },
             timeout=LOOKUP_TIMEOUT_SECONDS,
         )
@@ -186,6 +263,15 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             title=doc.get("title") if isinstance(doc.get("title"), str) else None,
             authors=_authors_from_open_library_doc(doc),
             total_pages=_positive_int(doc.get("number_of_pages_median")),
+            subjects=filter_specific_subjects(doc.get("subject")) or None,
+            genres=filter_specific_subjects(doc.get("subject")) or None,
+            language=normalize_values(doc.get("language"), normalize_language)[0]
+            if normalize_values(doc.get("language"), normalize_language)
+            else None,
+            work_key=doc.get("key") if isinstance(doc.get("key"), str) else None,
+            edition_key=(doc.get("edition_key") or [None])[0]
+            if isinstance(doc.get("edition_key"), list)
+            else None,
         )
         if _metadata_has_value(metadata):
             return metadata

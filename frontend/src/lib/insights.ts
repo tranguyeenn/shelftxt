@@ -2,6 +2,7 @@ import {
   bookAuthor,
   bookTitle,
   daysSince,
+  finishDateValue,
   parseDate,
   recordToApiBook,
   starRating,
@@ -162,7 +163,7 @@ export function computeReadingPatterns(library: BookRecord[]): PatternInsight[] 
   }
 
   const finishDates = completed
-    .map((b) => parseDate(b["Last Date Read"] ?? null))
+    .map((b) => parseDate(finishDateValue(b)))
     .filter((d): d is Date => d !== null);
 
   if (finishDates.length > 0) {
@@ -170,7 +171,7 @@ export function computeReadingPatterns(library: BookRecord[]): PatternInsight[] 
     const days = daysSince(mostRecent);
     const recentTitle =
       completed.find((b) => {
-        const d = parseDate(b["Last Date Read"] ?? null);
+        const d = parseDate(finishDateValue(b));
         return d && d.getTime() === mostRecent.getTime();
       }) ?? completed[0];
 

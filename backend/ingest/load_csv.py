@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import logging
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Canonical internal fields used across preprocessing and ranking.
 CANONICAL_COLUMNS = [
@@ -68,7 +71,22 @@ def _coerce_types(df: pd.DataFrame, config: dict[str, Any], validation: dict[str
         if hint == "numeric":
             df[field] = pd.to_numeric(df[field], errors="coerce")
         elif hint == "datetime":
-            df[field] = pd.to_datetime(df[field], errors="coerce")
+            original = df[field].copy()
+            parsed = pd.to_datetime(original, errors="coerce", format="%Y-%m-%d")
+            missing = parsed.isna() & original.notna() & (original.astype(str).str.strip() != "")
+            if missing.any():
+                fallback = pd.to_datetime(original[missing], errors="coerce", format="%Y/%m/%d")
+                parsed.loc[missing] = fallback
+            missing = parsed.isna() & original.notna() & (original.astype(str).str.strip() != "")
+            if missing.any():
+                fallback = pd.to_datetime(original[missing], errors="coerce", format="%m/%d/%Y")
+                parsed.loc[missing] = fallback
+            failed = parsed.isna() & original.notna() & (original.astype(str).str.strip() != "")
+            for value in original[failed].astype(str).tolist():
+                message = f"Could not parse imported date value {value!r} for field '{field}'."
+                logger.warning(message)
+                validation["warnings"].append(message)
+            df[field] = parsed
         else:
             validation["warnings"].append(f"Unknown type hint '{hint}' for field '{field}'.")
     return df
@@ -135,7 +153,8 @@ def load_csv(csv: str | Path, mapping_config: dict[str, Any] | None = None) -> t
         if col not in mapped_df.columns:
             mapped_df[col] = config["defaults"].get(col)
 
-    mapped_df = _coerce_types(mapped_df, config, {"errors": [], "warnings": []})
+    validation_report = {"errors": [], "warnings": []}
+    mapped_df = _coerce_types(mapped_df, config, validation_report)
 
     if "title" in mapped_df.columns:
         mapped_df["title"] = (
@@ -173,6 +192,8 @@ def load_csv(csv: str | Path, mapping_config: dict[str, Any] | None = None) -> t
             .fillna("to-read")
         )
 
-    validation_report = _validate_dataframe(mapped_df, config)
+    next_report = _validate_dataframe(mapped_df, config)
+    validation_report["errors"].extend(next_report["errors"])
+    validation_report["warnings"].extend(next_report["warnings"])
 
     return mapped_df, validation_report

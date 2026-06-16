@@ -17,6 +17,7 @@ export type BookRecord = {
   "Read Status"?: string | null;
   "Star Rating"?: number | null;
   "Last Date Read"?: string | null;
+  last_date_read?: string | null;
   "Progress (%)"?: number | null;
   "Pages Read"?: number | null;
   "Total Pages"?: number | null;
@@ -123,8 +124,21 @@ export function starRating(book: BookRecord): number | null {
 
 export function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const d = new Date(value);
+  const text = String(value).trim();
+  let normalized = text;
+  const ymdSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(text);
+  const mdySlash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (ymdSlash) {
+    normalized = `${ymdSlash[1]}-${ymdSlash[2].padStart(2, "0")}-${ymdSlash[3].padStart(2, "0")}`;
+  } else if (mdySlash) {
+    normalized = `${mdySlash[3]}-${mdySlash[1].padStart(2, "0")}-${mdySlash[2].padStart(2, "0")}`;
+  }
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export function finishDateValue(book: BookRecord): string | null {
+  return book["Last Date Read"] ?? book.last_date_read ?? null;
 }
 
 export function daysSince(date: Date): number {
