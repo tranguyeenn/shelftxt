@@ -15,10 +15,8 @@ function resolveDemoModeFlag(): boolean | null {
   return null;
 }
 
-/** Active on the public Vercel demo unless explicitly disabled. */
-export const isDemoMode =
-  resolveDemoModeFlag() ??
-  (import.meta.env.PROD && resolveApiBase() === SHARED_DEMO_API_URL);
+/** Optional preview mode for intentionally read-only demo deployments. */
+export const isDemoMode = resolveDemoModeFlag() ?? false;
 
 export const isReadOnlyDemo = isDemoMode;
 

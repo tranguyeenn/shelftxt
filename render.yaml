@@ -7,6 +7,3 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    envVars:
-      - key: DEMO_READ_ONLY
-        value: "true"
