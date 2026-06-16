@@ -11,6 +11,7 @@ from backend import api
 from backend.auth.dependencies import get_current_user
 from backend.db.database import Base, get_db
 from backend.db.models import Book, Profile
+from backend.services.recommendation import get_recommendation
 
 
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -50,12 +51,17 @@ api.app.dependency_overrides[get_db] = override_get_db
 api.app.dependency_overrides[get_current_user] = override_get_current_user
 
 
-def _seed_profile():
+def _seed_profile(
+    *,
+    user_id=TEST_USER_ID,
+    email="test@shelftxt.local",
+    username="test",
+):
     db = TestingSessionLocal()
     profile = Profile(
-        id=TEST_USER_ID,
-        email="test@shelftxt.local",
-        username="test",
+        id=user_id,
+        email=email,
+        username=username,
     )
     db.add(profile)
     db.commit()
@@ -67,6 +73,7 @@ def _seed_book(
     title="Book",
     authors="Author",
     isbn_uid="book-1",
+    user_id=TEST_USER_ID,
     read_status="to-read",
     star_rating=None,
     last_date_read=None,
@@ -79,7 +86,7 @@ def _seed_book(
         title=title,
         authors=authors,
         isbn_uid=isbn_uid,
-        user_id=TEST_USER_ID,
+        user_id=user_id,
         read_status=read_status,
         star_rating=star_rating,
         last_date_read=last_date_read,
@@ -431,6 +438,49 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(mock_get_recommendation.call_count, 1)
         self.assertEqual(mock_get_recommendation.call_args.args[1], TEST_USER_ID)
         self.assertEqual(mock_get_recommendation.call_args.kwargs["style"], "balanced")
+
+    def test_recommendation_empty_state_returns_empty_list(self):
+        db = TestingSessionLocal()
+        try:
+            result = get_recommendation(
+                db,
+                TEST_USER_ID,
+                style="balanced",
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(result, [])
+
+    def test_recommendation_only_uses_current_user_books(self):
+        other_user_id = UUID("00000000-0000-0000-0000-000000000002")
+
+        _seed_profile(
+            user_id=other_user_id,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(
+            title="Other User Book",
+            authors="Other Author",
+            isbn_uid="other-book",
+            user_id=other_user_id,
+            read_status="to-read",
+            total_pages=300,
+        )
+
+        db = TestingSessionLocal()
+        try:
+            result = get_recommendation(
+                db,
+                TEST_USER_ID,
+                style="balanced",
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":
