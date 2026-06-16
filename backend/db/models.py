@@ -1,9 +1,8 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Date, DateTime, Float, Integer, String, func
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Uuid, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
 
@@ -12,7 +11,7 @@ class Profile(Base):
     __tablename__ = "profiles"
 
     id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        Uuid(as_uuid=True),
         primary_key=True,
     )
 
@@ -45,9 +44,19 @@ class Profile(Base):
         nullable=False,
     )
 
+    books: Mapped[list["Book"]] = relationship(
+        "Book",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
 
 class Book(Base):
     __tablename__ = "books"
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "isbn_uid", name="uq_books_user_id_isbn_uid"),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -69,8 +78,19 @@ class Book(Base):
     isbn_uid: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        unique=True,
         index=True,
+    )
+
+    user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("profiles.id"),
+        nullable=True,
+        index=True,
+    )
+
+    owner: Mapped[Profile | None] = relationship(
+        "Profile",
+        back_populates="books",
     )
 
     read_status: Mapped[str | None] = mapped_column(

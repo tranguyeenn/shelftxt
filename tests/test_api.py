@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend import api
+from backend.auth.dev_user import DEV_USER_ID
 from backend.db.database import Base, get_db
 from backend.db.models import Book
 
@@ -54,6 +55,7 @@ def _seed_book(
         title=title,
         authors=authors,
         isbn_uid=isbn_uid,
+        user_id=DEV_USER_ID,
         read_status=read_status,
         star_rating=star_rating,
         last_date_read=last_date_read,
