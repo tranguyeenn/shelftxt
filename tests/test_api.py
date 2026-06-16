@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,10 +8,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend import api
-from backend.auth.dev_user import DEV_USER_ID
+from backend.auth.dependencies import get_current_user
 from backend.db.database import Base, get_db
-from backend.db.models import Book
+from backend.db.models import Book, Profile
 
+
+TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 SQLALCHEMY_DATABASE_URL = "sqlite://"
 
@@ -35,7 +38,28 @@ def override_get_db():
         db.close()
 
 
+def override_get_current_user():
+    db = TestingSessionLocal()
+    try:
+        return db.query(Profile).filter(Profile.id == TEST_USER_ID).first()
+    finally:
+        db.close()
+
+
 api.app.dependency_overrides[get_db] = override_get_db
+api.app.dependency_overrides[get_current_user] = override_get_current_user
+
+
+def _seed_profile():
+    db = TestingSessionLocal()
+    profile = Profile(
+        id=TEST_USER_ID,
+        email="test@shelftxt.local",
+        username="test",
+    )
+    db.add(profile)
+    db.commit()
+    db.close()
 
 
 def _seed_book(
@@ -55,7 +79,7 @@ def _seed_book(
         title=title,
         authors=authors,
         isbn_uid=isbn_uid,
-        user_id=DEV_USER_ID,
+        user_id=TEST_USER_ID,
         read_status=read_status,
         star_rating=star_rating,
         last_date_read=last_date_read,
@@ -74,6 +98,7 @@ class ApiTests(unittest.TestCase):
     def setUp(self):
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
+        _seed_profile()
         self.client = TestClient(api.app)
 
     def test_get_books_default_pagination(self):
@@ -391,6 +416,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("similar_books", payload[0])
 
         self.assertEqual(mock_get_recommendation.call_count, 1)
+        self.assertEqual(mock_get_recommendation.call_args.args[1], TEST_USER_ID)
         self.assertEqual(mock_get_recommendation.call_args.kwargs["style"], "balanced")
 
     @patch("backend.routes.recommendation.get_recommendation")
@@ -403,6 +429,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json(), [])
 
         self.assertEqual(mock_get_recommendation.call_count, 1)
+        self.assertEqual(mock_get_recommendation.call_args.args[1], TEST_USER_ID)
         self.assertEqual(mock_get_recommendation.call_args.kwargs["style"], "balanced")
 
 

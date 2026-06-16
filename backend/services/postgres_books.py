@@ -2,11 +2,11 @@ import csv
 import uuid
 from datetime import date
 from io import StringIO
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from backend.auth.dev_user import get_or_create_dev_user
 from backend.repository.postgres_books_repository import (
     create_book,
     delete_book,
@@ -45,8 +45,7 @@ def parse_date_or_today(date_str):
     return date.today()
 
 
-def get_books_service(db: Session, page: int, limit: int):
-    user_id = get_or_create_dev_user(db)
+def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
     books = get_all_books(db, user_id)
     total = len(books)
     start = (page - 1) * limit
@@ -59,8 +58,7 @@ def get_books_service(db: Session, page: int, limit: int):
     }
 
 
-def get_book_by_id_service(db: Session, book_id: str):
-    user_id = get_or_create_dev_user(db)
+def get_book_by_id_service(db: Session, book_id: str, user_id: UUID):
     book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:
@@ -69,8 +67,7 @@ def get_book_by_id_service(db: Session, book_id: str):
     return book_to_dict(book)
 
 
-def export_library_csv(db: Session) -> str:
-    user_id = get_or_create_dev_user(db)
+def export_library_csv(db: Session, user_id: UUID) -> str:
     books = get_all_books(db, user_id)
 
     fieldnames = [
@@ -95,9 +92,7 @@ def export_library_csv(db: Session) -> str:
     return output.getvalue()
 
 
-def add_book_service(db: Session, book):
-    user_id = get_or_create_dev_user(db)
-
+def add_book_service(db: Session, book, user_id: UUID):
     create_book(
         db,
         {
@@ -117,8 +112,7 @@ def add_book_service(db: Session, book):
     return {"message": "Book added"}
 
 
-def import_books_service(db: Session, data):
-    user_id = get_or_create_dev_user(db)
+def import_books_service(db: Session, data, user_id: UUID):
     books = get_all_books(db, user_id)
     existing_titles = {book.title for book in books}
 
@@ -157,9 +151,7 @@ def import_books_service(db: Session, data):
     }
 
 
-def clear_library_service(db: Session, confirm: bool):
-    user_id = get_or_create_dev_user(db)
-
+def clear_library_service(db: Session, confirm: bool, user_id: UUID):
     if not confirm:
         raise HTTPException(
             status_code=400,
@@ -175,8 +167,7 @@ def clear_library_service(db: Session, confirm: bool):
     return {"message": "Library cleared", "deleted": deleted}
 
 
-def delete_book_by_id_service(db: Session, book_id: str):
-    user_id = get_or_create_dev_user(db)
+def delete_book_by_id_service(db: Session, book_id: str, user_id: UUID):
     book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:
@@ -187,8 +178,7 @@ def delete_book_by_id_service(db: Session, book_id: str):
     return {"message": "Book deleted"}
 
 
-def delete_book_by_title_service(db: Session, title: str):
-    user_id = get_or_create_dev_user(db)
+def delete_book_by_title_service(db: Session, title: str, user_id: UUID):
     books = get_all_books(db, user_id)
 
     for book in books:
@@ -199,8 +189,7 @@ def delete_book_by_title_service(db: Session, title: str):
     raise HTTPException(status_code=404, detail="Book not found")
 
 
-def patch_book_service(db: Session, p):
-    user_id = get_or_create_dev_user(db)
+def patch_book_service(db: Session, p, user_id: UUID):
     books = get_all_books(db, user_id)
     book = next((b for b in books if b.title == p.title), None)
 
@@ -300,8 +289,7 @@ def patch_book_service(db: Session, p):
     return {"message": "Book updated"}
 
 
-def update_book_progress_by_id_service(db: Session, book_id: str, body):
-    user_id = get_or_create_dev_user(db)
+def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id: UUID):
     book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:

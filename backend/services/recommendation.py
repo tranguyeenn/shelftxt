@@ -1,11 +1,11 @@
 # backend/services/recommendation.py
 
 from functools import lru_cache
+from uuid import UUID
 
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from backend.auth.dev_user import get_or_create_dev_user
 from backend.repository.postgres_books_repository import get_all_books
 from backend.services.recommendation_builder import build_recommendations
 
@@ -51,8 +51,12 @@ def _get_recommendation_cached(cache_key: tuple, top_n: int, style: str):
     return build_recommendations(df, top_n=top_n, style=normalized_style)
 
 
-def get_recommendation(db: Session, top_n: int = 10, style: str = "balanced"):
-    user_id = get_or_create_dev_user(db)
+def get_recommendation(
+    db: Session,
+    user_id: UUID,
+    top_n: int = 10,
+    style: str = "balanced",
+):
     books = get_all_books(db, user_id)
     df = books_to_dataframe(books)
 
