@@ -4,7 +4,7 @@
 
 Help readers choose **what to read next** from their own to-read (TBR) list using signals from books they have **already finished**, with explanations a human can understand.
 
-ShelfTxt does **not** use collaborative filtering across users or external ML APIs. All signals come from **one library**.
+ShelfTxt does **not** use collaborative filtering across users or external ML APIs. All signals come from the authenticated reader's own library.
 
 ---
 
@@ -32,7 +32,7 @@ flowchart LR
   F --> G[JSON response]
 ```
 
-Entry point: `build_recommendations()` in `recommendation_builder.py`, called via cached `get_recommendation(style=...)`.
+Entry point: `build_recommendations()` in `recommendation_builder.py`, called by `get_recommendation(db, user_id, style=...)` after loading the authenticated user's books from PostgreSQL.
 
 ---
 
@@ -56,11 +56,11 @@ Entry point: `build_recommendations()` in `recommendation_builder.py`, called vi
 | **Recency** | Computed (`recency_norm`); primary use is in `score_read_books` batch path, not TBR score formula |
 | **Progress / pages** | Does not exclude in-progress TBR rows from ranking (still `to-read`) |
 
-### Not used in app CSV ranking today
+### Not used in app ranking today
 
 | Input | Status |
 |-------|--------|
-| **Genre** | In batch canonical schema only; not in `BOOKS_COLUMNS` |
+| **Genre** | In batch canonical schema only; not in the app book model |
 | **Mood / tags** | Not implemented |
 | **External metadata** | Not implemented |
 
@@ -133,24 +133,21 @@ If the user has no finished books, `similar_books` may be empty.
 
 ## Caching
 
-`get_recommendation` uses `@lru_cache(maxsize=32)` keyed by `(top_n, style)`.
+The current HTTP path builds recommendations from a fresh user-scoped PostgreSQL read in `get_recommendation(db, user_id, style=...)`.
 
-Cache is cleared on any library mutation via `invalidate_recommendation_cache()` in book services.
-
-**Implication:** repeated GETs are fast; stale results are avoided after writes, not mid-session if another client mutates data (single-user assumption today).
+`backend/services/recommendation.py` still contains an internal `_get_recommendation_cached()` helper and `invalidate_recommendation_cache()` for compatibility with earlier cache work, but the live route does not use the cached helper today.
 
 ---
 
 ## Known limitations
 
-1. **Single-user, single file** — no per-account libraries
-2. **Author-only similarity** — no genre/theme graph in live data model
-3. **Randomness** — discovery/balanced scores vary between cache misses
-4. **Title dedupe on import** — duplicate titles block imports; ranking dedupes TBR by title+author only
-5. **No exclusion rules** — cannot “hide” authors or genres yet
-6. **In-progress TBR** still ranked alongside untouched TBR
-7. **Recency** not weighted into TBR score directly (only via preprocess side effects)
-8. **Frontend scoring** (`lib/scoring.ts`) duplicates some display logic for dashboard breakdown—can drift from backend
+1. **Author-only similarity** — no genre/theme graph in live data model
+2. **Randomness** — discovery/balanced scores vary between uncached runs
+3. **Title dedupe on import** — duplicate titles block imports within a user's library; ranking dedupes TBR by title+author only
+4. **No exclusion rules** — cannot “hide” authors or genres yet
+5. **In-progress TBR** still ranked alongside untouched TBR
+6. **Recency** not weighted into TBR score directly (only via preprocess side effects)
+7. **Frontend scoring** (`lib/scoring.ts`) duplicates some display logic for dashboard breakdown—can drift from backend
 
 ---
 
@@ -247,7 +244,7 @@ Query: `GET /recommend?style=balanced|popular|discovery`
 3. Attach `explanation` (template from author history)
 4. Attach `similar_books` (up to 3 finished reads, same author preferred)
 
-Cached in `get_recommendation()` (`@lru_cache`, per style). Invalidated on book writes.
+Called by `get_recommendation(db, user_id, style)`, which loads the current user's books and builds the response.
 
 ### Legacy: `recommend_one`
 
@@ -259,7 +256,7 @@ Samples one random book from top 5 TBR rows. **Not used** by current `GET /recom
 
 ### Storage
 
-Scores and normalized features are **computed in memory** — not written back to `books.csv`.
+Scores and normalized features are **computed in memory** — not written back to PostgreSQL or CSV exports.
 
 | Call site | Functions |
 |-----------|-----------|

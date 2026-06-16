@@ -1,17 +1,10 @@
-import { apiUrl, fetchJson } from "@/lib/api";
+import { apiFetch, fetchJson, getApiErrorMessage } from "@/lib/api";
 import { assertDemoWritable } from "@/lib/demoMode";
 
 export async function downloadLibraryCsv(): Promise<void> {
-  const response = await fetch(apiUrl("/books/export"), { cache: "no-store" });
+  const response = await apiFetch("/books/export");
   if (!response.ok) {
-    let message = `Export failed (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) message = body.detail;
-    } catch {
-      /* keep default */
-    }
-    throw new Error(message);
+    throw new Error(await getApiErrorMessage(response, `Export failed (${response.status})`));
   }
 
   const blob = await response.blob();
@@ -33,21 +26,14 @@ export async function deleteBook(bookId: string): Promise<{ message: string }> {
 
 export async function clearLibrary(): Promise<{ message: string; deleted: number }> {
   assertDemoWritable();
-  const response = await fetch(apiUrl("/books/clear"), {
+  const response = await apiFetch("/books/clear", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm: true })
   });
 
   if (!response.ok) {
-    let message = `Clear failed (${response.status})`;
-    try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) message = body.detail;
-    } catch {
-      /* keep default */
-    }
-    throw new Error(message);
+    throw new Error(await getApiErrorMessage(response, `Clear failed (${response.status})`));
   }
 
   return response.json() as Promise<{ message: string; deleted: number }>;

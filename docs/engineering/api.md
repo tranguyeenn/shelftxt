@@ -2,6 +2,8 @@
 
 Reference for HTTP behavior as implemented in `backend/routes/`. OpenAPI lives at `/docs` when the API is running.
 
+All book and recommendation endpoints are multi-user and require a Supabase access token. `/health` is public.
+
 ---
 
 ## Base URLs
@@ -16,6 +18,70 @@ Client helpers: `frontend/src/lib/api.ts` (`apiUrl`, `fetchJson`); `frontend/src
 Override production API: `VITE_API_BASE_URL` in frontend env.
 
 Production UI calls Render directly; local dev uses Vite proxy `/api/*` → `127.0.0.1:8000`.
+
+---
+
+## Authentication
+
+Protected requests must include:
+
+```http
+Authorization: Bearer <supabase_access_token>
+```
+
+The frontend gets this token from the persisted Supabase session in `frontend/src/lib/api.ts` and attaches it automatically. Direct API clients must do the same.
+
+Backend verification happens in `backend/auth/dependencies.py`:
+
+- `HTTPBearer` requires the Authorization header.
+- Supabase verifies the access token with `supabase.auth.get_user(token)`.
+- The backend loads the matching `profiles` row.
+- Book CRUD and recommendation services receive `current_user.id` and scope data by that user id.
+
+Missing, expired, or invalid tokens return **401**. Missing Supabase backend configuration returns **500**.
+
+### Login and registration flow
+
+Registration uses `supabase.auth.signUp({ email, password, options: { data: { username } } })`. When Supabase returns an immediate session, the frontend creates a `profiles` row. If email confirmation is enabled and no session is returned, the profile is created after confirmation/session restoration.
+
+Login uses `supabase.auth.signInWithPassword({ email, password })`. Session persistence is configured in `frontend/src/lib/supabase.ts` with `persistSession: true`, `autoRefreshToken: true`, and `detectSessionInUrl: true`. Protected frontend routes render only after the session is known.
+
+Logout uses `supabase.auth.signOut()` and clears the local session.
+
+### Authenticated request examples
+
+```ts
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: "reader@example.com",
+  password: "correct-horse-battery-staple"
+});
+
+const token = data.session?.access_token;
+```
+
+```bash
+curl -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  http://127.0.0.1:8000/books
+```
+
+```bash
+curl -X POST http://127.0.0.1:8000/books \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Dune","author":"Frank Herbert","total_pages":688}'
+```
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/books/book-id-or-isbn/progress \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"reading","pages_read":120}'
+```
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/books/book-id-or-isbn \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+```
 
 ---
 
@@ -69,9 +135,9 @@ Production UI calls Render directly; local dev uses Vite proxy `/api/*` → `127
 }
 ```
 
-Each object in `results` uses CSV column names. NaN values → `null`.
+Each object in `results` uses CSV-compatible column names. NaN values → `null`.
 
-**Notes:** Pagination reduces response payload size and the route uses the PostgreSQL-backed repository layer. Invalid `page` / `limit` (zero, negative, non-integer, `limit` > 100) return **422**. Empty library: `total: 0`, `results: []`.
+**Notes:** Pagination reduces response payload size and the route uses the PostgreSQL-backed repository layer scoped by authenticated user. Invalid `page` / `limit` (zero, negative, non-integer, `limit` > 100) return **422**. Empty library: `total: 0`, `results: []`.
 
 ---
 
@@ -79,13 +145,13 @@ Each object in `results` uses CSV column names. NaN values → `null`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/books` | Add TBR book |
-| PATCH | `/books` | Update metadata or shelf via `move_to` |
-| DELETE | `/books?title=` | Delete by exact title |
+| POST | `/books` | Add TBR book for current user |
+| PATCH | `/books` | Update current user's book metadata or shelf via `move_to` |
+| DELETE | `/books?title=` | Delete current user's book by exact title |
 
 **POST body:** `{ "title", "author", "total_pages"? }` → `{ "message": "Book added" }`
 
-**Side effects:** New PostgreSQL row with `Read Status=to-read` and a new `ISBN/UID`.
+**Side effects:** New PostgreSQL row with `Read Status=to-read`, a new `ISBN/UID`, and `user_id` set to the authenticated profile id.
 
 **PATCH body:** `{ "title" (required), "new_title"?, "author"?, "total_pages"?, "pages_read"?, "move_to"?, "rating"?, "date_read"? }`
 
@@ -99,6 +165,7 @@ Each object in `results` uses CSV column names. NaN values → `null`.
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/books/{book_id}` | Get one current-user book |
 | PATCH | `/books/{book_id}/progress` | Update status and pages |
 | DELETE | `/books/{book_id}` | Delete one book |
 
@@ -121,7 +188,7 @@ Each object in `results` uses CSV column names. NaN values → `null`.
 
 `book_id` = `ISBN/UID`.
 
-**Errors:** 404 unknown id; 400 invalid pages, missing total pages for reading/completed.
+**Errors:** 404 unknown id for the current user; 400 invalid pages, missing total pages for reading/completed.
 
 ---
 
@@ -136,7 +203,7 @@ Each object in `results` uses CSV column names. NaN values → `null`.
 **Import body:** `{ "books": [{ "title", "author"?, "total_pages"? }] }`  
 **Import response:** `{ "imported", "skipped" }`
 
-**Skip rules:** empty title; duplicate `Title` (case-sensitive).
+**Skip rules:** empty title; duplicate `Title` in the current user's library (case-sensitive).
 
 **Clear body:** `{ "confirm": true }` (required)  
 **Clear response:** `{ "message", "deleted" }`
@@ -164,7 +231,7 @@ Each object in `results` uses CSV column names. NaN values → `null`.
 }
 ```
 
-Empty TBR → `[]`. Cache invalidated automatically when books change.
+Empty current-user TBR → `[]`. Cache invalidated automatically when books change.
 
 **Caching:** in-process LRU; invalidated on book mutations.
 
@@ -175,6 +242,7 @@ Empty TBR → `[]`. Cache invalidated automatically when books change.
 | Code | Meaning |
 |------|---------|
 | 400 | Business rule violation (`detail` string) |
+| 401 | Missing, invalid, expired, or profile-less Supabase token |
 | 404 | Book not found |
 | 422 | Invalid request body (Pydantic) |
 
@@ -195,8 +263,8 @@ Legacy monolith `backend/api_draft.py` is **not** loaded by production app.
 ### Predictable responses
 
 - Mutations return small JSON messages or the updated `book` object for progress
-- Lists return arrays (never `{ data: ... }` wrapper today)
-- CSV export is raw file download, not JSON
+- `/books` returns a pagination wrapper; recommendations return a top-level array
+- CSV export is raw file download of the authenticated user's library, not JSON
 
 ### Clear validation
 
@@ -207,7 +275,7 @@ Legacy monolith `backend/api_draft.py` is **not** loaded by production app.
 ### Stable CSV compatibility
 
 - `BOOKS_COLUMNS` order preserved on export
-- Load repairs missing columns without crashing
+- Import/export is compatibility I/O; PostgreSQL is the source of truth
 
 ### Frontend-friendly JSON
 
@@ -221,9 +289,7 @@ Legacy monolith `backend/api_draft.py` is **not** loaded by production app.
 
 Clearly marked as **not current**:
 
-- `GET /books/{book_id}` single resource
 - Server-persisted user settings (theme, recommendation style)
-- Auth and multi-tenant libraries
 - Webhook or async import for large files
 - Cursor-based pagination for very large libraries
 

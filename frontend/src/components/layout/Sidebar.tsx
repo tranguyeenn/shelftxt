@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 
+import { useAuth } from "@/contexts/AuthContext";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 
 const navItems = [
@@ -21,6 +22,8 @@ function linkClass({ isActive }: { isActive: boolean }) {
 }
 
 export function Sidebar() {
+  const { logout, user } = useAuth();
+
   return (
     <aside className="flex w-full shrink-0 flex-row items-center gap-2 border-b border-border bg-bg-elevated px-3 py-2 md:w-56 md:flex-col md:items-stretch md:border-b-0 md:border-r md:px-0 md:py-0">
       <div className="hidden border-b border-border-subtle px-4 py-5 md:block">
@@ -41,9 +44,24 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <p className="hidden border-t border-border-subtle px-4 py-3 font-mono text-[10px] leading-relaxed text-text-dim md:block">
-        v0.2.0 · rule-based ranker
-      </p>
+      <div className="hidden border-t border-border-subtle px-4 py-3 md:block">
+        <p className="truncate text-xs text-text-muted">{user?.email}</p>
+        <button
+          className="mt-2 text-xs text-text-dim transition-colors hover:text-text"
+          type="button"
+          onClick={() => void logout()}
+        >
+          Log out
+        </button>
+        <p className="mt-3 font-mono text-[10px] leading-relaxed text-text-dim">v0.2.0 · rule-based ranker</p>
+      </div>
+      <button
+        className="shrink-0 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+        type="button"
+        onClick={() => void logout()}
+      >
+        Log out
+      </button>
     </aside>
   );
 }

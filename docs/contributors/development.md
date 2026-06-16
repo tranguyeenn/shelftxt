@@ -35,7 +35,7 @@ These dependencies are installed through `requirements.txt`.
 
 ## Database Development Setup
 
-ShelfTxt uses PostgreSQL as the primary storage backend for book CRUD operations. Local development uses Docker Compose for PostgreSQL.
+ShelfTxt uses PostgreSQL as the primary storage backend for profiles and user-owned book CRUD operations. Local Docker Postgres is useful for isolated backend work; Supabase Auth integration testing must use the same Postgres database that contains the Supabase `profiles` rows.
 
 ### Environment Variables
 
@@ -43,6 +43,8 @@ Create a local `.env` file in the repository root:
 
 ```env
 DATABASE_URL=postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
 Alternatively:
@@ -50,6 +52,10 @@ Alternatively:
 ```bash
 cp .env.example .env
 ```
+
+For local multi-user auth testing, replace the local `DATABASE_URL` with the Supabase Postgres connection string for the same project used by `SUPABASE_URL` and `VITE_SUPABASE_URL`. The backend validates the Supabase JWT, then looks up `profiles.id` in the database named by `DATABASE_URL`.
+
+Local Docker Postgres works only if you manually insert profile rows whose `id` values match the Supabase auth user UUIDs used in your test tokens.
 
 ### Start PostgreSQL
 
@@ -120,6 +126,7 @@ uvicorn api:app --reload
 ```bash
 cd frontend
 npm install
+cp .env.local.example .env.local
 npm run dev
 ```
 
@@ -143,6 +150,18 @@ cp frontend/.env.local.example frontend/.env.local
 ```
 
 Restart the frontend after modifying environment variables.
+
+`frontend/.env.local` must include Supabase browser credentials:
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_or_publishable_key
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+`VITE_API_BASE_URL` is optional when using the Vite proxy. The Supabase anon key is public by design; never put the service role key in frontend env.
+
+The frontend creates missing `profiles` rows through the Supabase browser client in the project configured by `VITE_SUPABASE_URL`. Keep that project aligned with backend `SUPABASE_URL`.
 
 ### CLI
 
@@ -182,15 +201,15 @@ for development workflow and architecture guidelines.
 
 ### Current Storage
 
-ShelfTxt currently uses PostgreSQL for book CRUD operations.
+ShelfTxt currently uses PostgreSQL for profiles and user-owned book CRUD operations.
 
 The book CRUD flow is:
 
 ```txt
-Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
+Supabase session -> Route -> Service -> Repository -> SQLAlchemy -> PostgreSQL
 ```
 
-CSV remains available for import/export compatibility and legacy helper paths.
+CSV remains available for import/export compatibility and legacy helper paths. It is not the primary storage layer.
 
 ### Data Directories
 
@@ -209,12 +228,16 @@ Legacy CSV helpers may create an empty `books.csv` if one does not exist.
 
 | Variable       | Purpose                                         |
 | -------------- | ----------------------------------------------- |
-| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed book CRUD |
+| `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed profiles and book CRUD; use Supabase Postgres for Supabase Auth integration testing |
+| `SUPABASE_URL` | Supabase project URL for backend token verification |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key for backend Supabase client |
 
 ### Frontend
 
 | Variable            | Purpose                  |
 | ------------------- | ------------------------ |
+| `VITE_SUPABASE_URL` | Supabase project URL for browser auth |
+| `VITE_SUPABASE_ANON_KEY` | Public anon/publishable key for browser auth |
 | `VITE_API_BASE_URL` | Override backend API URL |
 
 Full deployment configuration:

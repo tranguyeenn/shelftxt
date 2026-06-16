@@ -7,11 +7,11 @@ ShelfTxt is a **monorepo** with three runnable surfaces that share one logical l
 | Surface | Stack | Role |
 |---------|-------|------|
 | **Web UI** | Vite, React 19, TypeScript, Tailwind CSS | Reader-facing library, progress, recommendations, settings |
-| **REST API** | FastAPI, pandas, Pydantic | CRUD, import/export, recommendation orchestration |
+| **REST API** | FastAPI, pandas, Pydantic | Authenticated CRUD, import/export, recommendation orchestration |
 | **CLI** | Python (`cli/manage_books.py`) | Local shelf edits (limited commands today) |
 | **Batch pipeline** | Python (`backend/ingest/`) | Offline CSV mapping to canonical schema—not used by live UI import |
 
-**Persistence today:** PostgreSQL is the primary storage backend for book CRUD operations. Routes call services, services call the PostgreSQL repository layer, and SQLAlchemy persists `Book` rows to the `books` table. CSV remains for export/import compatibility and legacy helper paths.
+**Persistence today:** PostgreSQL is the primary storage backend for profiles and book CRUD operations. Routes call services, services call the PostgreSQL repository layer, and SQLAlchemy persists `Profile` and `Book` rows. Every book belongs to one authenticated user through `books.user_id`. CSV remains for export/import compatibility and legacy helper paths.
 
 **Production hosts (as of current deployment):**
 
@@ -25,10 +25,13 @@ ShelfTxt is a **monorepo** with three runnable surfaces that share one logical l
 ```mermaid
 flowchart LR
   Browser[shelftxt.vercel.app]
+  Auth[Supabase Auth]
   API[shelftxt.onrender.com]
-  DB[(PostgreSQL books table)]
+  DB[(PostgreSQL profiles + books)]
 
-  Browser -->|HTTPS JSON| API
+  Browser -->|login/register/session| Auth
+  Browser -->|HTTPS JSON + Bearer token| API
+  API -->|verify token| Auth
   API --> DB
 ```
 
@@ -44,13 +47,16 @@ See [decisions.md](../product/decisions.md#adr-003-production-api-calls-bypass-v
 ### Frontend
 
 - SPA under `frontend/src/`
-- Routes: Dashboard, Library, Recommendations, Book detail, Add book, Insights, Settings
+- Routes: Login, Register, Dashboard, Library, Recommendations, Book detail, Add book, Insights, Settings
+- Protected routes require an authenticated Supabase session.
 - Calls the API via `frontend/src/lib/api.ts` (direct to Render in production; Vite proxy `/api/*` in local dev)
+- Attaches `Authorization: Bearer <access_token>` from the persisted Supabase session to backend requests.
 - Reader preferences (recommendation style, theme, accent) stored in **browser `localStorage`** — not synced to the backend today
 
 ### FastAPI backend
 
 - Entry: `backend/api.py` — CORS, lifespan (keep-warm ping), router registration
+- Auth dependency: `backend/auth/dependencies.py` — validates Supabase Bearer tokens and loads the current profile
 - HTTP handlers: `backend/routes/` — thin; delegate to services
 - Business logic: `backend/services/` — shelf mutations, import/export, recommendation cache
 - Validation: `backend/schemas/` — Pydantic request and response models
@@ -58,8 +64,8 @@ See [decisions.md](../product/decisions.md#adr-003-production-api-calls-bypass-v
 ### Book data storage layer
 
 - `backend/db/database.py` — SQLAlchemy engine, session factory, `get_db()` dependency, declarative `Base`
-- `backend/db/models.py` — `Book` ORM model mapped to the `books` table
-- `backend/repository/postgres_books_repository.py` — CRUD operations for `Book` records
+- `backend/db/models.py` — `Profile` and `Book` ORM models mapped to `profiles` and `books`
+- `backend/repository/postgres_books_repository.py` — user-scoped CRUD operations for `Book` records
 - `backend/services/postgres_books.py` — book CRUD use cases backed by the repository layer
 - `backend/book_data.py` — legacy CSV helper used by CSV-adjacent paths, not the book CRUD source of truth
 
@@ -67,15 +73,15 @@ See [decisions.md](../product/decisions.md#adr-003-production-api-calls-bypass-v
 
 - **Preprocess:** `backend/preprocess/normalize.py` — `rating_norm`, `recency_norm`
 - **Ranking:** `backend/ranking/score.py` — TBR scoring via author preference from read history
-- **Orchestration:** `backend/services/recommendation_builder.py` — top-N list, explanations, similar books
+- **Orchestration:** `backend/services/recommendation_builder.py` — top-N list, explanations, similar books for the current user's library
 - **Cache:** `backend/services/recommendation.py` — `@lru_cache` keyed by recommendation style
 
 Ranking modules perform **no I/O**; they receive DataFrames from services.
 
 ### CSV import / export
 
-- **UI import:** browser parses CSV → JSON → `POST /books/import`
-- **Export:** `GET /books/export` returns full library CSV
+- **UI import:** browser parses CSV → JSON → `POST /books/import` for the signed-in user
+- **Export:** `GET /books/export` returns the signed-in user's library CSV
 - **Batch ingest:** separate Python pipeline for arbitrary external CSV schemas — see [import-export.md](import-export.md#batch-pipeline)
 
 ---
@@ -85,16 +91,21 @@ Ranking modules perform **no I/O**; they receive DataFrames from services.
 ```mermaid
 sequenceDiagram
   participant Browser
+  participant Auth as Supabase Auth
   participant Vite as Vite dev proxy (local only)
   participant API as FastAPI routes
   participant Svc as services/
   participant Repo as repository/
   participant DB as PostgreSQL
 
-  Browser->>API: GET /books?page=&limit=
-  API->>Svc: get_books_service(db, page, limit)
-  Svc->>Repo: get_all_books(db)
-  Repo->>DB: SQLAlchemy query
+  Browser->>Auth: restore persisted session
+  Auth-->>Browser: access token
+  Browser->>API: GET /books?page=&limit= + Bearer token
+  API->>Auth: verify token
+  API->>DB: load Profile
+  API->>Svc: get_books_service(db, user_id, page, limit)
+  Svc->>Repo: get_all_books(db, user_id)
+  Repo->>DB: SQLAlchemy query filtered by user_id
   DB-->>Repo: Book rows
   Repo-->>Svc: Book models
   API-->>Browser: { page, limit, total, results }
@@ -105,19 +116,22 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant Browser
+  participant Auth as Supabase Auth
   participant API as GET /recommend?style=
   participant Rec as recommendation.py
   participant Builder as recommendation_builder.py
   participant Rank as ranking/score.py
   participant Pre as preprocess/normalize.py
-  participant CSV as books.csv
+  participant DB as PostgreSQL
 
-  Browser->>API: style query param
-  API->>Rec: get_recommendation(style)
+  Browser->>API: style query param + Bearer token
+  API->>Auth: verify token
+  API->>DB: load Profile
+  API->>Rec: get_recommendation(db, user_id, style)
   alt cache hit
     Rec-->>API: cached top 10
   else cache miss
-    Rec->>CSV: load_data()
+    Rec->>DB: load current user's books
     Rec->>Builder: build_recommendations(df, style)
     Builder->>Pre: normalize_rating, compute_recency
     Builder->>Rank: score_tbr_books(...)
@@ -126,7 +140,7 @@ sequenceDiagram
   API-->>Browser: JSON array
 ```
 
-Book CRUD mutations (add, patch, progress, delete, import, clear) go through `services/postgres_books.py` and persist through the PostgreSQL repository layer.
+Book CRUD mutations (add, patch, progress, delete, import, clear) go through `services/postgres_books.py`, include the authenticated profile id, and persist through the PostgreSQL repository layer.
 
 ---
 
@@ -136,18 +150,27 @@ Book CRUD mutations (add, patch, progress, delete, import, clear) go through `se
 flowchart TB
   subgraph client [Client]
     UI[Vite + React SPA]
+    SupabaseClient[Supabase JS]
   end
 
+  Auth[Supabase Auth]
+
   subgraph render [Render - API]
+    AuthDep[auth/dependencies.py]
     Routes[routes/]
     Services[services/]
     Repo[repository/]
     SA[SQLAlchemy]
     Rank[ranking/ + preprocess/]
-    DB[(PostgreSQL)]
+    DB[(PostgreSQL profiles + books)]
   end
 
-  UI -->|HTTPS JSON| Routes
+  UI --> SupabaseClient
+  SupabaseClient -->|login/register/session| Auth
+  UI -->|HTTPS JSON + Bearer token| Routes
+  Routes --> AuthDep
+  AuthDep -->|verify token| Auth
+  AuthDep --> DB
   Routes --> Services
   Services --> Repo
   Repo --> SA
@@ -194,7 +217,7 @@ UI import uses `POST /books/import` (JSON)—not the batch pipeline. See [import
 | Router | Paths |
 |--------|-------|
 | `health.py` | `GET|HEAD /health` |
-| `books.py` | `GET /books?page&limit` (paginated), `POST|PATCH|DELETE /books`, `GET /books/export`, `POST /books/import`, `POST /books/clear`, `PATCH /books/{id}/progress`, `DELETE /books/{id}` |
+| `books.py` | `GET /books?page&limit` (paginated), `POST|PATCH|DELETE /books`, `GET /books/{id}`, `GET /books/export`, `POST /books/import`, `POST /books/clear`, `PATCH /books/{id}/progress`, `DELETE /books/{id}` |
 | `recommendation.py` | `GET /recommend?style=` |
 
 Full API reference: [api.md](api.md).
@@ -205,6 +228,8 @@ Full API reference: [api.md](api.md).
 
 | Concern | Location |
 |---------|----------|
+| Auth/session | Supabase Auth + `frontend/src/contexts/AuthContext.tsx` |
+| Backend token verification | `backend/auth/dependencies.py` |
 | CORS | `backend/api.py` |
 | Recommendation cache | `@lru_cache` in `services/recommendation.py`; cleared on book writes |
 | Keep-warm | Scheduler pings `/health` every 14 min |
@@ -232,6 +257,7 @@ shelftxt/
 | Path | Responsibility |
 |------|----------------|
 | `api.py` | FastAPI app, CORS, keep-warm job, router registration |
+| `auth/` | Supabase token verification and current-user profile dependency |
 | `routes/` | HTTP handlers — call services, return JSON/CSV |
 | `schemas/` | Pydantic request/response models |
 | `services/` | Use cases: books CRUD, import/export, recommendations |
@@ -280,7 +306,7 @@ Most PostgreSQL-backed shelf logic lives in `services/postgres_books.py`. Routes
 | `src/components/` | Shared layout and book editors |
 | `src/lib/api.ts` | `apiUrl`, `fetchJson` |
 | `src/lib/userSettings.ts` | Theme, accent, recommendation style (localStorage) |
-| `src/contexts/` | `UserSettingsProvider` |
+| `src/contexts/` | `AuthProvider`, `UserSettingsProvider` |
 
 Deployed as a static SPA on Vercel (`frontend/dist/`). Details: [frontend.md](frontend.md).
 

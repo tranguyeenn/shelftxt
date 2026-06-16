@@ -10,6 +10,7 @@ Engineering directions for shelftxt — not fixed release dates. See [DEVLOG.md]
 - Recommendation scoring (`preprocess/` + `ranking/`)
 - PostgreSQL-backed book CRUD through repository layer
 - PostgreSQL migration phases 1-7 complete
+- Supabase authentication with user-owned libraries
 - Open-source docs (CONTRIBUTING, templates, CI tests)
 - Vite + React UI and batch ingest pipeline
 
@@ -22,7 +23,6 @@ Engineering directions for shelftxt — not fixed release dates. See [DEVLOG.md]
 - Caching improvements
 - Better recommendation engine
 - Serverless deployment exploration
-- Auth
 - Reading analytics
 
 ---

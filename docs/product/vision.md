@@ -14,7 +14,7 @@ Many readers do not lack books—they lack **confidence in the next choice**. Pe
 
 - Organize shelves without a subscription
 - Reduce decision fatigue with ranked suggestions from *your* list
-- Stay in control of your data (CSV export, no hidden training on your library)
+- Stay in control of your data (account-owned library, CSV export, no hidden training on your library)
 - Keep recommendation logic **transparent and inspectable**—not a black box
 
 ---
@@ -24,7 +24,7 @@ Many readers do not lack books—they lack **confidence in the next choice**. Pe
 | Principle | What it means |
 |-----------|---------------|
 | **Reader-first** | The product UI explains *why* a book surfaced, not how the API works |
-| **Your library, your data** | One CSV file you can back up, diff, and migrate |
+| **Your library, your data** | Your account owns its library data; CSV export remains available for backups and migration |
 | **Honest tooling** | Rule-based scoring with readable Python—not opaque external ML |
 | **Open by default** | MIT license; architecture and trade-offs documented in the open |
 

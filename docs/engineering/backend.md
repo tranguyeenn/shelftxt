@@ -5,10 +5,12 @@
 ```text
 backend/
 ├── api.py                 # FastAPI app, CORS, lifespan, router includes
+├── auth/
+│   └── dependencies.py    # Supabase Bearer token verification
 ├── book_data.py           # Legacy CSV helpers, BOOKS_COLUMNS
 ├── db/
 │   ├── database.py        # SQLAlchemy engine, SessionLocal, get_db
-│   └── models.py          # Book ORM model
+│   └── models.py          # Profile and Book ORM models
 ├── routes/
 │   ├── health.py          # GET/HEAD /health
 │   ├── books.py           # /books, import, export, clear, progress, delete by id
@@ -17,8 +19,9 @@ backend/
 │   └── books.py           # Pydantic request bodies + BooksPage (GET /books)
 ├── services/
 │   ├── books.py           # Shelf CRUD, import/export/clear, progress updates
+│   ├── postgres_books.py  # User-scoped PostgreSQL book services
 │   ├── book_api.py        # Row → API book dict, find by ISBN/UID
-│   ├── recommendation.py  # Cached get_recommendation()
+│   ├── recommendation.py  # User-scoped recommendation orchestration
 │   └── recommendation_builder.py  # Top-N + explanations + similar books
 ├── repository/
 │   ├── books_repository.py
@@ -37,6 +40,7 @@ backend/
 ### API routes (`backend/routes/`)
 
 - Map HTTP verbs and paths to service functions
+- Require the current Supabase profile for book and recommendation routes
 - Serialize responses (paginated JSON, recommendation arrays, CSV download, `NaN` → `null` for JSON)
 - Stay thin: no shelf state machines, no scoring formulas
 
@@ -46,7 +50,7 @@ backend/
 
 - Own business rules: shelf transitions, progress validation, duplicate skipping on import
 - Call repository for persistence
-- Invalidate recommendation cache after mutating writes
+- Pass authenticated `user_id` through book CRUD and recommendation flows
 - Compose ranking/preprocess for recommendations
 
 ### Schemas (`backend/schemas/`)
@@ -60,7 +64,7 @@ Book-related schemas include stronger request validation, response models, pagin
 
 - `postgres_books_repository.py`: `get_all_books()`, `get_book_by_id()`, `get_book_by_isbn_uid()`, `create_book()`, `update_book()`, `delete_book()`
 - Underlying I/O: SQLAlchemy session operations against PostgreSQL
-- Book CRUD route flow: route → service → repository → SQLAlchemy → PostgreSQL
+- Book CRUD route flow: auth dependency → route → service → repository → SQLAlchemy → PostgreSQL
 - `books_repository.py` and `book_data.py` remain for legacy CSV-adjacent paths.
 
 ### Ranking / recommendation modules
@@ -76,7 +80,7 @@ Book-related schemas include stronger request validation, response models, pagin
 
 1. **Testability** — services are unit-tested without forcing shelf rules into HTTP handlers.
 2. **Reuse** — CLI and future jobs can call the same functions as the API.
-3. **Cache invalidation** — one place (`services/books.py`) clears recommendation cache after writes.
+3. **Ownership** — one place passes the authenticated profile id into persistence calls.
 4. **Evolution** — database changes are isolated behind repository + services instead of every route.
 
 Route handlers should read like: validate input → call service → return result.
@@ -90,12 +94,14 @@ Route handlers should read like: validate input → call service → return resu
 ```mermaid
 sequenceDiagram
   participant R as POST /books
+  participant Auth as get_current_user
   participant S as add_book_service
   participant Repo as repository
   participant DB as PostgreSQL
 
-  R->>S: AddBook
-  S->>Repo: create_book(db, data)
+  R->>Auth: verify Bearer token, load Profile
+  R->>S: AddBook + user_id
+  S->>Repo: create user-owned Book
   Repo->>DB: INSERT via SQLAlchemy
   S-->>R: { message }
 ```
@@ -105,13 +111,15 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant R as PATCH /books/{id}/progress
+  participant Auth as get_current_user
   participant S as update_book_progress_by_id
   participant Repo as postgres_books_repository
 
-  R->>S: BookProgressPatch
-  S->>Repo: get_book_by_isbn_uid(db, id)
+  R->>Auth: verify Bearer token, load Profile
+  R->>S: BookProgressPatch + user_id
+  S->>Repo: get current user's book by ISBN/UID
   S->>S: validate pages vs total_pages, status rules
-  S->>Repo: update_book(db, id, update_data)
+  S->>Repo: update current user's book
   S-->>R: book record
 ```
 
@@ -119,7 +127,7 @@ Status mapping in API responses preserves the existing public shape while storin
 
 ### Patch shelf (legacy / advanced)
 
-`PATCH /books` with `move_to`: `want` | `reading` | `read` | `dnf` — keyed by **title**. Still supported; UI primarily uses progress endpoint for status.
+`PATCH /books` with `move_to`: `want` | `reading` | `read` | `dnf` — keyed by **title** within the authenticated user's library. Still supported; UI primarily uses progress endpoint for status.
 
 ### Import books
 
@@ -127,21 +135,23 @@ Status mapping in API responses preserves the existing public shape while storin
 sequenceDiagram
   participant UI as Frontend CSV parse
   participant R as POST /books/import
+  participant Auth as get_current_user
   participant S as import_books_service
 
   UI->>R: { books: [{ title, author?, total_pages? }] }
-  S->>S: skip empty title or duplicate Title
-  S->>S: create new Book rows through repository
+  R->>Auth: verify Bearer token, load Profile
+  S->>S: skip empty title or duplicate Title for user
+  S->>S: create new user-owned Book rows through repository
   S-->>R: { imported, skipped }
 ```
 
 ### Export library
 
-`GET /books/export` → `export_library_csv()` → raw CSV string with `Content-Disposition` attachment.
+`GET /books/export` → `export_library_csv(db, user_id)` → raw CSV string for the authenticated user's library with `Content-Disposition` attachment.
 
 ### Clear library
 
-`POST /books/clear` with `{ "confirm": true }` → delete current PostgreSQL book rows.
+`POST /books/clear` with `{ "confirm": true }` → delete current user's PostgreSQL book rows.
 
 ### Delete book
 
@@ -153,11 +163,13 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant R as GET /recommend?style=
+  participant Auth as get_current_user
   participant S as get_recommendation
   participant B as build_recommendations
 
-  R->>S: style (balanced|popular|discovery)
-  S->>B: load df, rank, explain
+  R->>Auth: verify Bearer token, load Profile
+  R->>S: db, user_id, style (balanced|popular|discovery)
+  S->>B: load user's df, rank, explain
   B-->>S: up to 10 items
   S-->>R: JSON array
 ```
@@ -167,6 +179,7 @@ sequenceDiagram
 ## Error handling conventions
 
 - **404** — book not found (title or id)
+- **401** — missing, invalid, expired, or profile-less Supabase token
 - **400** — validation failures (progress exceeds total pages, clear without confirm, read without rating on legacy patch, etc.)
 - FastAPI/Pydantic **422** — malformed JSON or invalid enum values on request bodies
 
@@ -180,5 +193,4 @@ Errors typically return `{ "detail": "message" }`. Frontend `fetchJson` surfaces
 |------|--------|
 | `backend/api_draft.py` | Legacy monolith; not loaded in production |
 | `recommend_one()` in `score.py` | Used in older single-pick flow; HTTP now uses top-10 builder |
-| Genre in app CSV | Not in `BOOKS_COLUMNS`; batch pipeline supports genre separately |
-| Auth / multi-user | Not implemented |
+| Genre in app model | Not in the live `Book` model; batch pipeline supports genre separately |

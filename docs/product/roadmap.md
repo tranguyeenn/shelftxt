@@ -19,6 +19,7 @@ ShelfTxt remains **pre-release**; order and scope will change.
 | Delete book / clear library | **Shipped** |
 | Recommendation style (balanced / popular / discovery) | **Shipped** — client setting + query param |
 | Appearance toggles (theme, accent, compact) | **Shipped** — client-only |
+| Account login + private libraries | **Shipped** — Supabase Auth, profiles, user-owned books |
 
 ### Near-term (gaps vs feedback)
 
@@ -44,7 +45,7 @@ ShelfTxt remains **pre-release**; order and scope will change.
 | Feature | Notes |
 |---------|-------|
 | **Libby / library availability** | Possible integration to prefer borrowable titles — **speculative**, rights/API constraints |
-| **Social / shared lists** | Shared TBR or recommendations — needs auth model |
+| **Social / shared lists** | Shared TBR or recommendations — builds on existing auth model |
 | **Smarter similarity** | Genre, theme, pace — beyond author-only |
 | **Import from Goodreads/StoryGraph** | Dedicated mappers |
 
@@ -57,7 +58,7 @@ ShelfTxt remains **pre-release**; order and scope will change.
 | Item | Rationale |
 |------|-----------|
 | Deterministic ranking tests | Safe refactors to scoring |
-| PostgreSQL CRUD follow-up | SQL-level pagination, remaining CSV-adjacent paths, DB integration tests |
+| PostgreSQL/Auth follow-up | SQL-level pagination, remaining CSV-adjacent paths, DB/auth integration tests |
 | Remove / archive `api_draft.py` | Reduce confusion |
 | Document OpenAPI ↔ system-design parity | Keep docs trustworthy |
 | Expand progress + patch test coverage | Shelf edge cases |
@@ -66,7 +67,6 @@ ShelfTxt remains **pre-release**; order and scope will change.
 
 | Item | Rationale |
 |------|-----------|
-| Auth-aware storage | Per-user `library_id`, account-backed libraries |
 | Repository + service tests with real DB | Integration confidence |
 | UI pagination on Library (server `GET /books` already paginated) | Large libraries |
 | Structured response schemas beyond book CRUD | OpenAPI completeness |
@@ -76,7 +76,6 @@ ShelfTxt remains **pre-release**; order and scope will change.
 
 | Item | Rationale |
 |------|-----------|
-| Auth (sessions or JWT) | Multi-user |
 | Background jobs | Recompute ranks on schedule |
 | Analytics (privacy-preserving) | Which explanations help picks |
 | Serverless / edge evaluation | Cost vs latency tradeoffs |

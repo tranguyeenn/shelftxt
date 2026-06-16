@@ -2,6 +2,7 @@ import csv
 import uuid
 from datetime import date
 from io import StringIO
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -44,8 +45,8 @@ def parse_date_or_today(date_str):
     return date.today()
 
 
-def get_books_service(db: Session, page: int, limit: int):
-    books = get_all_books(db)
+def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
+    books = get_all_books(db, user_id)
     total = len(books)
     start = (page - 1) * limit
 
@@ -57,8 +58,8 @@ def get_books_service(db: Session, page: int, limit: int):
     }
 
 
-def get_book_by_id_service(db: Session, book_id: str):
-    book = get_book_by_isbn_uid(db, book_id)
+def get_book_by_id_service(db: Session, book_id: str, user_id: UUID):
+    book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -66,8 +67,8 @@ def get_book_by_id_service(db: Session, book_id: str):
     return book_to_dict(book)
 
 
-def export_library_csv(db: Session) -> str:
-    books = get_all_books(db)
+def export_library_csv(db: Session, user_id: UUID) -> str:
+    books = get_all_books(db, user_id)
 
     fieldnames = [
         "Title",
@@ -91,7 +92,7 @@ def export_library_csv(db: Session) -> str:
     return output.getvalue()
 
 
-def add_book_service(db: Session, book):
+def add_book_service(db: Session, book, user_id: UUID):
     create_book(
         db,
         {
@@ -105,13 +106,14 @@ def add_book_service(db: Session, book):
             "pages_read": 0,
             "total_pages": book.total_pages,
         },
+        user_id,
     )
 
     return {"message": "Book added"}
 
 
-def import_books_service(db: Session, data):
-    books = get_all_books(db)
+def import_books_service(db: Session, data, user_id: UUID):
+    books = get_all_books(db, user_id)
     existing_titles = {book.title for book in books}
 
     imported = 0
@@ -137,6 +139,7 @@ def import_books_service(db: Session, data):
                 "pages_read": 0,
                 "total_pages": book.total_pages,
             },
+            user_id,
         )
 
         existing_titles.add(title)
@@ -148,46 +151,46 @@ def import_books_service(db: Session, data):
     }
 
 
-def clear_library_service(db: Session, confirm: bool):
+def clear_library_service(db: Session, confirm: bool, user_id: UUID):
     if not confirm:
         raise HTTPException(
             status_code=400,
             detail="Confirmation required to clear the library",
         )
 
-    books = get_all_books(db)
+    books = get_all_books(db, user_id)
     deleted = len(books)
 
     for book in books:
-        delete_book(db, book.id)
+        delete_book(db, book.id, user_id)
 
     return {"message": "Library cleared", "deleted": deleted}
 
 
-def delete_book_by_id_service(db: Session, book_id: str):
-    book = get_book_by_isbn_uid(db, book_id)
+def delete_book_by_id_service(db: Session, book_id: str, user_id: UUID):
+    book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    delete_book(db, book.id)
+    delete_book(db, book.id, user_id)
 
     return {"message": "Book deleted"}
 
 
-def delete_book_by_title_service(db: Session, title: str):
-    books = get_all_books(db)
+def delete_book_by_title_service(db: Session, title: str, user_id: UUID):
+    books = get_all_books(db, user_id)
 
     for book in books:
         if book.title == title:
-            delete_book(db, book.id)
+            delete_book(db, book.id, user_id)
             return {"message": "Book deleted"}
 
     raise HTTPException(status_code=404, detail="Book not found")
 
 
-def patch_book_service(db: Session, p):
-    books = get_all_books(db)
+def patch_book_service(db: Session, p, user_id: UUID):
+    books = get_all_books(db, user_id)
     book = next((b for b in books if b.title == p.title), None)
 
     if book is None:
@@ -281,13 +284,13 @@ def patch_book_service(db: Session, p):
         else:
             raise HTTPException(status_code=400, detail="Invalid move target")
 
-    update_book(db, book.id, update_data)
+    update_book(db, book.id, update_data, user_id)
 
     return {"message": "Book updated"}
 
 
-def update_book_progress_by_id_service(db: Session, book_id: str, body):
-    book = get_book_by_isbn_uid(db, book_id)
+def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id: UUID):
+    book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -377,6 +380,6 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body):
     else:
         raise HTTPException(status_code=400, detail="Invalid status")
 
-    updated = update_book(db, book.id, update_data)
+    updated = update_book(db, book.id, update_data, user_id)
 
     return book_to_dict(updated)

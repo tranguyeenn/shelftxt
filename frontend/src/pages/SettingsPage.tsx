@@ -2,6 +2,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { SettingRow, SettingsSection } from "@/components/settings/SettingsSection";
 import { CsvImportSection } from "@/features/settings/CsvImportSection";
 import { LibraryActions } from "@/features/settings/LibraryActions";
+import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/contexts/AuthContext";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import {
   ACCENT_PRESETS,
@@ -14,6 +16,7 @@ const selectClass =
   "w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text sm:w-auto";
 
 export function SettingsPage() {
+  const { logout, user } = useAuth();
   const { settings, updateSettings } = useUserSettings();
 
   return (
@@ -34,6 +37,20 @@ export function SettingsPage() {
             More actions
           </p>
           <LibraryActions />
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title="Account" description="Manage the signed-in ShelfTxt account.">
+        <SettingRow label="Email">
+          <p className="truncate text-sm text-text">{user?.email ?? "Unknown"}</p>
+        </SettingRow>
+        <SettingRow label="User ID">
+          <p className="max-w-[16rem] truncate font-mono text-xs text-text-muted">{user?.id}</p>
+        </SettingRow>
+        <div>
+          <Button variant="secondary" onClick={() => void logout()}>
+            Log out
+          </Button>
         </div>
       </SettingsSection>
 

@@ -180,7 +180,7 @@ These read arbitrary user-uploaded CSV files via the ingest pipeline. They do no
 | CSV export/import compatibility | Keep response and backup behavior stable |
 | CLI storage path | Audit before promising PostgreSQL-backed CLI behavior |
 | DB-backed integration tests | Add as repository/service behavior grows |
-| Per-user libraries | Requires auth and `library_id` or equivalent ownership model |
+| Per-user libraries | Complete via Supabase Auth, `profiles`, and `books.user_id`; keep DB-backed tests current |
 
 ---
 

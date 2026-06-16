@@ -4,7 +4,7 @@ The ShelfTxt web UI is a **reader-facing** tool for managing a personal library 
 
 Stack: **Vite 6**, **React 19**, **TypeScript**, **Tailwind CSS 4**, **React Router 7**.
 
-Entry: `frontend/src/main.tsx` → `App.tsx` with `UserSettingsProvider` wrapping routes.
+Entry: `frontend/src/main.tsx` → `App.tsx` with `AuthProvider` and `UserSettingsProvider` wrapping routes.
 
 ---
 
@@ -12,6 +12,8 @@ Entry: `frontend/src/main.tsx` → `App.tsx` with `UserSettingsProvider` wrappin
 
 | Path | Page | Role |
 |------|------|------|
+| `/login` | Login | Supabase email/password login |
+| `/register` | Register | Supabase signup + profile creation |
 | `/` | Dashboard | Top recommendation + stats |
 | `/library` | Library | Full shelf with status/progress editing |
 | `/ranking` | Recommendations | Top 10 with explanations |
@@ -21,22 +23,32 @@ Entry: `frontend/src/main.tsx` → `App.tsx` with `UserSettingsProvider` wrappin
 | `/settings` | Settings | Import/export, preferences, appearance |
 | `/system` | redirect → `/insights` | Backward compatibility |
 
-Router: `frontend/src/App.tsx` · Layout: `AppShell` + `Sidebar`
+Router: `frontend/src/App.tsx` · Protected routes: `components/auth/ProtectedRoute.tsx` · Layout: `AppShell` + `Sidebar`
 
 ---
 
 ## Main user flows
 
+### Authenticate
+
+1. Register on `/register` with email, password, and username.
+2. Supabase creates the auth user; the frontend creates a matching `profiles` row when a session is available.
+3. Login on `/login` with `supabase.auth.signInWithPassword()`.
+4. Supabase persists and refreshes the browser session.
+5. Logout calls `supabase.auth.signOut()`.
+
+Protected app routes require a session. API helpers attach the current Supabase access token as `Authorization: Bearer <token>`.
+
 ### View library
 
-1. `GET /books` (paginated; UI uses `fetchAllLibraryBooks()` to load all pages at max `limit=100`)
+1. `GET /books` with Bearer token (paginated; UI uses `fetchAllLibraryBooks()` to load all pages at max `limit=100`)
 2. Map rows to `ApiBook` via `recordToApiBook()` (`lib/books.ts`)
 3. Filter by status: not started, reading, completed
 4. Cards show title, author, pages, progress, status badge
 
 ### Add book
 
-1. Form on `/add` → `POST /books` with title, author, optional total pages
+1. Form on `/add` → `POST /books` with title, author, optional total pages and Bearer token
 2. Redirect or refresh library data
 
 ### Edit status / progress
@@ -52,7 +64,7 @@ Legacy shelf moves via `PATCH /books` + `move_to` exist but are not the primary 
 
 1. Settings → file input → Papa Parse client-side
 2. Preview first rows
-3. `POST /books/import` with parsed JSON
+3. `POST /books/import` with parsed JSON and Bearer token
 
 ### Export CSV
 
@@ -101,6 +113,7 @@ Recommendations pass `?style=` from user settings (`src/lib/userSettings.ts`).
 `frontend/src/lib/api.ts`:
 
 - `apiUrl(path)` — Render in prod, `/api` proxy locally
+- `apiFetch(path, init)` — attaches Supabase `Authorization: Bearer <access_token>`
 - `fetchJson<T>()` — throws with server `detail` when available
 
 Types: `lib/types.ts` for `ApiBook`, `RecommendationItem`, etc.
@@ -111,7 +124,9 @@ Types: `lib/types.ts` for `ApiBook`, `RecommendationItem`, etc.
 
 | State | Storage | Synced to backend |
 |-------|---------|-------------------|
-| Library | API / CSV | yes |
+| Auth session | Supabase browser storage | yes, through Supabase Auth |
+| Profile | PostgreSQL `profiles` | yes |
+| Library | PostgreSQL via authenticated API; CSV import/export compatibility | yes |
 | Recommendation style | `localStorage` | no (passed as query param only) |
 | Show explanations | `localStorage` | no |
 | Compact mode | `localStorage` + `data-compact` on `<html>` | no |
@@ -126,11 +141,15 @@ Types: `lib/types.ts` for `ApiBook`, `RecommendationItem`, etc.
 
 | Path | Role |
 |------|------|
+| `src/lib/supabase.ts` | Supabase browser client and session persistence settings |
+| `src/lib/api.ts` | API URL resolution, auth header attachment, fetch helpers |
 | `src/lib/books.ts` | CSV row → `ApiBook`, `fetchAllLibraryBooks()` (paginated GET /books) |
 | `src/lib/bookProgress.ts` | Progress validation + PATCH helper |
 | `src/lib/libraryExport.ts` | Export download, clear library, delete book |
 | `src/lib/insights.ts` | Insights page aggregations |
+| `src/contexts/AuthContext.tsx` | Session state, login, register, logout, profile creation |
 | `src/contexts/UserSettingsContext.tsx` | Theme, accent, recommendation style |
+| `components/auth/ProtectedRoute.tsx` | Redirect unauthenticated users away from app routes |
 | `components/books/BookProgressEditor.tsx` | Status + pages editor |
 | `features/recommendations/` | Recommendation cards and list |
 
@@ -156,7 +175,7 @@ frontend/src/
 ├── features/        # Domain UI (dashboard, recommendations, settings)
 ├── components/      # Shared UI (layout, books, settings)
 ├── lib/             # API, books helpers, insights, user settings
-└── contexts/        # UserSettingsProvider
+└── contexts/        # AuthProvider, UserSettingsProvider
 ```
 
 ---
