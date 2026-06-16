@@ -22,11 +22,47 @@ type AuthContextValue = {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (input: RegisterInput) => Promise<void>;
+  register: (input: RegisterInput) => Promise<{ needsEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+async function ensureProfile(user: User, username?: string): Promise<void> {
+  const { data: existingProfile, error: lookupError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (lookupError) {
+    throw lookupError;
+  }
+
+  if (existingProfile) {
+    return;
+  }
+
+  const profileUsername =
+    username ?? (typeof user.user_metadata?.username === "string" ? user.user_metadata.username : "");
+
+  if (!profileUsername) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const { error: profileError } = await supabase.from("profiles").insert({
+    id: user.id,
+    email: user.email ?? "",
+    username: profileUsername,
+    created_at: now,
+    updated_at: now
+  });
+
+  if (profileError) {
+    throw profileError;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -43,6 +79,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mounted) {
         setSession(currentSession);
         setLoading(false);
+        if (currentSession?.user) {
+          void ensureProfile(currentSession.user).catch(() => {
+            /* Profile creation errors are surfaced during signup; avoid disrupting session restore. */
+          });
+        }
       }
     }
 
@@ -53,6 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       setSession(currentSession);
       setLoading(false);
+      if (currentSession?.user) {
+        void ensureProfile(currentSession.user).catch(() => {
+          /* Profile creation errors are surfaced during signup; avoid disrupting session restore. */
+        });
+      }
     });
 
     return () => {
@@ -83,32 +129,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    console.log("Supabase signup data:", data);
-
     if (error) {
-      console.error("Supabase signup error:", error);
       throw error;
     }
 
-    if (data.user) {
-      const now = new Date().toISOString();
-      const profilePayload = {
-        id: data.user.id,
-        email: data.user.email ?? email,
-        username,
-        created_at: now,
-        updated_at: now
-      };
-
-      console.log("Supabase profile insert payload:", profilePayload);
-
-      const { error: profileError } = await supabase.from("profiles").insert(profilePayload);
-
-      if (profileError) {
-        console.error("Supabase profile insert error:", profileError);
-        throw profileError;
-      }
+    if (data.user && data.session) {
+      await ensureProfile(data.user, username);
     }
+
+    return { needsEmailConfirmation: Boolean(data.user && !data.session) };
   }, []);
 
   const logout = useCallback(async () => {

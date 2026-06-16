@@ -1,8 +1,8 @@
-import { apiUrl, fetchJson } from "@/lib/api";
+import { apiFetch, fetchJson } from "@/lib/api";
 import { assertDemoWritable } from "@/lib/demoMode";
 
 export async function downloadLibraryCsv(): Promise<void> {
-  const response = await fetch(apiUrl("/books/export"), { cache: "no-store" });
+  const response = await apiFetch("/books/export");
   if (!response.ok) {
     let message = `Export failed (${response.status})`;
     try {
@@ -33,7 +33,7 @@ export async function deleteBook(bookId: string): Promise<{ message: string }> {
 
 export async function clearLibrary(): Promise<{ message: string; deleted: number }> {
   assertDemoWritable();
-  const response = await fetch(apiUrl("/books/clear"), {
+  const response = await apiFetch("/books/clear", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ confirm: true })

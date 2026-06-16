@@ -1,4 +1,5 @@
 import { assertDemoWritable, resolveApiBase } from "@/lib/demoMode";
+import { supabase } from "@/lib/supabase";
 
 /**
  * Browser fetch target for the FastAPI backend.
@@ -17,13 +18,34 @@ export function apiUrl(path: string): string {
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function authHeaders(initHeaders?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(initHeaders);
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+
+  if (session?.access_token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${session.access_token}`);
+  }
+
+  return headers;
+}
+
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
   if (MUTATING_METHODS.has(method)) {
     assertDemoWritable();
   }
 
-  const response = await fetch(apiUrl(path), { cache: "no-store", ...init });
+  return fetch(apiUrl(path), {
+    cache: "no-store",
+    ...init,
+    headers: await authHeaders(init?.headers)
+  });
+}
+
+export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(path, init);
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {

@@ -12,6 +12,7 @@ export function RegisterPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (!loading && user && !submitting && !error) {
@@ -21,14 +22,19 @@ export function RegisterPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setMessage(null);
     setSubmitting(true);
 
     try {
-      await register({
+      const result = await register({
         email,
         password,
         username
       });
+      if (result.needsEmailConfirmation) {
+        setMessage("Check your email to confirm your account, then log in.");
+        return;
+      }
       navigate("/", { replace: true });
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to create account.");
@@ -87,6 +93,12 @@ export function RegisterPage() {
           {error ? (
             <p className="rounded-lg border border-danger/30 bg-danger-muted px-3 py-2 text-sm text-danger">
               {error}
+            </p>
+          ) : null}
+
+          {message ? (
+            <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent">
+              {message}
             </p>
           ) : null}
 
