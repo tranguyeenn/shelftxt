@@ -575,6 +575,109 @@ class ApiTests(unittest.TestCase):
         self.assertIsNotNone(current_user_book)
         self.assertIsNone(other_user_book)
 
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    def test_import_normalizes_read_to_completed(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Read Book", "author": "A", "Read Status": "Read"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = self.client.get("/books").json()
+        book = payload["results"][0]
+        self.assertEqual(book["Read Status"], "read")
+        self.assertEqual(book["Progress (%)"], 100)
+        mock_lookup_total_pages.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    def test_import_normalizes_completed_to_completed(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Completed Book", "author": "A", "status": "Completed"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Read Status"], "read")
+        self.assertEqual(book["Progress (%)"], 100)
+        mock_lookup_total_pages.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    def test_import_normalizes_finished_to_completed(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Finished Book", "author": "A", "read_status": "Finished"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Read Status"], "read")
+        self.assertEqual(book["Progress (%)"], 100)
+        mock_lookup_total_pages.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=300)
+    def test_import_normalizes_reading_to_reading(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Reading Book",
+                        "author": "A",
+                        "read_status": "Reading",
+                        "pages_read": 75,
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Read Status"], "to-read")
+        self.assertEqual(book["Pages Read"], 75)
+        self.assertEqual(book["Total Pages"], 300)
+        self.assertEqual(book["Progress (%)"], 25)
+        mock_lookup_total_pages.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    def test_import_normalizes_to_read_to_not_started(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Unread Book", "author": "A", "Read Status": "To Read"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Read Status"], "to-read")
+        self.assertEqual(book["Pages Read"], 0)
+        self.assertEqual(book["Progress (%)"], 0)
+        mock_lookup_total_pages.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=412)
+    def test_import_missing_page_count_triggers_lookup(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Needs Pages", "author": "A"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Total Pages"], 412)
+        mock_lookup_total_pages.assert_called_once_with("Needs Pages", "A")
+
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
+    def test_import_failed_page_count_lookup_does_not_crash(self, mock_lookup_total_pages):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "No Pages Found", "author": "A"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"imported": 1, "skipped": 0})
+        book = self.client.get("/books").json()["results"][0]
+        self.assertIsNone(book["Total Pages"])
+        mock_lookup_total_pages.assert_called_once_with("No Pages Found", "A")
+
     def test_export_library_csv(self):
         _seed_book(
             title="Export Me",

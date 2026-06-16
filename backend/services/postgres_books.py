@@ -14,6 +14,8 @@ from backend.repository.postgres_books_repository import (
     get_book_by_isbn_uid,
     update_book,
 )
+from backend.services.page_lookup import lookup_total_pages
+from backend.services.status import database_status_from_normalized, normalize_status
 
 
 def book_to_dict(book):
@@ -126,18 +128,38 @@ def import_books_service(db: Session, data, user_id: UUID):
             skipped += 1
             continue
 
+        pages_read = int(book.pages_read or 0)
+        progress_percent = float(book.progress_percent or 0)
+        normalized_status = normalize_status(
+            book.read_status,
+            progress_percent=progress_percent,
+            pages_read=pages_read,
+        )
+        total_pages = book.total_pages or lookup_total_pages(title, book.author)
+
+        if normalized_status == "completed":
+            progress_percent = 100
+            if total_pages is not None:
+                pages_read = int(total_pages)
+        elif normalized_status == "not_started":
+            pages_read = 0
+            progress_percent = 0
+        elif normalized_status == "reading" and total_pages is not None and pages_read > 0:
+            pages_read = min(pages_read, int(total_pages))
+            progress_percent = round((pages_read / int(total_pages)) * 100, 2)
+
         create_book(
             db,
             {
                 "title": title,
                 "authors": (book.author or "Unknown").strip(),
                 "isbn_uid": f"uid-{uuid.uuid4()}",
-                "read_status": "to-read",
+                "read_status": database_status_from_normalized(normalized_status),
                 "star_rating": None,
                 "last_date_read": None,
-                "progress_percent": 0,
-                "pages_read": 0,
-                "total_pages": book.total_pages,
+                "progress_percent": progress_percent,
+                "pages_read": pages_read,
+                "total_pages": total_pages,
             },
             user_id,
         )

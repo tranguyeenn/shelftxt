@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class AddBook(BaseModel):
@@ -24,6 +24,21 @@ class ImportRow(BaseModel):
     title: str = Field(min_length=1)
     author: str | None = Field(default=None, min_length=1)
     total_pages: int | None = Field(default=None, gt=0)
+    read_status: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("read_status", "status", "Read Status"),
+    )
+    pages_read: int | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("pages_read", "Pages Read"),
+    )
+    progress_percent: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        validation_alias=AliasChoices("progress_percent", "Progress (%)"),
+    )
 
 
 class ImportBooks(BaseModel):

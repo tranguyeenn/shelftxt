@@ -9,6 +9,9 @@ type ImportRow = {
   title: string;
   author: string | null;
   total_pages: number | null;
+  read_status: string | null;
+  pages_read: number | null;
+  progress_percent: number | null;
 };
 
 export function CsvImportSection() {
@@ -46,11 +49,26 @@ export function CsvImportSection() {
         const author = String(row.author ?? row.Author ?? "").trim();
         const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
         const pagesNum = pagesRaw ? Number(pagesRaw) : null;
+        const status = String(row.read_status ?? row.status ?? row["Read Status"] ?? "").trim();
+        const pagesReadRaw = String(row.pages_read ?? row["Pages Read"] ?? "").trim();
+        const pagesReadNum = pagesReadRaw ? Number(pagesReadRaw) : null;
+        const progressRaw = String(row.progress_percent ?? row["Progress (%)"] ?? "").trim();
+        const progressNum = progressRaw ? Number(progressRaw) : null;
+
         return {
           title,
           author: author || null,
           total_pages:
-            Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null
+            Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null,
+          read_status: status || null,
+          pages_read:
+            Number.isFinite(pagesReadNum) && pagesReadNum !== null && pagesReadNum >= 0
+              ? Math.round(pagesReadNum)
+              : null,
+          progress_percent:
+            Number.isFinite(progressNum) && progressNum !== null && progressNum >= 0
+              ? Math.min(100, Math.max(0, progressNum))
+              : null
         };
       })
       .filter((item): item is ImportRow => item !== null);
