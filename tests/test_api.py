@@ -15,6 +15,7 @@ from backend.services.recommendation import get_recommendation
 
 
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+OTHER_USER_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 SQLALCHEMY_DATABASE_URL = "sqlite://"
 
@@ -177,6 +178,28 @@ class ApiTests(unittest.TestCase):
                 response = self.client.get(f"/books?{query}")
                 self.assertEqual(response.status_code, 422)
 
+    def test_get_books_only_returns_current_user_books(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(title="Mine", authors="A", isbn_uid="mine")
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+        )
+
+        response = self.client.get("/books")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["results"][0]["Title"], "Mine")
+
     def test_get_book_by_id(self):
         _seed_book(title="Existing", authors="Author A", isbn_uid="book-1")
 
@@ -190,6 +213,24 @@ class ApiTests(unittest.TestCase):
 
     def test_get_book_by_id_not_found(self):
         response = self.client.get("/books/missing-id")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_book_by_id_cannot_access_other_user_book(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+        )
+
+        response = self.client.get("/books/not-mine")
 
         self.assertEqual(response.status_code, 404)
 
@@ -240,6 +281,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["results"][0]["ISBN/UID"], "keep-id")
 
+    def test_delete_book_by_id_cannot_delete_other_user_book(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(title="Mine", authors="A", isbn_uid="mine")
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+        )
+
+        response = self.client.delete("/books/not-mine")
+
+        self.assertEqual(response.status_code, 404)
+
+        payload = self.client.get("/books").json()
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["results"][0]["ISBN/UID"], "mine")
+
+        db = TestingSessionLocal()
+        try:
+            other_book = (
+                db.query(Book)
+                .filter(Book.user_id == OTHER_USER_ID)
+                .filter(Book.isbn_uid == "not-mine")
+                .first()
+            )
+        finally:
+            db.close()
+
+        self.assertIsNotNone(other_book)
+
     def test_patch_move_to_dnf(self):
         _seed_book(
             title="T",
@@ -259,6 +336,28 @@ class ApiTests(unittest.TestCase):
         payload = self.client.get("/books/1").json()
         self.assertEqual(payload["Read Status"], "dnf")
         self.assertEqual(payload["Star Rating"], 1)
+
+    def test_patch_cannot_update_other_user_book(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+            total_pages=100,
+        )
+
+        response = self.client.patch(
+            "/books",
+            json={"title": "Not Mine", "move_to": "dnf"},
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_update_book_progress_by_id(self):
         _seed_book(
@@ -317,6 +416,28 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_update_book_progress_cannot_update_other_user_book(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+            total_pages=100,
+        )
+
+        response = self.client.patch(
+            "/books/not-mine/progress",
+            json={"status": "reading", "pages_read": 20},
+        )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_clear_library(self):
         _seed_book(title="Gone", authors="A", isbn_uid="1")
 
@@ -332,6 +453,45 @@ class ApiTests(unittest.TestCase):
         response = self.client.post("/books/clear", json={"confirm": False})
 
         self.assertEqual(response.status_code, 400)
+
+    def test_clear_library_only_clears_current_user_books(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(title="Mine", authors="A", isbn_uid="mine")
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+        )
+
+        response = self.client.post("/books/clear", json={"confirm": True})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["deleted"], 1)
+
+        db = TestingSessionLocal()
+        try:
+            current_user_books = (
+                db.query(Book)
+                .filter(Book.user_id == TEST_USER_ID)
+                .all()
+            )
+            other_book = (
+                db.query(Book)
+                .filter(Book.user_id == OTHER_USER_ID)
+                .filter(Book.isbn_uid == "not-mine")
+                .first()
+            )
+        finally:
+            db.close()
+
+        self.assertEqual(current_user_books, [])
+        self.assertIsNotNone(other_book)
 
     def test_import_skips_duplicate_title(self):
         _seed_book(
@@ -380,6 +540,41 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["results"][0]["Title"], "Existing Book")
 
+    def test_import_adds_books_to_current_user(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Imported Mine", "author": "A"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["imported"], 1)
+
+        db = TestingSessionLocal()
+        try:
+            current_user_book = (
+                db.query(Book)
+                .filter(Book.user_id == TEST_USER_ID)
+                .filter(Book.title == "Imported Mine")
+                .first()
+            )
+            other_user_book = (
+                db.query(Book)
+                .filter(Book.user_id == OTHER_USER_ID)
+                .filter(Book.title == "Imported Mine")
+                .first()
+            )
+        finally:
+            db.close()
+
+        self.assertIsNotNone(current_user_book)
+        self.assertIsNone(other_user_book)
+
     def test_export_library_csv(self):
         _seed_book(
             title="Export Me",
@@ -395,6 +590,27 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Export Me", response.text)
         self.assertIn("Author", response.text)
         self.assertIn("ISBN/UID", response.text)
+
+    def test_export_only_exports_current_user_books(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        _seed_book(title="Mine", authors="A", isbn_uid="mine")
+        _seed_book(
+            title="Not Mine",
+            authors="B",
+            isbn_uid="not-mine",
+            user_id=OTHER_USER_ID,
+        )
+
+        response = self.client.get("/books/export")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Mine", response.text)
+        self.assertNotIn("Not Mine", response.text)
 
     @patch("backend.routes.recommendation.get_recommendation")
     def test_recommend_returns_structured_payload(self, mock_get_recommendation):
@@ -453,10 +669,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_recommendation_only_uses_current_user_books(self):
-        other_user_id = UUID("00000000-0000-0000-0000-000000000002")
-
         _seed_profile(
-            user_id=other_user_id,
+            user_id=OTHER_USER_ID,
             email="other@shelftxt.local",
             username="other",
         )
@@ -465,7 +679,7 @@ class ApiTests(unittest.TestCase):
             title="Other User Book",
             authors="Other Author",
             isbn_uid="other-book",
-            user_id=other_user_id,
+            user_id=OTHER_USER_ID,
             read_status="to-read",
             total_pages=300,
         )
