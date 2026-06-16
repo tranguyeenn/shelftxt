@@ -29,6 +29,17 @@ def get_database_url() -> str:
     return database_url
 
 
+def get_engine_kwargs(database_url: str) -> dict:
+    engine_kwargs = {"pool_pre_ping": True}
+
+    if database_url.startswith("postgresql+psycopg"):
+        # Supabase pooled/PgBouncer connections can reuse server connections across
+        # clients, so psycopg prepared statement names may collide.
+        engine_kwargs["connect_args"] = {"prepare_threshold": None}
+
+    return engine_kwargs
+
+
 engine = None
 SessionLocal = None
 
@@ -37,7 +48,8 @@ def get_engine():
     global engine
 
     if engine is None:
-        engine = create_engine(get_database_url())
+        database_url = get_database_url()
+        engine = create_engine(database_url, **get_engine_kwargs(database_url))
 
     return engine
 
