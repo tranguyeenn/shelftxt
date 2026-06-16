@@ -10,3 +10,4 @@ psycopg[binary]
 alembic
 python-dotenv
 pytest
+supabase>=2.0.0
