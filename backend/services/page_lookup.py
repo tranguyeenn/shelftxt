@@ -32,3 +32,32 @@ def lookup_total_pages(title: str, author: str | None = None) -> int | None:
 
     logger.warning("Page count lookup found no page count for %r", title)
     return None
+
+
+def lookup_author_name(title: str) -> str | None:
+    try:
+        response = httpx.get(
+            "https://openlibrary.org/search.json",
+            params={"q": title, "limit": 5, "fields": "title,author_name"},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Author lookup failed for %r: %s", title, exc)
+        return None
+
+    try:
+        docs = response.json().get("docs", [])
+    except ValueError as exc:
+        logger.warning("Author lookup returned invalid JSON for %r: %s", title, exc)
+        return None
+
+    for doc in docs:
+        authors = doc.get("author_name")
+        if isinstance(authors, list):
+            for author in authors:
+                if isinstance(author, str) and author.strip():
+                    return author.strip()
+
+    logger.warning("Author lookup found no author for %r", title)
+    return None

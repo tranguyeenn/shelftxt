@@ -128,6 +128,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["results"][0]["Title"], "Book 0")
         self.assertEqual(payload["results"][-1]["Title"], "Book 19")
 
+    def test_import_schema_includes_csv_progress_fields(self):
+        schema = api.app.openapi()["components"]["schemas"]
+        import_row_properties = schema["ImportRow"]["properties"]
+
+        self.assertIn("title", import_row_properties)
+        self.assertIn("author", import_row_properties)
+        self.assertIn("total_pages", import_row_properties)
+        self.assertIn("read_status", import_row_properties)
+        self.assertIn("pages_read", import_row_properties)
+        self.assertIn("progress_percent", import_row_properties)
+
+        example_row = schema["ImportBooks"]["examples"][0]["books"][0]
+        self.assertEqual(example_row["read_status"], "reading")
+        self.assertEqual(example_row["pages_read"], 120)
+        self.assertEqual(example_row["progress_percent"], 39.47)
+
     def test_get_books_explicit_page_and_limit(self):
         for i in range(12):
             _seed_book(
@@ -574,6 +590,55 @@ class ApiTests(unittest.TestCase):
 
         self.assertIsNotNone(current_user_book)
         self.assertIsNone(other_user_book)
+
+    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=592)
+    def test_import_accepts_authors_alias(self, mock_lookup_total_pages, mock_lookup_author_name):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Dune", "Authors": "Frank Herbert"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Authors"], "Frank Herbert")
+        self.assertEqual(book["Total Pages"], 592)
+        mock_lookup_total_pages.assert_called_once_with("Dune", "Frank Herbert")
+        mock_lookup_author_name.assert_not_called()
+
+    @patch("backend.services.postgres_books.lookup_author_name", return_value="Frank Herbert")
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=592)
+    def test_import_title_only_enriches_pages_and_author(
+        self, mock_lookup_total_pages, mock_lookup_author_name
+    ):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Dune"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Authors"], "Frank Herbert")
+        self.assertEqual(book["Total Pages"], 592)
+        mock_lookup_total_pages.assert_called_once_with("Dune", None)
+        mock_lookup_author_name.assert_called_once_with("Dune")
+
+    @patch("backend.services.postgres_books.lookup_author_name", return_value=None)
+    @patch("backend.services.postgres_books.lookup_total_pages", return_value=592)
+    def test_import_unknown_author_uses_authorless_lookup(
+        self, mock_lookup_total_pages, mock_lookup_author_name
+    ):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Dune", "author": "Unknown"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Authors"], "Unknown")
+        self.assertEqual(book["Total Pages"], 592)
+        mock_lookup_total_pages.assert_called_once_with("Dune", None)
+        mock_lookup_author_name.assert_called_once_with("Dune")
 
     @patch("backend.services.postgres_books.lookup_total_pages", return_value=None)
     def test_import_normalizes_read_to_completed(self, mock_lookup_total_pages):

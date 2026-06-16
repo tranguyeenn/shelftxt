@@ -21,8 +21,27 @@ class PatchBook(BaseModel):
 
 
 class ImportRow(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "title": "The Left Hand of Darkness",
+                    "author": "Ursula K. Le Guin",
+                    "total_pages": 304,
+                    "read_status": "reading",
+                    "pages_read": 120,
+                    "progress_percent": 39.47,
+                }
+            ]
+        }
+    )
+
     title: str = Field(min_length=1)
-    author: str | None = Field(default=None, min_length=1)
+    author: str | None = Field(
+        default=None,
+        min_length=1,
+        validation_alias=AliasChoices("author", "authors", "Author", "Authors"),
+    )
     total_pages: int | None = Field(default=None, gt=0)
     read_status: str | None = Field(
         default=None,
@@ -42,6 +61,25 @@ class ImportRow(BaseModel):
 
 
 class ImportBooks(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "books": [
+                        {
+                            "title": "The Left Hand of Darkness",
+                            "author": "Ursula K. Le Guin",
+                            "total_pages": 304,
+                            "read_status": "reading",
+                            "pages_read": 120,
+                            "progress_percent": 39.47,
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+
     books: list[ImportRow] = Field(min_length=1)
 
 

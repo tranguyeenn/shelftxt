@@ -14,7 +14,7 @@ from backend.repository.postgres_books_repository import (
     get_book_by_isbn_uid,
     update_book,
 )
-from backend.services.page_lookup import lookup_total_pages
+from backend.services.page_lookup import lookup_author_name, lookup_total_pages
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
@@ -114,6 +114,13 @@ def add_book_service(db: Session, book, user_id: UUID):
     return {"message": "Book added"}
 
 
+def _usable_import_author(author: str | None) -> str | None:
+    cleaned = (author or "").strip()
+    if not cleaned or cleaned.lower() == "unknown":
+        return None
+    return cleaned
+
+
 def import_books_service(db: Session, data, user_id: UUID):
     books = get_all_books(db, user_id)
     existing_titles = {book.title for book in books}
@@ -128,6 +135,7 @@ def import_books_service(db: Session, data, user_id: UUID):
             skipped += 1
             continue
 
+        author = _usable_import_author(book.author)
         pages_read = int(book.pages_read or 0)
         progress_percent = float(book.progress_percent or 0)
         normalized_status = normalize_status(
@@ -135,7 +143,8 @@ def import_books_service(db: Session, data, user_id: UUID):
             progress_percent=progress_percent,
             pages_read=pages_read,
         )
-        total_pages = book.total_pages or lookup_total_pages(title, book.author)
+        total_pages = book.total_pages or lookup_total_pages(title, author)
+        stored_author = author or lookup_author_name(title) or "Unknown"
 
         if normalized_status == "completed":
             progress_percent = 100
@@ -152,7 +161,7 @@ def import_books_service(db: Session, data, user_id: UUID):
             db,
             {
                 "title": title,
-                "authors": (book.author or "Unknown").strip(),
+                "authors": stored_author,
                 "isbn_uid": f"uid-{uuid.uuid4()}",
                 "read_status": database_status_from_normalized(normalized_status),
                 "star_rating": None,

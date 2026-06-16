@@ -46,7 +46,7 @@ export function CsvImportSection() {
       .map((row): ImportRow | null => {
         const title = String(row.title ?? row.Title ?? "").trim();
         if (!title) return null;
-        const author = String(row.author ?? row.Author ?? "").trim();
+        const author = String(row.author ?? row.authors ?? row.Author ?? row.Authors ?? "").trim();
         const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
         const pagesNum = pagesRaw ? Number(pagesRaw) : null;
         const status = String(row.read_status ?? row.status ?? row["Read Status"] ?? "").trim();
@@ -115,9 +115,12 @@ export function CsvImportSection() {
       <div>
         <h3 className="text-sm font-medium text-text">CSV import</h3>
         <p className="mt-1 text-sm text-text-muted">
-          Upload a CSV with <span className="font-mono text-text">title</span>, optional{" "}
-          <span className="font-mono text-text">author</span>, and optional{" "}
-          <span className="font-mono text-text">total_pages</span>.
+          Upload a CSV with <span className="font-mono text-text">title</span>,{" "}
+          <span className="font-mono text-text">author</span>,{" "}
+          <span className="font-mono text-text">total_pages</span>,{" "}
+          <span className="font-mono text-text">read_status</span>,{" "}
+          <span className="font-mono text-text">pages_read</span>, and{" "}
+          <span className="font-mono text-text">progress_percent</span>.
         </p>
       </div>
 
