@@ -17,6 +17,8 @@ CANONICAL_COLUMNS = [
     "read_status",
     "rating",
     "last_date_read",
+    "start_date",
+    "end_date",
 ]
 
 DEFAULT_MAPPING_CONFIG: dict[str, Any] = {
@@ -28,6 +30,8 @@ DEFAULT_MAPPING_CONFIG: dict[str, Any] = {
         "Read Status": "read_status",
         "Star Rating": "rating",
         "Last Date Read": "last_date_read",
+        "Start Date": "start_date",
+        "End Date": "end_date",
     },
     "required_fields": ["title", "read_status"],
     "defaults": {
@@ -36,10 +40,14 @@ DEFAULT_MAPPING_CONFIG: dict[str, Any] = {
         "genre": "unknown",
         "rating": None,
         "last_date_read": None,
+        "start_date": None,
+        "end_date": None,
     },
     "type_hints": {
         "rating": "numeric",
         "last_date_read": "datetime",
+        "start_date": "datetime",
+        "end_date": "datetime",
     },
 }
 
@@ -80,6 +88,10 @@ def _coerce_types(df: pd.DataFrame, config: dict[str, Any], validation: dict[str
             missing = parsed.isna() & original.notna() & (original.astype(str).str.strip() != "")
             if missing.any():
                 fallback = pd.to_datetime(original[missing], errors="coerce", format="%m/%d/%Y")
+                parsed.loc[missing] = fallback
+            missing = parsed.isna() & original.notna() & (original.astype(str).str.strip() != "")
+            if missing.any():
+                fallback = pd.to_datetime(original[missing], errors="coerce", format="%d/%m/%Y")
                 parsed.loc[missing] = fallback
             failed = parsed.isna() & original.notna() & (original.astype(str).str.strip() != "")
             for value in original[failed].astype(str).tolist():

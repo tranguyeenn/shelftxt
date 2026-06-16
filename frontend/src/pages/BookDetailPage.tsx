@@ -13,7 +13,7 @@ import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
 import { statusLabel } from "@/lib/bookProgress";
-import { fetchAllLibraryBooks, recordToApiBook, type BookRecord } from "@/lib/books";
+import { fetchAllLibraryBooks, formatDisplayDate, recordToApiBook, type BookRecord } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
@@ -92,7 +92,7 @@ export function BookDetailPage() {
 
       {book ? (
         <>
-          <Card className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
             <div>
               <p className="text-xs uppercase tracking-wide text-text-dim">Status</p>
               <p className="mt-1 text-text">
@@ -112,6 +112,14 @@ export function BookDetailPage() {
               <p className="mt-1 font-mono text-text">
                 {book.pages_read} / {book.total_pages ?? "—"}
               </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-text-dim">Started</p>
+              <p className="mt-1 text-text">{formatDisplayDate(book.start_date)}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-text-dim">Finished</p>
+              <p className="mt-1 text-text">{formatDisplayDate(book.end_date)}</p>
             </div>
           </Card>
 

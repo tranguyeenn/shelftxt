@@ -12,6 +12,7 @@ export class AuthRequiredError extends Error {
 
 type ApiFetchInit = RequestInit & {
   requireAuth?: boolean;
+  skipClientCache?: boolean;
 };
 
 /**
@@ -30,13 +31,22 @@ export function apiUrl(path: string): string {
 }
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const GET_CACHE_TTL_MS = 15_000;
+let sessionPromise: ReturnType<typeof supabase.auth.getSession> | null = null;
+let sessionCacheUntil = 0;
+const jsonCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
 
 async function authHeaders(initHeaders?: HeadersInit, requireAuth = true): Promise<Headers> {
   const headers = new Headers(initHeaders);
+  const now = Date.now();
+  if (!sessionPromise || now >= sessionCacheUntil) {
+    sessionPromise = supabase.auth.getSession();
+    sessionCacheUntil = now + 30_000;
+  }
   const {
     data: { session },
     error
-  } = await supabase.auth.getSession();
+  } = await sessionPromise;
 
   if (session?.access_token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
@@ -51,10 +61,11 @@ async function authHeaders(initHeaders?: HeadersInit, requireAuth = true): Promi
 }
 
 export async function apiFetch(path: string, init?: ApiFetchInit): Promise<Response> {
-  const { requireAuth = true, ...fetchInit } = init ?? {};
+  const { requireAuth = true, skipClientCache: _skipClientCache, ...fetchInit } = init ?? {};
   const method = (init?.method ?? "GET").toUpperCase();
   if (MUTATING_METHODS.has(method)) {
     assertDemoWritable();
+    clearApiClientCache();
   }
 
   return fetch(apiUrl(path), {
@@ -85,9 +96,45 @@ export async function getApiErrorMessage(
 }
 
 export async function fetchJson<T>(path: string, init?: ApiFetchInit): Promise<T> {
-  const response = await apiFetch(path, init);
-  if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response));
+  const method = (init?.method ?? "GET").toUpperCase();
+  const cacheable = method === "GET" && !init?.skipClientCache;
+  const key = `${method}:${path}`;
+  const now = Date.now();
+  if (cacheable) {
+    const cached = jsonCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.promise as Promise<T>;
+    }
   }
-  return response.json() as Promise<T>;
+
+  const started = performance.now();
+  const promise = (async () => {
+    const response = await apiFetch(path, init);
+    const duration = Math.round(performance.now() - started);
+    if (path.startsWith("/books")) {
+      console.info(`[timing] books fetch duration ${duration}ms`);
+    } else if (path.startsWith("/recommend")) {
+      console.info(`[timing] recommendation fetch duration ${duration}ms`);
+    } else if (path.includes("profile")) {
+      console.info(`[timing] profile fetch duration ${duration}ms`);
+    }
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response));
+    }
+    return response.json() as Promise<T>;
+  })();
+
+  if (cacheable) {
+    jsonCache.set(key, { expiresAt: now + GET_CACHE_TTL_MS, promise });
+    promise.catch(() => {
+      if (jsonCache.get(key)?.promise === promise) {
+        jsonCache.delete(key);
+      }
+    });
+  }
+  return promise;
+}
+
+export function clearApiClientCache(): void {
+  jsonCache.clear();
 }

@@ -3,18 +3,37 @@ from typing import Any, Literal
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
-class AddBook(BaseModel):
-    title: str = Field(min_length=1)
+class ReadingDateRangeMixin(BaseModel):
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class AddBook(ReadingDateRangeMixin):
+    title: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("title", "Title"),
+    )
     author: str = Field(min_length=1)
-    total_pages: int | None = Field(default=None, gt=0)
+    total_pages: int | None = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("total_pages", "Total Pages"),
+    )
 
 
-class PatchBook(BaseModel):
-    title: str = Field(min_length=1)
+class PatchBook(ReadingDateRangeMixin):
+    title: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("title", "Title"),
+    )
     new_title: str | None = Field(default=None, min_length=1)
     author: str | None = None
     isbn_uid: str | None = Field(default=None, min_length=1)
-    total_pages: int | None = Field(default=None, gt=0)
+    total_pages: int | None = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("total_pages", "Total Pages"),
+    )
     pages_read: int | None = Field(default=None, ge=0)
     move_to: Literal["want", "reading", "read", "dnf"] | None = None
     read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
@@ -23,7 +42,7 @@ class PatchBook(BaseModel):
     date_read: str | None = None
 
 
-class PatchBookById(BaseModel):
+class PatchBookById(ReadingDateRangeMixin):
     title: str | None = Field(default=None, min_length=1)
     author: str | None = None
     isbn_uid: str | None = Field(default=None, min_length=1)
@@ -33,7 +52,7 @@ class PatchBookById(BaseModel):
     status: Literal["not_started", "reading", "completed", "dnf"] | None = None
 
 
-class ImportRow(BaseModel):
+class ImportRow(ReadingDateRangeMixin):
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
@@ -49,7 +68,10 @@ class ImportRow(BaseModel):
         }
     )
 
-    title: str = Field(min_length=1)
+    title: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("title", "Title"),
+    )
     isbn_uid: str | None = Field(
         default=None,
         min_length=1,
@@ -60,7 +82,11 @@ class ImportRow(BaseModel):
         min_length=1,
         validation_alias=AliasChoices("author", "authors", "Author", "Authors"),
     )
-    total_pages: int | None = Field(default=None, gt=0)
+    total_pages: int | None = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("total_pages", "Total Pages"),
+    )
     read_status: str | None = Field(
         default=None,
         validation_alias=AliasChoices("read_status", "status", "Read Status"),
@@ -68,6 +94,14 @@ class ImportRow(BaseModel):
     last_date_read: str | None = Field(
         default=None,
         validation_alias=AliasChoices("last_date_read", "Last Date Read", "date_read", "Date Read"),
+    )
+    start_date: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("start_date", "Start Date", "Started", "Date Started"),
+    )
+    end_date: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("end_date", "End Date", "Finished", "Finished On"),
     )
     pages_read: int | None = Field(
         default=None,
@@ -123,6 +157,8 @@ class BookResponse(BaseModel):
     read_status: str | None = None
     star_rating: float | None = None
     last_date_read: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
     progress_percent: float | None = None
     pages_read: int | None = None
     total_pages: int | None = None

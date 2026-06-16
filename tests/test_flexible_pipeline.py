@@ -66,6 +66,8 @@ class FlexiblePipelineTests(unittest.TestCase):
                 "Authors": "Frank Herbert",
                 "Read Status": "read",
                 "Last Date Read": "2025/02/02",
+                "Start Date": "13/01/2025",
+                "End Date": "01/20/2025",
             }
         ]
         temp_dir, csv_path = self._write_csv(rows)
@@ -75,6 +77,8 @@ class FlexiblePipelineTests(unittest.TestCase):
 
         self.assertEqual(report["errors"], [])
         self.assertEqual(df.loc[0, "last_date_read"].date().isoformat(), "2025-02-02")
+        self.assertEqual(df.loc[0, "start_date"].date().isoformat(), "2025-01-13")
+        self.assertEqual(df.loc[0, "end_date"].date().isoformat(), "2025-01-20")
 
     def test_load_csv_reports_invalid_finish_date(self):
         rows = [

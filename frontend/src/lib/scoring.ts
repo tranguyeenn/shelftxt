@@ -2,6 +2,7 @@ import {
   bookAuthor,
   bookTitle,
   daysSince,
+  finishDateValue,
   parseDate,
   starRating,
   type BookRecord
@@ -118,7 +119,7 @@ function authorPreference(library: BookRecord[], author: string): number {
 function recencySignal(library: BookRecord[]): { score: number; daysSinceLastRead: number | null } {
   const read = library.filter((b) => String(b["Read Status"] ?? "").toLowerCase() === "read");
   const dates = read
-    .map((b) => parseDate(b["Last Date Read"] ?? null))
+    .map((b) => parseDate(finishDateValue(b)))
     .filter((d): d is Date => d !== null);
   if (dates.length === 0) {
     return { score: 0.5, daysSinceLastRead: null };

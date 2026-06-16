@@ -10,6 +10,8 @@ export type ApiBook = {
   progress_pct: number;
   rating?: number | null;
   read_status?: string;
+  start_date?: string | null;
+  end_date?: string | null;
 };
 
 export type SimilarBook = {

@@ -11,6 +11,8 @@ export function AddBookPage() {
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [totalPages, setTotalPages] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -29,6 +31,10 @@ export function AddBookPage() {
       setError("Total pages must be a positive number.");
       return;
     }
+    if (startDate && endDate && startDate > endDate) {
+      setError("Start date cannot be after end date.");
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -40,13 +46,17 @@ export function AddBookPage() {
         body: JSON.stringify({
           title: cleanTitle,
           author: cleanAuthor,
-          total_pages: pagesNum === null ? null : Math.round(pagesNum)
+          total_pages: pagesNum === null ? null : Math.round(pagesNum),
+          start_date: startDate || null,
+          end_date: endDate || null
         })
       });
       setMessage("Book added to your library.");
       setTitle("");
       setAuthor("");
       setTotalPages("");
+      setStartDate("");
+      setEndDate("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add book");
     } finally {
@@ -67,6 +77,26 @@ export function AddBookPage() {
               onChange={(e) => setTitle(e.target.value)}
               placeholder="The Left Hand of Darkness"
               required
+            />
+          </label>
+
+          <label className="grid gap-1.5 text-sm">
+            <span className="text-text-muted">Start Date</span>
+            <input
+              type="date"
+              className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-text outline-none ring-accent/40 focus:ring-2"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </label>
+
+          <label className="grid gap-1.5 text-sm">
+            <span className="text-text-muted">End Date</span>
+            <input
+              type="date"
+              className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-text outline-none ring-accent/40 focus:ring-2"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
             />
           </label>
 

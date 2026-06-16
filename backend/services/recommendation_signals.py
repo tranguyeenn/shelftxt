@@ -42,6 +42,17 @@ class Similarity:
         )
 
 
+@dataclass(frozen=True)
+class BookFeatures:
+    index: object
+    author: str
+    genres: frozenset[str]
+    subjects: frozenset[str]
+    keywords: frozenset[str]
+    language: str | None
+    rating: float
+
+
 def _is_missing(value: object) -> bool:
     return value is None or (isinstance(value, float) and math.isnan(value))
 
@@ -105,7 +116,6 @@ def similarity_between(candidate: pd.Series, read_book: pd.Series) -> Similarity
         and read_author != "unknown"
         and candidate_author == read_author
     )
-
     shared_genres = tuple(sorted(set(row_genres(candidate)) & set(row_genres(read_book))))
     shared_subjects = tuple(sorted(set(row_subjects(candidate)) & set(row_subjects(read_book))))
     keyword_overlap = tuple(sorted(set(row_keywords(candidate)) & set(row_keywords(read_book))))
@@ -119,6 +129,64 @@ def similarity_between(candidate: pd.Series, read_book: pd.Series) -> Similarity
         keyword_overlap=keyword_overlap,
         language_match=bool(candidate_language and read_language and candidate_language == read_language),
     )
+
+
+def features_for_row(index: object, row: pd.Series) -> BookFeatures:
+    return BookFeatures(
+        index=index,
+        author=row_author(row),
+        genres=frozenset(row_genres(row)),
+        subjects=frozenset(row_subjects(row)),
+        keywords=frozenset(row_keywords(row)),
+        language=infer_language(row),
+        rating=float(row.get("rating_norm", 0.5) or 0.5),
+    )
+
+
+def build_feature_cache(df: pd.DataFrame) -> dict[object, BookFeatures]:
+    return {index: features_for_row(index, row) for index, row in df.iterrows()}
+
+
+def similarity_between_features(candidate: BookFeatures, read_book: BookFeatures) -> Similarity:
+    same_author = bool(
+        candidate.author
+        and read_book.author
+        and candidate.author != "unknown"
+        and read_book.author != "unknown"
+        and candidate.author == read_book.author
+    )
+    return Similarity(
+        same_author=same_author,
+        shared_genres=tuple(sorted(candidate.genres & read_book.genres)),
+        shared_subjects=tuple(sorted(candidate.subjects & read_book.subjects)),
+        keyword_overlap=tuple(sorted(candidate.keywords & read_book.keywords)),
+        language_match=bool(
+            candidate.language and read_book.language and candidate.language == read_book.language
+        ),
+    )
+
+
+def meaningful_similar_feature_matches(
+    candidate: BookFeatures,
+    read_features: list[BookFeatures],
+    limit: int = 3,
+) -> list[tuple[object, Similarity, float]]:
+    matches: list[tuple[float, object, Similarity, float]] = []
+    for read_book in read_features:
+        similarity = similarity_between_features(candidate, read_book)
+        if not similarity.has_meaningful_signal:
+            continue
+        strength = (
+            (3.0 if similarity.same_author else 0.0)
+            + (1.5 * len(similarity.shared_genres))
+            + (1.2 * len(similarity.shared_subjects))
+            + (0.8 * len(similarity.keyword_overlap))
+            + read_book.rating
+        )
+        matches.append((strength, read_book.index, similarity, read_book.rating))
+
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return [(index, similarity, rating) for _, index, similarity, rating in matches[:limit]]
 
 
 def meaningful_similar_books(
@@ -154,6 +222,17 @@ def user_primary_language(read_df: pd.DataFrame) -> str | None:
         language = infer_language(row)
         if language:
             counts[language] = counts.get(language, 0) + 1
+    if not counts:
+        return None
+    language, count = max(counts.items(), key=lambda item: item[1])
+    return language if count / max(1, sum(counts.values())) >= 0.6 else None
+
+
+def primary_language_from_features(read_features: list[BookFeatures]) -> str | None:
+    counts: dict[str, int] = {}
+    for features in read_features:
+        if features.language:
+            counts[features.language] = counts.get(features.language, 0) + 1
     if not counts:
         return None
     language, count = max(counts.items(), key=lambda item: item[1])

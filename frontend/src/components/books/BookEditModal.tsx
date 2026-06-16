@@ -19,6 +19,8 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
   const [totalPages, setTotalPages] = useState(book.total_pages?.toString() ?? "");
   const [status, setStatus] = useState<ReadingStatus>(book.status);
   const [pagesRead, setPagesRead] = useState(book.pages_read.toString());
+  const [startDate, setStartDate] = useState(book.start_date ?? "");
+  const [endDate, setEndDate] = useState(book.end_date ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,6 +31,8 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
     setTotalPages(book.total_pages?.toString() ?? "");
     setStatus(book.status);
     setPagesRead(book.pages_read.toString());
+    setStartDate(book.start_date ?? "");
+    setEndDate(book.end_date ?? "");
     setError("");
   }, [book]);
 
@@ -80,6 +84,10 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
       setError("Pages read cannot exceed total pages.");
       return;
     }
+    if (startDate && endDate && startDate > endDate) {
+      setError("Start date cannot be after end date.");
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -90,7 +98,9 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
         isbn_uid: cleanIsbn,
         total_pages: parsedTotal,
         status,
-        pages_read: finalPagesRead
+        pages_read: finalPagesRead,
+        start_date: startDate || null,
+        end_date: endDate || null
       });
       onUpdated(updated);
       onClose();
@@ -152,6 +162,18 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
               onChange={setPagesRead}
               type="number"
               min={0}
+            />
+            <TextField
+              label="Start Date"
+              value={startDate}
+              onChange={setStartDate}
+              type="date"
+            />
+            <TextField
+              label="End Date"
+              value={endDate}
+              onChange={setEndDate}
+              type="date"
             />
           </div>
 

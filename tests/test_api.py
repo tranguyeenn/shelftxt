@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 from uuid import UUID
+from datetime import date
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -79,10 +80,17 @@ def _seed_book(
     read_status="to-read",
     star_rating=None,
     last_date_read=None,
+    start_date=None,
+    end_date=None,
     progress_percent=0,
     pages_read=0,
     total_pages=None,
 ):
+    def _date(value):
+        if value is None or isinstance(value, date):
+            return value
+        return date.fromisoformat(value)
+
     db = TestingSessionLocal()
     book = Book(
         title=title,
@@ -91,7 +99,9 @@ def _seed_book(
         user_id=user_id,
         read_status=read_status,
         star_rating=star_rating,
-        last_date_read=last_date_read,
+        last_date_read=_date(last_date_read),
+        start_date=_date(start_date),
+        end_date=_date(end_date),
         progress_percent=progress_percent,
         pages_read=pages_read,
         total_pages=total_pages,
@@ -889,7 +899,74 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertEqual(book["Read Status"], "read")
         self.assertEqual(book["Last Date Read"], "2025-02-03")
+        self.assertEqual(book["End Date"], "2025-02-03")
         mock_lookup_open_library_by_title.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
+    def test_import_preserves_start_and_end_dates(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Dated Range",
+                        "author": "A",
+                        "read_status": "Read",
+                        "Start Date": "2026-01-05",
+                        "End Date": "01/12/2026",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Start Date"], "2026-01-05")
+        self.assertEqual(book["End Date"], "2026-01-12")
+        mock_lookup_open_library_by_title.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
+    def test_import_accepts_blank_reading_dates(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Blank Dates",
+                        "author": "A",
+                        "read_status": "To Read",
+                        "Start Date": "",
+                        "End Date": "",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertIsNone(book["Start Date"])
+        self.assertIsNone(book["End Date"])
+        mock_lookup_open_library_by_title.assert_called_once()
+
+    @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
+    def test_import_rejects_start_date_after_end_date(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Bad Dates",
+                        "author": "A",
+                        "read_status": "Read",
+                        "start_date": "2026-02-01",
+                        "end_date": "2026-01-01",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        mock_lookup_open_library_by_title.assert_not_called()
 
     @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
     def test_import_normalizes_completed_to_completed(self, mock_lookup_open_library_by_title):
@@ -1003,6 +1080,37 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Export Me", response.text)
         self.assertIn("Author", response.text)
         self.assertIn("ISBN/UID", response.text)
+        self.assertIn("Start Date", response.text)
+        self.assertIn("End Date", response.text)
+
+    @patch("backend.services.postgres_books.lookup_open_library_by_title", return_value=None)
+    def test_export_import_round_trip_preserves_reading_dates(self, mock_lookup_open_library_by_title):
+        _seed_book(
+            title="Round Trip",
+            authors="Author",
+            isbn_uid="round-trip",
+            read_status="read",
+            start_date="2026-01-05",
+            end_date="2026-01-12",
+            last_date_read="2026-01-12",
+            total_pages=100,
+        )
+
+        exported = self.client.get("/books/export")
+        self.assertEqual(exported.status_code, 200)
+        self.client.post("/books/clear", json={"confirm": True})
+
+        import csv
+        from io import StringIO
+
+        rows = list(csv.DictReader(StringIO(exported.text)))
+        response = self.client.post("/books/import", json={"books": rows})
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Start Date"], "2026-01-05")
+        self.assertEqual(book["End Date"], "2026-01-12")
+        mock_lookup_open_library_by_title.assert_not_called()
 
     def test_export_only_exports_current_user_books(self):
         _seed_profile(
@@ -1108,6 +1216,51 @@ class ApiTests(unittest.TestCase):
             db.close()
 
         self.assertEqual(result, [])
+
+    @patch(
+        "backend.services.page_lookup.httpx.get",
+        side_effect=AssertionError("metadata HTTP call in recommendation test"),
+    )
+    @patch(
+        "backend.services.page_count_lookup.httpx.get",
+        side_effect=AssertionError("page-count HTTP call in recommendation test"),
+    )
+    @patch(
+        "backend.services.page_count_lookup.backfill_missing_page_counts",
+        side_effect=AssertionError("background backfill in recommendation test"),
+    )
+    def test_recommendation_makes_no_external_lookup_requests(
+        self,
+        mock_backfill,
+        mock_page_count_http,
+        mock_metadata_http,
+    ):
+        _seed_book(
+            title="Read Book",
+            authors="Author",
+            isbn_uid="read-book",
+            read_status="read",
+            star_rating=5,
+            total_pages=300,
+        )
+        _seed_book(
+            title="Unread Book",
+            authors="Author",
+            isbn_uid="unread-book",
+            read_status="to-read",
+            total_pages=250,
+        )
+
+        db = TestingSessionLocal()
+        try:
+            result = get_recommendation(db, TEST_USER_ID, style="balanced")
+        finally:
+            db.close()
+
+        self.assertGreaterEqual(len(result), 1)
+        mock_backfill.assert_not_called()
+        mock_page_count_http.assert_not_called()
+        mock_metadata_http.assert_not_called()
 
 
 if __name__ == "__main__":

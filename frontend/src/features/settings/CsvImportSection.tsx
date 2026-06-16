@@ -11,6 +11,8 @@ type ImportRow = {
   author: string | null;
   total_pages: number | null;
   read_status: string | null;
+  start_date: string | null;
+  end_date: string | null;
   pages_read: number | null;
   progress_percent: number | null;
 };
@@ -54,6 +56,8 @@ export function CsvImportSection() {
         const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
         const pagesNum = pagesRaw ? Number(pagesRaw) : null;
         const status = String(row.read_status ?? row.status ?? row["Read Status"] ?? "").trim();
+        const startDate = String(row.start_date ?? row["Start Date"] ?? "").trim();
+        const endDate = String(row.end_date ?? row["End Date"] ?? row["Last Date Read"] ?? "").trim();
         const pagesReadRaw = String(row.pages_read ?? row["Pages Read"] ?? "").trim();
         const pagesReadNum = pagesReadRaw ? Number(pagesReadRaw) : null;
         const progressRaw = String(row.progress_percent ?? row["Progress (%)"] ?? "").trim();
@@ -66,6 +70,8 @@ export function CsvImportSection() {
           total_pages:
             Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null,
           read_status: status || null,
+          start_date: startDate || null,
+          end_date: endDate || null,
           pages_read:
             Number.isFinite(pagesReadNum) && pagesReadNum !== null && pagesReadNum >= 0
               ? Math.round(pagesReadNum)
@@ -132,6 +138,8 @@ export function CsvImportSection() {
           <span className="font-mono text-text">author</span>,{" "}
           <span className="font-mono text-text">total_pages</span>,{" "}
           <span className="font-mono text-text">read_status</span>,{" "}
+          <span className="font-mono text-text">start_date</span>,{" "}
+          <span className="font-mono text-text">end_date</span>,{" "}
           <span className="font-mono text-text">pages_read</span>, and{" "}
           <span className="font-mono text-text">progress_percent</span>.
         </p>

@@ -108,6 +108,16 @@ class Book(Base):
         nullable=True,
     )
 
+    start_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    end_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
     progress_percent: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,

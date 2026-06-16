@@ -16,6 +16,8 @@ def clean_books(df):
         ("book_id", None),
         ("rating", None),
         ("last_date_read", None),
+        ("start_date", None),
+        ("end_date", None),
     ):
         if col not in df.columns:
             df[col] = fallback
@@ -37,6 +39,8 @@ def clean_books(df):
     ]
 
     df["last_date_read"] = pd.to_datetime(df["last_date_read"], errors="coerce")
+    df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+    df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
     today = pd.Timestamp.today().normalize()
     df["last_date_read"] = df["last_date_read"].fillna(today)
 

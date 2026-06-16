@@ -9,6 +9,7 @@ import { BookDeleteButton } from "@/components/books/BookDeleteButton";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
+import { formatDisplayDate } from "@/lib/books";
 import type { ApiBook } from "@/lib/types";
 
 type BookLibraryCardProps = {
@@ -46,7 +47,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
         </div>
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-6">
         <div>
           <dt className="text-xs uppercase tracking-wide text-text-dim">Total pages</dt>
           <dd className="mt-1 font-mono text-text">{book.total_pages ?? "—"}</dd>
@@ -62,6 +63,14 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
         <div>
           <dt className="text-xs uppercase tracking-wide text-text-dim">Status</dt>
           <dd className="mt-1 text-text">{statusLabel(book.status)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-text-dim">Started</dt>
+          <dd className="mt-1 text-text">{formatDisplayDate(book.start_date)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-text-dim">Finished</dt>
+          <dd className="mt-1 text-text">{formatDisplayDate(book.end_date)}</dd>
         </div>
       </dl>
 

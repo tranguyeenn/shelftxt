@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import httpx
+import logging
+import time
 from starlette.responses import JSONResponse
 
 from backend.demo_mode import is_demo_read_only
@@ -10,6 +12,8 @@ from backend.routes.books import router as books_router
 from backend.routes.health import router as health_router
 from backend.routes.recommendation import router as recommendations_router
 from backend.services.page_count_lookup import backfill_missing_page_counts
+
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------
@@ -84,6 +88,21 @@ async def demo_read_only_guard(request, call_next):
             content={"detail": "This API is in read-only demo mode."},
         )
     return await call_next(request)
+
+
+@app.middleware("http")
+async def endpoint_timing_logger(request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    if duration_ms >= 250:
+        logger.info(
+            "Slow endpoint %s %s completed in %.2fms",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+    return response
 
 
 # -----------------------------

@@ -37,14 +37,32 @@ def normalize_rating(df):
 
 def compute_recency(df):
     today = pd.Timestamp.today().normalize()
-    date_col = _resolve_column(df, ["last_date_read", "Last Date Read"])
-    if date_col is None:
+    status_col = _resolve_column(df, ["read_status", "Read Status"])
+    end_col = _resolve_column(df, ["end_date", "End Date"])
+    start_col = _resolve_column(df, ["start_date", "Start Date"])
+    legacy_col = _resolve_column(df, ["last_date_read", "Last Date Read"])
+    if end_col is None and start_col is None and legacy_col is None:
         df["days_since_read"] = 0
         df["recency_norm"] = 0.5
         return df
 
+    status = (
+        df[status_col].astype(str).str.strip().str.lower()
+        if status_col is not None
+        else pd.Series([""] * len(df), index=df.index)
+    )
+    dates = pd.Series(pd.NaT, index=df.index)
+    if end_col is not None:
+        dates = dates.fillna(pd.to_datetime(df[end_col], errors="coerce"))
+    if start_col is not None:
+        active_start = pd.to_datetime(df[start_col], errors="coerce")
+        dates = dates.where(~status.isin({"to-read", "reading"}), dates.fillna(active_start))
+        dates = dates.fillna(active_start)
+    if legacy_col is not None:
+        dates = dates.fillna(pd.to_datetime(df[legacy_col], errors="coerce"))
+
     df["days_since_read"] = (
-        today - pd.to_datetime(df[date_col], errors="coerce").fillna(today)
+        today - dates.fillna(today)
     ).dt.days
 
     df["recency_norm"] = _min_max(df["days_since_read"], reverse=True)

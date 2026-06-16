@@ -49,6 +49,10 @@ def book_to_dict(book):
         "Last Date Read": book.last_date_read.isoformat()
         if book.last_date_read
         else None,
+        "Start Date": book.start_date.isoformat() if book.start_date else None,
+        "End Date": book.end_date.isoformat() if book.end_date else None,
+        "start_date": book.start_date.isoformat() if book.start_date else None,
+        "end_date": book.end_date.isoformat() if book.end_date else None,
         "Progress (%)": book.progress_percent,
         "Pages Read": book.pages_read,
         "Total Pages": book.total_pages,
@@ -76,6 +80,10 @@ def parse_date_or_today(date_str):
 
 
 def parse_import_finish_date(value) -> date | None:
+    return parse_reading_date(value, field_name="Last Date Read")
+
+
+def parse_reading_date(value, *, field_name: str) -> date | None:
     if value is None:
         return None
     if isinstance(value, date):
@@ -91,8 +99,22 @@ def parse_import_finish_date(value) -> date | None:
         except ValueError:
             continue
 
-    logger.warning("Could not parse imported Last Date Read value %r", raw)
+    slash_parts = raw.split("/")
+    if len(slash_parts) == 3 and all(part.isdigit() for part in slash_parts):
+        first, second, year = (int(part) for part in slash_parts)
+        if first > 12 and 1 <= second <= 12:
+            try:
+                return date(year, second, first)
+            except ValueError:
+                pass
+
+    logger.warning("Could not parse imported %s value %r", field_name, raw)
     return None
+
+
+def _validate_date_range(start: date | None, end: date | None) -> None:
+    if start is not None and end is not None and start > end:
+        raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
 
 def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
@@ -127,6 +149,8 @@ def export_library_csv(db: Session, user_id: UUID) -> str:
         "Read Status",
         "Star Rating",
         "Last Date Read",
+        "Start Date",
+        "End Date",
         "Progress (%)",
         "Pages Read",
         "Total Pages",
@@ -143,6 +167,9 @@ def export_library_csv(db: Session, user_id: UUID) -> str:
 
 
 def add_book_service(db: Session, book, user_id: UUID):
+    start_date = parse_reading_date(getattr(book, "start_date", None), field_name="Start Date")
+    end_date = parse_reading_date(getattr(book, "end_date", None), field_name="End Date")
+    _validate_date_range(start_date, end_date)
     create_book(
         db,
         {
@@ -152,6 +179,8 @@ def add_book_service(db: Session, book, user_id: UUID):
             "read_status": "to-read",
             "star_rating": None,
             "last_date_read": None,
+            "start_date": start_date,
+            "end_date": end_date,
             "progress_percent": 0,
             "pages_read": 0,
             "total_pages": book.total_pages,
@@ -471,6 +500,11 @@ def import_books_service(db: Session, data, user_id: UUID):
         page_count_attempted = False
         metadata = None
         imported_finish_date = parse_import_finish_date(getattr(book, "last_date_read", None))
+        imported_start_date = parse_reading_date(getattr(book, "start_date", None), field_name="Start Date")
+        imported_end_date = parse_reading_date(getattr(book, "end_date", None), field_name="End Date")
+        if imported_end_date is None:
+            imported_end_date = imported_finish_date
+        _validate_date_range(imported_start_date, imported_end_date)
 
         if total_pages is None or stored_author is None:
             if _enrichment_budget_available(enrichment_state):
@@ -517,7 +551,9 @@ def import_books_service(db: Session, data, user_id: UUID):
                 "isbn_uid": isbn_uid or f"uid-{uuid.uuid4()}",
                 "read_status": database_status_from_normalized(normalized_status),
                 "star_rating": None,
-                "last_date_read": imported_finish_date if normalized_status == "completed" else None,
+                "last_date_read": imported_end_date if normalized_status == "completed" else None,
+                "start_date": imported_start_date,
+                "end_date": imported_end_date if normalized_status == "completed" else None,
                 "progress_percent": progress_percent,
                 "pages_read": pages_read,
                 "total_pages": total_pages,
@@ -611,6 +647,16 @@ def patch_book_service(db: Session, p, user_id: UUID):
     if p.total_pages is not None:
         update_data["total_pages"] = p.total_pages
 
+    next_start_date = book.start_date
+    next_end_date = book.end_date
+    if getattr(p, "start_date", None) is not None:
+        next_start_date = parse_reading_date(p.start_date, field_name="Start Date")
+        update_data["start_date"] = next_start_date
+    if getattr(p, "end_date", None) is not None:
+        next_end_date = parse_reading_date(p.end_date, field_name="End Date")
+        update_data["end_date"] = next_end_date
+    _validate_date_range(next_start_date, next_end_date)
+
     if p.move_to:
         move_to = p.move_to.strip().lower()
 
@@ -663,6 +709,8 @@ def patch_book_service(db: Session, p, user_id: UUID):
                     "star_rating": rating,
                     "progress_percent": 100,
                     "last_date_read": parse_date_or_today(p.date_read),
+                    "end_date": parse_reading_date(p.date_read, field_name="End Date")
+                    or date.today(),
                 }
             )
 
@@ -677,6 +725,8 @@ def patch_book_service(db: Session, p, user_id: UUID):
                     "progress_percent": 0,
                     "pages_read": 0,
                     "last_date_read": parse_date_or_today(p.date_read),
+                    "end_date": parse_reading_date(p.date_read, field_name="End Date")
+                    or date.today(),
                 }
             )
 
@@ -729,6 +779,16 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
 
     if "total_pages" in fields_set:
         update_data["total_pages"] = body.total_pages
+
+    next_start_date = book.start_date
+    next_end_date = book.end_date
+    if "start_date" in fields_set:
+        next_start_date = parse_reading_date(body.start_date, field_name="Start Date")
+        update_data["start_date"] = next_start_date
+    if "end_date" in fields_set:
+        next_end_date = parse_reading_date(body.end_date, field_name="End Date")
+        update_data["end_date"] = next_end_date
+    _validate_date_range(next_start_date, next_end_date)
 
     total_pages = update_data.get("total_pages", book.total_pages)
     pages_read = body.pages_read if "pages_read" in fields_set else None
@@ -804,6 +864,7 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id:
                 "read_status": "to-read",
                 "pages_read": pages_read,
                 "progress_percent": progress_pct,
+                "start_date": book.start_date or date.today(),
             }
         )
 
@@ -819,6 +880,8 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id:
                 "progress_percent": 100,
                 "pages_read": pages_read,
                 "last_date_read": parse_date_or_today(None),
+                "start_date": book.start_date,
+                "end_date": date.today(),
             }
         )
 
@@ -830,6 +893,7 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id:
                 "progress_percent": 0,
                 "pages_read": pages_read,
                 "last_date_read": parse_date_or_today(None),
+                "end_date": date.today(),
             }
         )
 

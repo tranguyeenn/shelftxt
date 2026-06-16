@@ -17,7 +17,11 @@ export type BookRecord = {
   "Read Status"?: string | null;
   "Star Rating"?: number | null;
   "Last Date Read"?: string | null;
+  "Start Date"?: string | null;
+  "End Date"?: string | null;
   last_date_read?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   "Progress (%)"?: number | null;
   "Pages Read"?: number | null;
   "Total Pages"?: number | null;
@@ -81,7 +85,9 @@ export function recordToApiBook(book: BookRecord): ApiBook {
     pages_read: pagesRead,
     progress_pct: progress,
     rating: starRating(book),
-    read_status: String(book["Read Status"] ?? "")
+    read_status: String(book["Read Status"] ?? ""),
+    start_date: startDateValue(book),
+    end_date: endDateValue(book)
   };
 }
 
@@ -92,6 +98,8 @@ export type BookPatchPayload = {
   total_pages: number | null;
   status: ReadingStatus;
   pages_read: number;
+  start_date?: string | null;
+  end_date?: string | null;
 };
 
 export async function patchBook(bookId: string, payload: BookPatchPayload): Promise<ApiBook> {
@@ -138,7 +146,25 @@ export function parseDate(value: string | null | undefined): Date | null {
 }
 
 export function finishDateValue(book: BookRecord): string | null {
-  return book["Last Date Read"] ?? book.last_date_read ?? null;
+  return endDateValue(book) ?? book["Last Date Read"] ?? book.last_date_read ?? null;
+}
+
+export function startDateValue(book: BookRecord): string | null {
+  return book["Start Date"] ?? book.start_date ?? null;
+}
+
+export function endDateValue(book: BookRecord): string | null {
+  return book["End Date"] ?? book.end_date ?? null;
+}
+
+export function formatDisplayDate(value: string | null | undefined): string {
+  const date = parseDate(value);
+  if (!date) return "—";
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
 }
 
 export function daysSince(date: Date): number {
