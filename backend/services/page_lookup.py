@@ -9,6 +9,8 @@ from backend.services.metadata_normalization import (
     normalize_values,
     filter_specific_genres,
     filter_specific_subjects,
+    normalize_genre_list,
+    subjects_to_genres,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,11 +31,118 @@ class BookMetadata:
     title: str | None = None
     authors: str | None = None
     total_pages: int | None = None
+    description: str | None = None
     subjects: list[str] | None = None
     genres: list[str] | None = None
+    first_publish_year: int | None = None
+    metadata_source: str | None = None
     language: str | None = None
     work_key: str | None = None
     edition_key: str | None = None
+
+
+MANUAL_METADATA_OVERRIDES = {
+    "a court of wings and ruin": BookMetadata(
+        genres=["fantasy", "romance"],
+        metadata_source="manual_override",
+    ),
+    "a court of mist and fury": BookMetadata(
+        genres=["fantasy", "romance"],
+        metadata_source="manual_override",
+    ),
+    "a court of frost and starlight": BookMetadata(
+        genres=["fantasy", "romance"],
+        metadata_source="manual_override",
+    ),
+    "night": BookMetadata(
+        genres=["memoir", "historical", "nonfiction"],
+        metadata_source="manual_override",
+    ),
+    "check mate": BookMetadata(
+        genres=["romance", "young adult"],
+        metadata_source="manual_override",
+    ),
+    "animal farm": BookMetadata(
+        genres=["dystopian", "classic", "political fiction"],
+        metadata_source="manual_override",
+    ),
+    "girl in pieces": BookMetadata(
+        genres=["young adult", "contemporary"],
+        metadata_source="manual_override",
+    ),
+    "loathe to love you": BookMetadata(
+        genres=["romance"],
+        metadata_source="manual_override",
+    ),
+    "normal people": BookMetadata(
+        genres=["literary fiction", "romance"],
+        metadata_source="manual_override",
+    ),
+    "the great gatsby": BookMetadata(
+        genres=["classic", "literary fiction"],
+        metadata_source="manual_override",
+    ),
+    "the death of ivan ilyich": BookMetadata(
+        genres=["classic", "literary fiction", "philosophy"],
+        metadata_source="manual_override",
+    ),
+    "the death of ivan ilych": BookMetadata(
+        genres=["classic", "literary fiction", "philosophy"],
+        metadata_source="manual_override",
+    ),
+    "frankenstein": BookMetadata(
+        genres=["gothic fiction", "science fiction", "classic"],
+        metadata_source="manual_override",
+    ),
+    "frankenstein the 1818 text": BookMetadata(
+        genres=["gothic fiction", "science fiction", "classic"],
+        metadata_source="manual_override",
+    ),
+    "the crucible": BookMetadata(
+        genres=["drama", "classic"],
+        metadata_source="manual_override",
+    ),
+    "the glass menagerie": BookMetadata(
+        genres=["drama", "classic"],
+        metadata_source="manual_override",
+    ),
+    "the alchemist": BookMetadata(
+        genres=["philosophical fiction"],
+        metadata_source="manual_override",
+    ),
+    "fahrenheit 451": BookMetadata(
+        genres=["dystopian", "science fiction"],
+        metadata_source="manual_override",
+    ),
+    "nineteen eighty four": BookMetadata(
+        genres=["dystopian", "political fiction", "science fiction"],
+        metadata_source="manual_override",
+    ),
+    "love theoretically": BookMetadata(
+        genres=["romance"],
+        metadata_source="manual_override",
+    ),
+    "book lovers": BookMetadata(
+        genres=["romance", "contemporary romance"],
+        metadata_source="manual_override",
+    ),
+    "deep end": BookMetadata(
+        genres=["romance"],
+        metadata_source="manual_override",
+    ),
+    "today tonight tomorrow": BookMetadata(
+        genres=["romance", "young adult"],
+        metadata_source="manual_override",
+    ),
+    "we are not free": BookMetadata(
+        genres=["historical fiction", "young adult"],
+        metadata_source="manual_override",
+    ),
+    "a midsummer s night dream": BookMetadata(
+        genres=["drama", "classic"],
+        metadata_source="manual_override",
+    ),
+}
 
 
 def looks_like_isbn(value: str | None) -> bool:
@@ -45,6 +154,12 @@ def normalize_isbn(value: str | None) -> str | None:
     if not looks_like_isbn(value):
         return None
     return re.sub(r"[^0-9Xx]", "", value or "").upper()
+
+
+def manual_metadata_for_title(title: str | None) -> BookMetadata | None:
+    key = re.sub(r"[^a-z0-9\s]", " ", (title or "").lower())
+    key = re.sub(r"\s+", " ", key).strip()
+    return MANUAL_METADATA_OVERRIDES.get(key)
 
 
 def _positive_int(value: object) -> int | None:
@@ -76,8 +191,10 @@ def _metadata_has_value(metadata: BookMetadata | None) -> bool:
             metadata.title
             or metadata.authors
             or metadata.total_pages
+            or metadata.description
             or metadata.subjects
             or metadata.genres
+            or metadata.first_publish_year
             or metadata.language
             or metadata.work_key
             or metadata.edition_key
@@ -92,11 +209,32 @@ def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> B
         title=base.title or next_metadata.title,
         authors=base.authors or next_metadata.authors,
         total_pages=base.total_pages or next_metadata.total_pages,
+        description=base.description or next_metadata.description,
         subjects=base.subjects or next_metadata.subjects,
         genres=base.genres or next_metadata.genres,
+        first_publish_year=base.first_publish_year or next_metadata.first_publish_year,
+        metadata_source=base.metadata_source or next_metadata.metadata_source,
         language=base.language or next_metadata.language,
         work_key=base.work_key or next_metadata.work_key,
         edition_key=base.edition_key or next_metadata.edition_key,
+    )
+
+
+def _merge_manual_override(base: BookMetadata, override: BookMetadata | None) -> BookMetadata:
+    if override is None:
+        return base
+    return BookMetadata(
+        title=base.title or override.title,
+        authors=base.authors or override.authors,
+        total_pages=base.total_pages or override.total_pages,
+        description=base.description or override.description,
+        subjects=base.subjects or override.subjects,
+        genres=override.genres or base.genres,
+        first_publish_year=base.first_publish_year or override.first_publish_year,
+        metadata_source=override.metadata_source or base.metadata_source,
+        language=base.language or override.language,
+        work_key=base.work_key or override.work_key,
+        edition_key=base.edition_key or override.edition_key,
     )
 
 
@@ -138,19 +276,69 @@ def _language_from_open_library(value: object) -> str | None:
     return None
 
 
+def parse_open_library_description(value: object) -> str | None:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    if isinstance(value, dict):
+        nested = value.get("value")
+        return parse_open_library_description(nested)
+    return None
+
+
+def _first_publish_year(value: object) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        parsed = int(value.strip())
+        return parsed if parsed > 0 else None
+    return None
+
+
 def _metadata_from_open_library_payload(payload: dict, *, edition_key: str | None = None) -> BookMetadata:
     subjects = filter_specific_subjects(payload.get("subjects") or payload.get("subject"))
-    genres = filter_specific_genres(payload.get("genres"))
+    genres = normalize_genre_list(payload.get("genres")) or subjects_to_genres(subjects)
     return BookMetadata(
         title=payload.get("title") if isinstance(payload.get("title"), str) else None,
         authors=_authors_from_open_library_doc(payload),
         total_pages=_positive_int(payload.get("number_of_pages")),
+        description=parse_open_library_description(payload.get("description")),
         subjects=subjects or None,
-        genres=genres or subjects or None,
+        genres=genres or None,
+        first_publish_year=_first_publish_year(payload.get("first_publish_year")),
+        metadata_source="open_library",
         language=_language_from_open_library(payload.get("languages") or payload.get("language")),
         work_key=_first_key(payload.get("works") or payload.get("key")),
         edition_key=edition_key or _first_key(payload.get("edition_key") or payload.get("key")),
     )
+
+
+def _lookup_open_library_work(work_key: str | None) -> BookMetadata | None:
+    if not work_key:
+        return None
+    key = work_key.strip().removeprefix("/works/")
+    if not key:
+        return None
+    try:
+        response = httpx.get(
+            f"https://openlibrary.org/works/{key}.json",
+            timeout=LOOKUP_TIMEOUT_SECONDS,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.TimeoutException as exc:
+        logger.warning("Open Library work lookup timed out for %r: %s", work_key, exc)
+        raise OpenLibraryTimeout(str(exc)) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Open Library work lookup failed for %r: %s", work_key, exc)
+        return None
+
+    if not isinstance(payload, dict):
+        logger.warning("Open Library work lookup returned malformed payload for %r", work_key)
+        return None
+    metadata = _metadata_from_open_library_payload(payload)
+    return metadata if _metadata_has_value(metadata) else None
 
 
 def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
@@ -190,9 +378,11 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
             if isinstance(authors, list)
             else None,
             total_pages=_positive_int(info.get("pageCount")),
+            description=info.get("description") if isinstance(info.get("description"), str) else None,
             subjects=filter_specific_subjects(info.get("categories")) or None,
-            genres=filter_specific_genres(info.get("categories")) or None,
+            genres=normalize_genre_list(info.get("categories")) or None,
             language=normalize_language(info.get("language")) or None,
+            metadata_source="google_books",
         )
         if _metadata_has_value(metadata):
             return metadata
@@ -222,6 +412,14 @@ def lookup_open_library_by_isbn(isbn: str) -> BookMetadata | None:
         return None
 
     metadata = _metadata_from_open_library_payload(payload)
+    if metadata.work_key:
+        try:
+            metadata = _merge_metadata(metadata, _lookup_open_library_work(metadata.work_key))
+        except OpenLibraryTimeout:
+            logger.warning(
+                "Persisting partial Open Library ISBN metadata after work timeout for %r",
+                isbn,
+            )
     if _metadata_has_value(metadata):
         return metadata
     return None
@@ -238,7 +436,7 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             params={
                 "q": query,
                 "limit": 5,
-                "fields": "title,author_name,edition_key,subject,language,key,number_of_pages_median",
+                "fields": "title,author_name,edition_key,subject,language,key,number_of_pages_median,first_publish_year",
             },
             timeout=LOOKUP_TIMEOUT_SECONDS,
         )
@@ -259,12 +457,15 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
     for doc in docs:
         if not isinstance(doc, dict):
             continue
+        subjects = filter_specific_subjects(doc.get("subject"))
         metadata = BookMetadata(
             title=doc.get("title") if isinstance(doc.get("title"), str) else None,
             authors=_authors_from_open_library_doc(doc),
             total_pages=_positive_int(doc.get("number_of_pages_median")),
-            subjects=filter_specific_subjects(doc.get("subject")) or None,
-            genres=filter_specific_subjects(doc.get("subject")) or None,
+            subjects=subjects or None,
+            genres=subjects_to_genres(subjects) or None,
+            first_publish_year=_first_publish_year(doc.get("first_publish_year")),
+            metadata_source="open_library",
             language=normalize_values(doc.get("language"), normalize_language)[0]
             if normalize_values(doc.get("language"), normalize_language)
             else None,
@@ -273,6 +474,14 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             if isinstance(doc.get("edition_key"), list)
             else None,
         )
+        if metadata.work_key:
+            try:
+                metadata = _merge_metadata(metadata, _lookup_open_library_work(metadata.work_key))
+            except OpenLibraryTimeout:
+                logger.warning(
+                    "Persisting partial Open Library search metadata after work timeout for %r",
+                    query,
+                )
         if _metadata_has_value(metadata):
             return metadata
 
@@ -286,29 +495,30 @@ def lookup_book_metadata(
     isbn_uid: str | None = None,
 ) -> BookMetadata | None:
     metadata = BookMetadata()
+    clean_title = (title or "").strip()
+    manual_override = manual_metadata_for_title(clean_title)
     isbn = normalize_isbn(isbn_uid)
     if isbn:
         try:
             metadata = _merge_metadata(metadata, lookup_google_books_by_isbn(isbn))
         except GoogleBooksRateLimited:
             pass
-        if _metadata_complete(metadata):
+        if _metadata_complete(metadata) and manual_override is None:
             return metadata
 
         try:
             metadata = _merge_metadata(metadata, lookup_open_library_by_isbn(isbn))
         except OpenLibraryTimeout:
             pass
-        if _metadata_complete(metadata):
+        if _metadata_complete(metadata) and manual_override is None:
             return metadata
 
-    clean_title = (title or "").strip()
     if clean_title and author:
         try:
             metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title, author))
         except OpenLibraryTimeout:
             pass
-        if _metadata_complete(metadata):
+        if _metadata_complete(metadata) and manual_override is None:
             return metadata
 
     if clean_title:
@@ -316,6 +526,8 @@ def lookup_book_metadata(
             metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title))
         except OpenLibraryTimeout:
             pass
+
+    metadata = _merge_manual_override(metadata, manual_override)
 
     return metadata if _metadata_has_value(metadata) else None
 

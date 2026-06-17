@@ -11,11 +11,19 @@ type ImportRow = {
   author: string | null;
   total_pages: number | null;
   read_status: string | null;
+  star_rating: number | null;
   start_date: string | null;
   end_date: string | null;
   pages_read: number | null;
   progress_percent: number | null;
 };
+
+function parseRating(value: unknown): number | null {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw.toLowerCase() === "nan") return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export function CsvImportSection() {
   const [fileName, setFileName] = useState("");
@@ -56,6 +64,14 @@ export function CsvImportSection() {
         const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
         const pagesNum = pagesRaw ? Number(pagesRaw) : null;
         const status = String(row.read_status ?? row.status ?? row["Read Status"] ?? "").trim();
+        const starRating = parseRating(
+          row["Star Rating"] ??
+            row.star_rating ??
+            row.rating ??
+            row.Rating ??
+            row.Stars ??
+            row["My Rating"]
+        );
         const startDate = String(row.start_date ?? row["Start Date"] ?? "").trim();
         const endDate = String(row.end_date ?? row["End Date"] ?? row["Last Date Read"] ?? "").trim();
         const pagesReadRaw = String(row.pages_read ?? row["Pages Read"] ?? "").trim();
@@ -70,6 +86,7 @@ export function CsvImportSection() {
           total_pages:
             Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null,
           read_status: status || null,
+          star_rating: starRating,
           start_date: startDate || null,
           end_date: endDate || null,
           pages_read:

@@ -44,6 +44,7 @@ Create a local `.env` file in the repository root:
 ```env
 DATABASE_URL=postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt
 SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_or_publishable_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
@@ -105,6 +106,9 @@ Exit PostgreSQL:
 
 ### API
 
+Run the API from the repository root so `backend.api:app` can load the root
+`.env` file:
+
 ```bash
 source .venv/bin/activate
 uvicorn backend.api:app --reload
@@ -120,6 +124,32 @@ Legacy entrypoint:
 ```bash
 uvicorn api:app --reload
 ```
+
+The backend loads `.env` from the repository root at import time for local
+development. Keep these backend variables in that file:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_or_publishable_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+DATABASE_URL=postgresql+psycopg://...
+```
+
+For local auth parity with production, `SUPABASE_URL`,
+`VITE_SUPABASE_URL`, and `DATABASE_URL` must point at the same Supabase
+project/database that owns the signed-in user and `public.profiles` row. The
+backend does not require `SUPABASE_JWT_SECRET`.
+
+The frontend and backend use different environment variable names for the same
+public Supabase anon key:
+
+- `frontend/.env.local`: `VITE_SUPABASE_ANON_KEY`
+- root `.env`: `SUPABASE_ANON_KEY`
+
+The values can be the same, but the names cannot. Python does not read
+`frontend/.env.local`; put backend variables in the root `.env`. For local
+compatibility only, if root `.env` contains `VITE_SUPABASE_ANON_KEY` but not
+`SUPABASE_ANON_KEY`, the backend aliases it at startup.
 
 ### Frontend
 
@@ -230,7 +260,8 @@ Legacy CSV helpers may create an empty `books.csv` if one does not exist.
 | -------------- | ----------------------------------------------- |
 | `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed profiles and book CRUD; use Supabase Postgres for Supabase Auth integration testing |
 | `SUPABASE_URL` | Supabase project URL for backend token verification |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key for backend Supabase client |
+| `SUPABASE_ANON_KEY` | Supabase anon/publishable key used as the `/auth/v1/user` API key while validating incoming user tokens |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key for admin/server-side Supabase operations |
 
 ### Frontend
 

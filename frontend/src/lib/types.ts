@@ -20,10 +20,21 @@ export type SimilarBook = {
   author: string;
 };
 
+export type MatchedLikedBook = SimilarBook & {
+  rating?: number | null;
+};
+
 export type RecommendationItem = {
+  recommended_book?: Pick<ApiBook, "id" | "title" | "author">;
   book: Pick<ApiBook, "id" | "title" | "author">;
   score: number;
+  reason?: string;
   explanation: string;
+  matched_genres?: string[];
+  matched_subjects?: string[];
+  matched_authors?: string[];
+  matched_liked_books?: MatchedLikedBook[];
+  score_breakdown?: Record<string, unknown>;
   similar_books: SimilarBook[];
 };
 

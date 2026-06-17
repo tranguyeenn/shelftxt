@@ -19,6 +19,13 @@ def _resolve_column(df, candidates):
     return None
 
 
+def _numeric_series(df: pd.DataFrame, names: list[str], default: float = 0.0) -> pd.Series:
+    for name in names:
+        if name in df.columns:
+            return pd.to_numeric(df[name], errors="coerce").fillna(default)
+    return pd.Series(default, index=df.index, dtype=float)
+
+
 def score_read_books(df, rating_weight=0.7, recency_weight=0.3):
     status_col = _resolve_column(df, ["read_status", "Read Status"])
     if status_col is None:
@@ -66,10 +73,28 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         df["rating_norm"] = 0.5
 
     status_series = df[status_col].astype(str).str.strip().str.lower()
-    read_df = df[status_series == "read"].copy()
-    tbr_df = df[status_series == "to-read"].copy()
+    completed_mask = status_series.isin(["read", "completed"])
+    pages_series = _numeric_series(df, ["Pages Read", "pages_read"], 0)
+    progress_series = _numeric_series(df, ["Progress (%)", "progress_percent"], 0)
+    title_series = df[title_col].astype(str).str.strip()
+    tbr_mask = status_series.isin(["to-read", "not_started"]) & (pages_series <= 0) & (progress_series <= 0) & (title_series != "")
+    completed_all_df = df[completed_mask].copy()
+    rating_values = completed_all_df.get("Star Rating", completed_all_df.get("star_rating"))
+    if rating_values is None:
+        rating_values = pd.Series(index=completed_all_df.index, dtype=float)
+    raw_ratings = pd.to_numeric(rating_values, errors="coerce")
+    liked_df = completed_all_df[raw_ratings >= 4].copy()
+    if len(liked_df) < 3:
+        liked_df = completed_all_df[raw_ratings >= 3.5].copy()
+    read_df = liked_df
+    tbr_df = df[tbr_mask].copy()
     tbr_df["_source_index"] = tbr_df.index
     timings["candidate_selection"] = (time.perf_counter() - phase_started) * 1000
+
+    if read_df.empty or tbr_df.empty:
+        empty = tbr_df.iloc[0:0].copy()
+        empty["score"] = pd.Series(dtype=float)
+        return empty
 
     # Remove duplicate books
     tbr_df = tbr_df.drop_duplicates(
@@ -95,8 +120,6 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         how="left"
     )
 
-    global_avg = read_df["rating_norm"].mean() if not read_df.empty else 0.5
-
     tbr_df["author_score"] = tbr_df["author_score"].fillna(0.5)
     timings["author_affinity"] = (time.perf_counter() - phase_started) * 1000
 
@@ -106,7 +129,7 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         len(tbr_df)
     )
 
-    completed_df = read_dataframe(df)
+    completed_df = read_df
 
     phase_started = time.perf_counter()
     feature_cache = build_feature_cache(pd.concat([completed_df, df.loc[tbr_df["_source_index"]]], axis=0))
@@ -114,12 +137,28 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
     primary_language = primary_language_from_features(read_features)
     timings["metadata_precompute"] = (time.perf_counter() - phase_started) * 1000
 
-    scores = []
+    scores_by_index = {}
     similar_matches_by_index = {}
     genre_ms = 0.0
     subject_ms = 0.0
     ranking_started = time.perf_counter()
-    for idx, (_, row) in enumerate(tbr_df.iterrows()):
+    liked_genres: set[str] = set()
+    liked_subjects: set[str] = set()
+    liked_authors: set[str] = set()
+    liked_keywords: set[str] = set()
+    liked_pages = []
+    for features in read_features:
+        liked_genres.update(features.genres)
+        liked_subjects.update(features.subjects)
+        if features.author and features.author != "unknown":
+            liked_authors.add(features.author)
+        liked_keywords.update(features.keywords)
+    for _, row in read_df.iterrows():
+        pages = pd.to_numeric(row.get("Total Pages", row.get("total_pages")), errors="coerce")
+        if not pd.isna(pages) and float(pages) > 0:
+            liked_pages.append(float(pages))
+
+    for _, row in tbr_df.iterrows():
         row_index = row.get("_source_index", row.name)
         candidate_features = feature_cache.get(row_index)
         if candidate_features is None:
@@ -130,50 +169,27 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         genre_ms += match_elapsed * 0.5
         subject_ms += match_elapsed * 0.5
         similar_matches_by_index[row.name] = similar
-        author = candidate_features.author
-        has_author = bool(author and author != "unknown")
         pages_value = row.get("Total Pages", row.get("total_pages"))
-        has_pages = pages_value is not None and not pd.isna(pages_value)
-        has_genre_metadata = bool(candidate_features.genres or candidate_features.subjects)
-        in_progress = float(row.get("Pages Read", row.get("pages_read", 0)) or 0) > 0
+        candidate_pages = pd.to_numeric(pages_value, errors="coerce")
 
-        same_author = any(similarity.same_author for _, similarity, _ in similar)
-        genre_hits = sum(len(similarity.shared_genres) for _, similarity, _ in similar)
-        subject_hits = sum(len(similarity.shared_subjects) for _, similarity, _ in similar)
-        keyword_hits = sum(len(similarity.keyword_overlap) for _, similarity, _ in similar)
-        high_rating_supported = any(
-            rating >= 0.8
-            for _, _, rating in similar
-        )
+        genre_overlap = candidate_features.genres & liked_genres
+        subject_overlap = candidate_features.subjects & liked_subjects
+        keyword_overlap = candidate_features.keywords & liked_keywords
+        same_author = candidate_features.author in liked_authors
 
-        score = 0.57
-        if same_author:
-            score += 0.4 * float(row.get("author_score", 0.5) or 0.5)
-        elif similar:
-            score += 0.08 * min(1.0, global_avg)
+        genre_score = min(1.0, len(genre_overlap) / 2) if genre_overlap else 0.0
+        subject_score = min(1.0, len(subject_overlap) / 3) if subject_overlap else 0.0
+        author_score = 1.0 if same_author else 0.0
+        description_score = min(1.0, len(keyword_overlap) / 5) if keyword_overlap else 0.0
 
-        score += min(0.18, 0.05 * genre_hits)
-        score += min(0.14, 0.035 * subject_hits)
-        score += min(0.08, 0.025 * keyword_hits)
-        if high_rating_supported:
-            score += 0.15
-        if in_progress:
-            score += 0.22
+        length_score = 0.0
+        if liked_pages and not pd.isna(candidate_pages) and float(candidate_pages) > 0:
+            median_pages = float(np.median(liked_pages))
+            distance = abs(float(candidate_pages) - median_pages)
+            length_score = max(0.0, 1.0 - (distance / max(median_pages, 1.0)))
 
-        metadata_confidence = 0
-        metadata_confidence += 1 if has_author else 0
-        metadata_confidence += 1 if has_pages else 0
-        metadata_confidence += 1 if has_genre_metadata else 0
-        score += 0.03 * metadata_confidence
-
-        if not has_author:
-            score -= 0.08
-        if not has_pages:
-            score -= 0.06
-        if not has_genre_metadata:
-            score -= 0.09
-        if completed_df.shape[0] > 0 and not similar and not in_progress:
-            score -= 0.12
+        if genre_score == 0 and subject_score == 0 and author_score == 0 and description_score == 0:
+            continue
 
         candidate_language = candidate_features.language
         if (
@@ -182,11 +198,40 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
             and candidate_language != primary_language
             and not similar
         ):
-            score -= 0.12
+            length_score *= 0.5
 
-        scores.append(score + noise[idx])
+        score = (
+            genre_score * 0.40
+            + subject_score * 0.25
+            + author_score * 0.15
+            + description_score * 0.10
+            + length_score * 0.10
+        )
 
-    tbr_df["score"] = scores
+        if score < 0.35:
+            continue
+
+        position = len(scores_by_index)
+        noise_value = noise[position] if position < len(noise) else 0.0
+        scores_by_index[row.name] = score + noise_value
+
+    if not scores_by_index:
+        fallback = tbr_df.copy()
+        if "recency_norm" not in fallback.columns:
+            fallback["recency_norm"] = 0.5
+        fallback["score"] = (
+            0.45 * fallback["author_score"].fillna(0.5)
+            + 0.35 * fallback.get("rating_norm", 0.5)
+            + 0.20 * fallback["recency_norm"].fillna(0.5)
+        ).clip(0, 1)
+        fallback["_similar_matches"] = [[] for _ in range(len(fallback))]
+        fallback = fallback.sort_values(by="score", ascending=False)
+        if diverse_authors:
+            fallback = fallback.drop_duplicates(subset=[author_col])
+        return fallback
+
+    tbr_df = tbr_df.loc[list(scores_by_index.keys())].copy()
+    tbr_df["score"] = tbr_df.index.map(scores_by_index)
     tbr_df["_similar_matches"] = tbr_df.index.map(lambda index: similar_matches_by_index.get(index, []))
     timings["genre_matching"] = genre_ms
     timings["subject_matching"] = subject_ms

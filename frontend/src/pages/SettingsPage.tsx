@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { SettingRow, SettingsSection } from "@/components/settings/SettingsSection";
 import { CsvImportSection } from "@/features/settings/CsvImportSection";
 import { LibraryActions } from "@/features/settings/LibraryActions";
+import { MetadataSection } from "@/features/settings/MetadataSection";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
@@ -39,6 +40,8 @@ export function SettingsPage() {
           <LibraryActions />
         </div>
       </SettingsSection>
+
+      <MetadataSection />
 
       <SettingsSection title="Account" description="Manage the signed-in ShelfTxt account.">
         <SettingRow label="Email">

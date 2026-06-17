@@ -65,7 +65,8 @@ Required backend environment variables:
 | --- | --- | --- |
 | `DATABASE_URL` | SQLAlchemy PostgreSQL connection string for profiles and book CRUD | Supabase Postgres for auth integration tests; local Docker Postgres for isolated backend work |
 | `SUPABASE_URL` | Supabase project URL used by the backend auth dependency | `https://your-project.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only key used to verify Supabase access tokens | Supabase service role key |
+| `SUPABASE_ANON_KEY` | Supabase anon/publishable key used as the `/auth/v1/user` API key while validating incoming user tokens | Same project as `SUPABASE_URL` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only key for admin/server-side Supabase operations | Supabase service role key |
 
 `.env` files are gitignored. `.env.example` is committed as the local development template.
 
@@ -426,7 +427,8 @@ Legacy CSV helpers may create an empty `books.csv` if one does not exist.
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string for SQLAlchemy-backed profiles and book CRUD. Use Supabase Postgres for Supabase Auth integration testing. |
 | `SUPABASE_URL` | Supabase project URL for backend token verification |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key for backend Supabase client |
+| `SUPABASE_ANON_KEY` | Supabase anon/publishable key used as the `/auth/v1/user` API key while validating incoming user tokens |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only service role key for admin/server-side Supabase operations |
 
 ### Frontend
 

@@ -14,6 +14,7 @@ backend/
 ├── routes/
 │   ├── health.py          # GET/HEAD /health
 │   ├── books.py           # /books, import, export, clear, progress, delete by id
+│   ├── metadata.py        # Explicit user-triggered metadata generation status/start
 │   └── recommendation.py  # GET /recommend
 ├── schemas/
 │   └── books.py           # Pydantic request bodies + BooksPage (GET /books)
@@ -43,8 +44,25 @@ backend/
 - Require the current Supabase profile for book and recommendation routes
 - Serialize responses (paginated JSON, recommendation arrays, CSV download, `NaN` → `null` for JSON)
 - Stay thin: no shelf state machines, no scoring formulas
+- User-facing endpoints must never do external enrichment or long-running work. Enrichment belongs to explicit background jobs or CLI scripts such as `python -m backend.scripts.backfill_book_metadata`.
 
 **Example:** `PATCH /books/{book_id}/progress` validates body via Pydantic, calls `update_book_progress_by_id`.
+
+### Performance and background-work rule
+
+User-facing backend endpoints must be light, fast, scoped, and DB-only unless explicitly documented otherwise.
+
+The normal UI paths `GET /books`, `GET /recommend`, book add/edit/delete, clear, import, and any future dashboard/page-supporting route must not call Open Library, Google Books, metadata enrichment, page-count lookup, recommendation backfill, or other external APIs. They should read/write only the authenticated user's rows and return promptly.
+
+Heavy work belongs to explicit CLI scripts, user-triggered metadata jobs, or future background jobs. It must not block a response, delay page loads, make the UI wait, or fail the user request if enrichment fails. Automatic startup backfills, import backfills, and page-load enrichment are not allowed.
+
+Metadata generation is an explicit workflow:
+
+- `GET /metadata/status` reports current-user genre coverage and latest job progress.
+- `POST /metadata/generate` creates a current-user metadata job and returns status immediately.
+- The job may call Open Library/Google Books through metadata lookup code, but only after the explicit user action and outside normal page/import/recommend flows.
+
+If ShelfTxt adds a search index table or external search document store, delete paths must immediately remove or mark current-user entries hidden/deleted in the same user action. Physical cleanup can run later, but deleted books must not remain visible in search results. The current backend has no dedicated search index table.
 
 ### Services (`backend/services/`)
 

@@ -25,6 +25,12 @@ export type BookRecord = {
   "Progress (%)"?: number | null;
   "Pages Read"?: number | null;
   "Total Pages"?: number | null;
+  Description?: string | null;
+  Subjects?: string[] | string | null;
+  Genres?: string[] | string | null;
+  "First Publish Year"?: number | null;
+  metadata_source?: string | null;
+  metadata_enriched_at?: string | null;
   score?: number | null;
   author_score?: number | null;
   rating_norm?: number | null;

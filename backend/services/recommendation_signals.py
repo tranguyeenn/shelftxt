@@ -9,8 +9,10 @@ from backend.services.metadata_normalization import (
     filter_specific_subjects,
     normalize_author,
     normalize_language,
+    normalize_text,
     normalize_title_keywords,
     normalize_values,
+    subjects_to_genres,
 )
 
 
@@ -83,7 +85,7 @@ def row_genres(row: pd.Series) -> list[str]:
     genres = filter_specific_genres(_row_value(row, ["genres", "genre", "Genres", "Genre"], []))
     if genres:
         return genres
-    return filter_specific_subjects(_row_value(row, ["subjects", "Subjects"], []))
+    return subjects_to_genres(_row_value(row, ["subjects", "Subjects"], []))
 
 
 def row_languages(row: pd.Series) -> list[str]:
@@ -91,7 +93,21 @@ def row_languages(row: pd.Series) -> list[str]:
 
 
 def row_keywords(row: pd.Series) -> list[str]:
-    return normalize_title_keywords(row_title(row))
+    title_keywords = normalize_title_keywords(row_title(row))
+    description = _row_value(row, ["description", "Description"], "")
+    description_words = normalize_text(description).split()
+    seen = set(title_keywords)
+    keywords = list(title_keywords)
+    for word in description_words:
+        if len(word) < 5 or word in seen:
+            continue
+        if word in {"about", "after", "before", "their", "there", "these", "those", "which", "while"}:
+            continue
+        seen.add(word)
+        keywords.append(word)
+        if len(keywords) >= 40:
+            break
+    return keywords
 
 
 def infer_language(row: pd.Series) -> str | None:

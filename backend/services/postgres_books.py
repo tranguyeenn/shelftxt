@@ -1,42 +1,48 @@
 import csv
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from io import StringIO
+import time
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from backend.repository.postgres_books_repository import (
+    count_books,
     create_book,
+    create_books_bulk,
     delete_book,
+    delete_books_for_user,
+    get_existing_import_keys,
     get_all_books,
     get_book_by_isbn_uid,
+    get_books_page,
     update_book,
 )
 from backend.services.page_lookup import (
     BookMetadata,
-    GoogleBooksRateLimited,
-    OpenLibraryTimeout,
-    lookup_google_books_by_isbn,
-    lookup_open_library_by_isbn,
-    lookup_open_library_by_title,
-    normalize_isbn,
 )
+from backend.env import is_local_env
 from backend.services.metadata_normalization import normalize_language
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
 logger = logging.getLogger(__name__)
 
-MAX_ENRICH_LOOKUPS_PER_IMPORT = 10
-MAX_ENRICH_FAILURES_PER_IMPORT = 3
-MAX_GOOGLE_429_PER_IMPORT = 1
-MAX_OPEN_LIBRARY_TIMEOUTS_PER_IMPORT = 2
 
-# Backward-compatible alias for older tests/imports.
-MAX_IMPORT_ENRICHMENT_LOOKUPS = MAX_ENRICH_LOOKUPS_PER_IMPORT
+def _log_endpoint_timing(endpoint: str, user_id: UUID, started: float, rows: int) -> None:
+    if not is_local_env():
+        return
+
+    logger.info(
+        "endpoint_timing endpoint=%s user_id=%s duration_ms=%.2f rows=%s external_calls=0",
+        endpoint,
+        user_id,
+        (time.perf_counter() - started) * 1000,
+        rows,
+    )
 
 
 def book_to_dict(book):
@@ -56,8 +62,14 @@ def book_to_dict(book):
         "Progress (%)": book.progress_percent,
         "Pages Read": book.pages_read,
         "Total Pages": book.total_pages,
+        "Description": book.description,
         "Subjects": book.subjects,
         "Genres": book.genres,
+        "First Publish Year": book.first_publish_year,
+        "metadata_source": book.metadata_source,
+        "metadata_enriched_at": book.metadata_enriched_at.isoformat()
+        if book.metadata_enriched_at
+        else None,
         "Language": book.language,
         "Work Key": book.work_key,
         "Edition Key": book.edition_key,
@@ -118,22 +130,17 @@ def _validate_date_range(start: date | None, end: date | None) -> None:
 
 
 def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
-    logger.info(
-        "GET /books before query user_id=%s page=%s limit=%s",
-        user_id,
-        page,
-        limit,
-    )
-    books = get_all_books(db, user_id)
-    logger.info("GET /books after query user_id=%s rows=%s", user_id, len(books))
-    total = len(books)
+    started = time.perf_counter()
+    total = count_books(db, user_id)
     start = (page - 1) * limit
+    books = get_books_page(db, user_id, start, limit)
+    _log_endpoint_timing("GET /books", user_id, started, len(books))
 
     return {
         "page": page,
         "limit": limit,
         "total": total,
-        "results": [book_to_dict(book) for book in books[start : start + limit]],
+        "results": [book_to_dict(book) for book in books],
     }
 
 
@@ -191,6 +198,7 @@ def add_book_service(db: Session, book, user_id: UUID):
             "progress_percent": 0,
             "pages_read": 0,
             "total_pages": book.total_pages,
+            "page_count_checked": book.total_pages is not None,
         },
         user_id,
     )
@@ -205,37 +213,6 @@ def _usable_import_author(author: str | None) -> str | None:
     return cleaned
 
 
-def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> BookMetadata:
-    if next_metadata is None:
-        return base
-    return BookMetadata(
-        title=base.title or next_metadata.title,
-        authors=base.authors or next_metadata.authors,
-        total_pages=base.total_pages or next_metadata.total_pages,
-        subjects=base.subjects or next_metadata.subjects,
-        genres=base.genres or next_metadata.genres,
-        language=base.language or next_metadata.language,
-        work_key=base.work_key or next_metadata.work_key,
-        edition_key=base.edition_key or next_metadata.edition_key,
-    )
-
-
-def _metadata_has_value(metadata: BookMetadata | None) -> bool:
-    return bool(
-        metadata
-        and (
-            metadata.title
-            or metadata.authors
-            or metadata.total_pages
-            or metadata.subjects
-            or metadata.genres
-            or metadata.language
-            or metadata.work_key
-            or metadata.edition_key
-        )
-    )
-
-
 def _metadata_update_fields(metadata: BookMetadata | None) -> dict:
     if metadata is None:
         return {}
@@ -244,8 +221,14 @@ def _metadata_update_fields(metadata: BookMetadata | None) -> dict:
         data["subjects"] = metadata.subjects
     if metadata.genres:
         data["genres"] = metadata.genres
-    elif metadata.subjects:
-        data["genres"] = metadata.subjects
+    if metadata.description:
+        data["description"] = metadata.description
+    if metadata.first_publish_year:
+        data["first_publish_year"] = metadata.first_publish_year
+    if metadata.metadata_source:
+        data["metadata_source"] = metadata.metadata_source
+    if data:
+        data["metadata_enriched_at"] = datetime.now(timezone.utc)
     if metadata.language:
         data["language"] = normalize_language(metadata.language)
     if metadata.work_key:
@@ -253,148 +236,6 @@ def _metadata_update_fields(metadata: BookMetadata | None) -> dict:
     if metadata.edition_key:
         data["edition_key"] = metadata.edition_key
     return data
-
-
-def _new_enrichment_state() -> dict[str, int | bool]:
-    return {
-        "lookups": 0,
-        "failures": 0,
-        "google_429s": 0,
-        "open_library_timeouts": 0,
-        "google_enabled": True,
-        "open_library_enabled": True,
-    }
-
-
-def _enrichment_budget_available(state: dict[str, int | bool]) -> bool:
-    return (
-        int(state["lookups"]) < MAX_ENRICH_LOOKUPS_PER_IMPORT
-        and int(state["failures"]) < MAX_ENRICH_FAILURES_PER_IMPORT
-    )
-
-
-def _record_enrichment_failure(state: dict[str, int | bool]) -> None:
-    state["failures"] = int(state["failures"]) + 1
-    if int(state["failures"]) >= MAX_ENRICH_FAILURES_PER_IMPORT:
-        state["google_enabled"] = False
-        state["open_library_enabled"] = False
-
-
-def _record_google_429(state: dict[str, int | bool]) -> None:
-    state["google_429s"] = int(state["google_429s"]) + 1
-    if int(state["google_429s"]) >= MAX_GOOGLE_429_PER_IMPORT:
-        state["google_enabled"] = False
-
-
-def _record_open_library_timeout(state: dict[str, int | bool]) -> None:
-    state["open_library_timeouts"] = int(state["open_library_timeouts"]) + 1
-    if int(state["open_library_timeouts"]) >= MAX_OPEN_LIBRARY_TIMEOUTS_PER_IMPORT:
-        state["open_library_enabled"] = False
-
-
-def _try_google_isbn_for_import(
-    isbn: str,
-    state: dict[str, int | bool],
-) -> BookMetadata | None:
-    if not state["google_enabled"] or not _enrichment_budget_available(state):
-        return None
-
-    state["lookups"] = int(state["lookups"]) + 1
-    try:
-        metadata = lookup_google_books_by_isbn(isbn)
-    except GoogleBooksRateLimited:
-        _record_google_429(state)
-        _record_enrichment_failure(state)
-        return None
-    except Exception as exc:
-        logger.warning("Google Books import lookup crashed for %r: %s", isbn, exc, exc_info=True)
-        _record_enrichment_failure(state)
-        return None
-
-    if metadata is None:
-        _record_enrichment_failure(state)
-    return metadata
-
-
-def _try_open_library_isbn_for_import(
-    isbn: str,
-    state: dict[str, int | bool],
-) -> BookMetadata | None:
-    if not state["open_library_enabled"] or not _enrichment_budget_available(state):
-        return None
-
-    state["lookups"] = int(state["lookups"]) + 1
-    try:
-        metadata = lookup_open_library_by_isbn(isbn)
-    except OpenLibraryTimeout:
-        _record_open_library_timeout(state)
-        _record_enrichment_failure(state)
-        return None
-    except Exception as exc:
-        logger.warning("Open Library ISBN import lookup crashed for %r: %s", isbn, exc, exc_info=True)
-        _record_enrichment_failure(state)
-        return None
-
-    if metadata is None:
-        _record_enrichment_failure(state)
-    return metadata
-
-
-def _try_open_library_title_for_import(
-    title: str,
-    author: str | None,
-    state: dict[str, int | bool],
-) -> BookMetadata | None:
-    if not state["open_library_enabled"] or not _enrichment_budget_available(state):
-        return None
-
-    state["lookups"] = int(state["lookups"]) + 1
-    try:
-        metadata = lookup_open_library_by_title(title, author)
-    except OpenLibraryTimeout:
-        _record_open_library_timeout(state)
-        _record_enrichment_failure(state)
-        return None
-    except Exception as exc:
-        logger.warning("Open Library title import lookup crashed for %r: %s", title, exc, exc_info=True)
-        _record_enrichment_failure(state)
-        return None
-
-    if metadata is None:
-        _record_enrichment_failure(state)
-    return metadata
-
-
-def _lookup_metadata_for_import(
-    title: str,
-    author: str | None,
-    isbn_uid: str | None,
-    state: dict[str, int | bool],
-) -> tuple[BookMetadata | None, bool]:
-    metadata = BookMetadata()
-    attempted = False
-    isbn = normalize_isbn(isbn_uid)
-
-    if isbn:
-        lookups_before = int(state["lookups"])
-        google_metadata = _try_google_isbn_for_import(isbn, state)
-        attempted = attempted or int(state["lookups"]) > lookups_before
-        metadata = _merge_metadata(metadata, google_metadata)
-        if metadata.total_pages and (metadata.authors or author):
-            return metadata, attempted
-
-        lookups_before = int(state["lookups"])
-        open_library_metadata = _try_open_library_isbn_for_import(isbn, state)
-        attempted = attempted or int(state["lookups"]) > lookups_before
-        metadata = _merge_metadata(metadata, open_library_metadata)
-        return (metadata if _metadata_has_value(metadata) else None), attempted
-
-    lookups_before = int(state["lookups"])
-    title_metadata = _try_open_library_title_for_import(title, author, state)
-    attempted = attempted or int(state["lookups"]) > lookups_before
-    metadata = _merge_metadata(metadata, title_metadata)
-
-    return (metadata if _metadata_has_value(metadata) else None), attempted
 
 
 def _status_patch_value(body) -> str | None:
@@ -430,6 +271,17 @@ def _apply_status_and_progress(
             {
                 "read_status": "read",
                 "pages_read": next_pages_read,
+                "progress_percent": 100,
+                "last_date_read": parse_date_or_today(None),
+            }
+        )
+        return
+
+    if total_pages_int is not None and total_pages_int > 0 and next_pages_read >= total_pages_int:
+        update_data.update(
+            {
+                "read_status": "read",
+                "pages_read": total_pages_int,
                 "progress_percent": 100,
                 "last_date_read": parse_date_or_today(None),
             }
@@ -476,16 +328,14 @@ def _apply_status_and_progress(
 
 
 def import_books_service(db: Session, data, user_id: UUID):
-    books = get_all_books(db, user_id)
-    existing_titles = {book.title for book in books}
-    existing_isbn_uids = {book.isbn_uid for book in books}
+    started = time.perf_counter()
+    existing_keys = get_existing_import_keys(db, user_id)
+    existing_titles = {title for title, _isbn_uid in existing_keys}
+    existing_isbn_uids = {isbn_uid for _title, isbn_uid in existing_keys}
 
     imported = 0
     skipped = 0
-    enriched = 0
-    enrichment_skipped = 0
-    enrichment_state = _new_enrichment_state()
-
+    books_to_create = []
     for book in data.books:
         title = (book.title or "").strip()
         isbn_uid = (getattr(book, "isbn_uid", None) or "").strip() or None
@@ -503,41 +353,13 @@ def import_books_service(db: Session, data, user_id: UUID):
             pages_read=pages_read,
         )
         total_pages = book.total_pages
-        stored_author = author
-        page_count_attempted = False
-        metadata = None
+        stored_author = author or "Unknown"
         imported_finish_date = parse_import_finish_date(getattr(book, "last_date_read", None))
         imported_start_date = parse_reading_date(getattr(book, "start_date", None), field_name="Start Date")
         imported_end_date = parse_reading_date(getattr(book, "end_date", None), field_name="End Date")
         if imported_end_date is None:
             imported_end_date = imported_finish_date
         _validate_date_range(imported_start_date, imported_end_date)
-
-        if total_pages is None or stored_author is None:
-            if _enrichment_budget_available(enrichment_state):
-                metadata, attempted = _lookup_metadata_for_import(
-                    title,
-                    author,
-                    isbn_uid,
-                    enrichment_state,
-                )
-                page_count_attempted = attempted and total_pages is None
-                if metadata is not None:
-                    if total_pages is None:
-                        total_pages = getattr(metadata, "total_pages", None)
-                    if stored_author is None:
-                        stored_author = _usable_import_author(getattr(metadata, "authors", None))
-                if metadata is not None and (
-                    getattr(metadata, "total_pages", None) is not None
-                    or getattr(metadata, "authors", None) is not None
-                ):
-                    enriched += 1
-                if not attempted:
-                    enrichment_skipped += 1
-            else:
-                enrichment_skipped += 1
-
-        stored_author = stored_author or "Unknown"
 
         if normalized_status == "completed":
             progress_percent = 100
@@ -550,24 +372,21 @@ def import_books_service(db: Session, data, user_id: UUID):
             pages_read = min(pages_read, int(total_pages))
             progress_percent = round((pages_read / int(total_pages)) * 100, 2)
 
-        create_book(
-            db,
+        books_to_create.append(
             {
                 "title": title,
                 "authors": stored_author,
                 "isbn_uid": isbn_uid or f"uid-{uuid.uuid4()}",
                 "read_status": database_status_from_normalized(normalized_status),
-                "star_rating": None,
+                "star_rating": book.star_rating,
                 "last_date_read": imported_end_date if normalized_status == "completed" else None,
                 "start_date": imported_start_date,
                 "end_date": imported_end_date if normalized_status == "completed" else None,
                 "progress_percent": progress_percent,
                 "pages_read": pages_read,
                 "total_pages": total_pages,
-                "page_count_checked": total_pages is not None or page_count_attempted,
-                **_metadata_update_fields(metadata),
-            },
-            user_id,
+                "page_count_checked": total_pages is not None,
+            }
         )
 
         existing_titles.add(title)
@@ -575,31 +394,32 @@ def import_books_service(db: Session, data, user_id: UUID):
             existing_isbn_uids.add(isbn_uid)
         imported += 1
 
+    create_books_bulk(db, books_to_create, user_id)
+    _log_endpoint_timing("POST /books/import", user_id, started, imported + skipped)
+
     return {
         "imported_count": imported,
         "skipped_count": skipped,
         "duplicate_count": skipped,
         "skipped_duplicates": skipped,
-        "enriched_count": enriched,
-        "enrichment_skipped_count": enrichment_skipped,
-        "enrichment_failed_count": int(enrichment_state["failures"]),
+        "enriched_count": 0,
+        "enrichment_skipped_count": 0,
+        "enrichment_failed_count": 0,
     }
 
 
 def clear_library_service(db: Session, confirm: bool, user_id: UUID):
+    started = time.perf_counter()
     if not confirm:
         raise HTTPException(
             status_code=400,
             detail="Confirmation required to clear the library",
         )
 
-    books = get_all_books(db, user_id)
-    deleted = len(books)
+    deleted = delete_books_for_user(db, user_id)
+    _log_endpoint_timing("POST /books/clear", user_id, started, deleted)
 
-    for book in books:
-        delete_book(db, book.id, user_id)
-
-    return {"message": "Library cleared", "deleted": deleted}
+    return {"deleted": deleted}
 
 
 def delete_book_by_id_service(db: Session, book_id: str, user_id: UUID):

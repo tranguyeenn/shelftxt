@@ -9,10 +9,13 @@ from sqlalchemy.exc import OperationalError, TimeoutError as SQLAlchemyTimeoutEr
 from starlette.responses import JSONResponse
 
 from backend.demo_mode import is_demo_read_only
+from backend.env import is_local_env, load_backend_env, log_local_env_presence
 from backend.routes.books import router as books_router
 from backend.routes.health import router as health_router
+from backend.routes.metadata import router as metadata_router
 from backend.routes.recommendation import router as recommendations_router
-from backend.services.page_count_lookup import backfill_missing_page_counts
+
+load_backend_env()
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,7 @@ async def self_ping():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log_local_env_presence()
 
     scheduler = AsyncIOScheduler()
 
@@ -43,8 +47,6 @@ async def lifespan(app: FastAPI):
         "interval",
         minutes=14
     )
-
-    scheduler.add_job(backfill_missing_page_counts, "date")
 
     scheduler.start()
 
@@ -120,11 +122,12 @@ async def demo_read_only_guard(request, call_next):
 @app.middleware("http")
 async def endpoint_timing_logger(request, call_next):
     started = time.perf_counter()
-    if request.url.path == "/books" and request.method == "GET":
+    should_log = is_local_env()
+    if should_log and request.url.path == "/books" and request.method == "GET":
         logger.info("GET /books request start")
     response = await call_next(request)
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
-    if duration_ms >= 250:
+    if should_log and duration_ms >= 250:
         logger.info(
             "Slow endpoint %s %s completed in %.2fms",
             request.method,
@@ -141,5 +144,7 @@ async def endpoint_timing_logger(request, call_next):
 app.include_router(health_router)
 
 app.include_router(books_router)
+
+app.include_router(metadata_router)
 
 app.include_router(recommendations_router)

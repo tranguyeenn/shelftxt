@@ -111,10 +111,15 @@ Required backend variables:
 ```env
 DATABASE_URL=postgresql+psycopg://shelftxt:shelftxt_dev_password@localhost:5432/shelftxt
 SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_or_publishable_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
+`SUPABASE_ANON_KEY` is used by the backend as the Supabase Auth API key when validating incoming user access tokens.
 `SUPABASE_SERVICE_ROLE_KEY` is server-only. Do not expose it in frontend code or committed examples.
+The frontend uses `VITE_SUPABASE_ANON_KEY`; the backend root `.env` uses
+`SUPABASE_ANON_KEY`. The values can be the same, but Python does not read
+frontend env files.
 
 For multi-user auth testing, `DATABASE_URL` cannot point at an empty local Docker database while the frontend uses hosted Supabase Auth. The backend verifies the Supabase JWT, then queries `profiles.id` in the database named by `DATABASE_URL`. Use one of these setups:
 

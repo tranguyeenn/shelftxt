@@ -20,6 +20,9 @@ class RecommendationBuilderTests(unittest.TestCase):
                     "Progress (%)": 100,
                     "Pages Read": 300,
                     "Total Pages": 300,
+                    "Genres": ["science fiction"],
+                    "Subjects": ["desert planet"],
+                    "Description": "desert empire prophecy",
                 },
                 {
                     "Title": "TBR One",
@@ -31,6 +34,9 @@ class RecommendationBuilderTests(unittest.TestCase):
                     "Progress (%)": 0,
                     "Pages Read": 0,
                     "Total Pages": 400,
+                    "Genres": ["science fiction"],
+                    "Subjects": ["desert planet"],
+                    "Description": "desert empire sequel",
                 },
                 {
                     "Title": "TBR Two",
@@ -42,6 +48,9 @@ class RecommendationBuilderTests(unittest.TestCase):
                     "Progress (%)": 0,
                     "Pages Read": 0,
                     "Total Pages": 200,
+                    "Genres": ["science fiction"],
+                    "Subjects": ["desert planet"],
+                    "Description": "desert empire anthology",
                 },
             ]
         )
@@ -51,14 +60,96 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertEqual(len(results), 2)
         first = results[0]
         self.assertIn("book", first)
+        self.assertIn("recommended_book", first)
         self.assertIn("score", first)
         self.assertIn("explanation", first)
+        self.assertIn("reason", first)
+        self.assertIn("matched_genres", first)
+        self.assertIn("matched_liked_books", first)
+        self.assertIn("score_breakdown", first)
         self.assertIn("similar_books", first)
         titles = {item["book"]["title"] for item in results}
         self.assertEqual(titles, {"TBR One", "TBR Two"})
         self.assertGreater(len(first["similar_books"]), 0)
 
-    def test_unrelated_book_gets_discovery_reason_without_fake_similarity(self):
+    def test_recommendation_reason_names_matched_genre_and_liked_book(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Title": "Book Lovers",
+                    "Authors": "Emily Henry",
+                    "ISBN/UID": "r1",
+                    "Read Status": "read",
+                    "Star Rating": 5,
+                    "Genres": ["romance", "contemporary romance"],
+                    "Total Pages": 320,
+                },
+                {
+                    "Title": "Beach Read",
+                    "Authors": "Emily Henry",
+                    "ISBN/UID": "t1",
+                    "Read Status": "to-read",
+                    "Genres": ["romance", "contemporary romance"],
+                    "Total Pages": 300,
+                },
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1)[0]
+
+        self.assertIn("romance", result["reason"])
+        self.assertIn("Book Lovers", result["reason"])
+        self.assertIn("5★", result["reason"])
+        self.assertIn("romance", result["matched_genres"])
+        self.assertEqual(result["matched_liked_books"][0]["title"], "Book Lovers")
+
+    def test_normal_recommendation_is_deterministic(self):
+        df = pd.DataFrame(
+            [{"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["sci-fi"]}]
+            + [
+                {"Title": f"TBR {i}", "Authors": "B", "ISBN/UID": f"t{i}", "Read Status": "to-read", "Genres": ["sci-fi"]}
+                for i in range(12)
+            ]
+        )
+
+        first = build_recommendations(df, top_n=10)
+        second = build_recommendations(df, top_n=10)
+
+        self.assertEqual(
+            [item["recommended_book"]["id"] for item in first],
+            [item["recommended_book"]["id"] for item in second],
+        )
+
+    def test_refresh_exclude_ids_returns_alternatives_first(self):
+        df = pd.DataFrame(
+            [{"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["sci-fi"]}]
+            + [
+                {"Title": f"TBR {i}", "Authors": "B", "ISBN/UID": f"t{i}", "Read Status": "to-read", "Genres": ["sci-fi"]}
+                for i in range(14)
+            ]
+        )
+        normal = build_recommendations(df, top_n=10)
+        excluded = {item["recommended_book"]["id"] for item in normal}
+
+        refreshed = build_recommendations(df, top_n=10, refresh=True, exclude_ids=excluded)
+
+        self.assertTrue(refreshed)
+        self.assertNotIn(refreshed[0]["recommended_book"]["id"], excluded)
+
+    def test_refresh_does_not_return_weak_unrelated_candidates(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Subjects": ["dystopian fiction", "political fiction"]},
+                {"Title": "Strong", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "Subjects": ["dystopian fiction", "political fiction"]},
+                {"Title": "Weak", "Authors": "C", "ISBN/UID": "t2", "Read Status": "to-read", "Subjects": ["wedding"]},
+            ]
+        )
+
+        refreshed = build_recommendations(df, top_n=10, refresh=True, exclude_ids={"t1"})
+
+        self.assertEqual([item["recommended_book"]["title"] for item in refreshed], ["Strong"])
+
+    def test_unrelated_book_uses_rating_recency_fallback_without_overlap(self):
         df = pd.DataFrame(
             [
                 {"Title": "Fahrenheit 451", "Authors": "Ray Bradbury", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Subjects": ["dystopian fiction"], "Total Pages": 200},
@@ -68,13 +159,16 @@ class RecommendationBuilderTests(unittest.TestCase):
             ]
         )
 
-        result = build_recommendations(df, top_n=1)[0]
+        result = build_recommendations(df, top_n=1)
 
-        self.assertEqual(result["book"]["title"], "Có hạnh phúc")
-        self.assertEqual(result["similar_books"], [])
-        self.assertEqual(result["explanation"], "Recommended as a discovery pick from your unread books.")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["book"]["title"], "Có hạnh phúc")
+        self.assertEqual(
+            result[0]["explanation"],
+            "You rated completed books highly, including Fahrenheit 451 and The Great Gatsby.",
+        )
 
-    def test_generic_genres_do_not_create_similarity(self):
+    def test_generic_genres_do_not_create_similarity_but_can_fallback(self):
         df = pd.DataFrame(
             [
                 {"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Subjects": ["Fiction"], "Total Pages": 200},
@@ -82,10 +176,11 @@ class RecommendationBuilderTests(unittest.TestCase):
             ]
         )
 
-        result = build_recommendations(df, top_n=1)[0]
+        result = build_recommendations(df, top_n=1)
 
-        self.assertEqual(result["similar_books"], [])
-        self.assertEqual(result["explanation"], "Recommended as a discovery pick from your unread books.")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["book"]["title"], "Unread")
+        self.assertEqual(result[0]["similar_books"], [])
 
     def test_genre_overlap_generates_similarity_reason(self):
         df = pd.DataFrame(
@@ -97,7 +192,8 @@ class RecommendationBuilderTests(unittest.TestCase):
 
         result = build_recommendations(df, top_n=1)[0]
 
-        self.assertEqual(result["explanation"], "This matches genres you’ve read before.")
+        self.assertIn("dystopian", result["explanation"])
+        self.assertIn("Read Dystopia", result["explanation"])
         self.assertEqual([book["title"] for book in result["similar_books"]], ["Read Dystopia"])
 
     def test_in_progress_reason_wins(self):
@@ -108,9 +204,23 @@ class RecommendationBuilderTests(unittest.TestCase):
             ]
         )
 
-        result = build_recommendations(df, top_n=1)[0]
+        result = build_recommendations(df, top_n=1)
 
-        self.assertEqual(result["explanation"], "You already started this book.")
+        self.assertEqual(result, [])
+
+    def test_strong_metadata_match_beats_unrelated_candidate(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Fahrenheit 451", "Authors": "Ray Bradbury", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["dystopian"], "Subjects": ["censorship"], "Description": "books censorship fire", "Total Pages": 200},
+                {"Title": "Matched", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["dystopian"], "Subjects": ["censorship"], "Description": "books censorship surveillance", "Total Pages": 210},
+                {"Title": "Unrelated", "Authors": "C", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["romance"], "Subjects": ["weddings"], "Description": "weddings family", "Total Pages": 200},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+
+        self.assertEqual([item["book"]["title"] for item in result], ["Matched"])
+        self.assertIn("censorship", result[0]["explanation"])
 
 
 if __name__ == "__main__":

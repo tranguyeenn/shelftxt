@@ -116,6 +116,17 @@ export function initUserSettings(): UserSettings {
   return settings;
 }
 
-export function recommendQuery(settings: UserSettings): string {
-  return `/recommend?style=${encodeURIComponent(settings.recommendationStyle)}`;
+export function recommendQuery(
+  settings: UserSettings,
+  refresh = false,
+  excludeIds: string[] = []
+): string {
+  const params = new URLSearchParams({ style: settings.recommendationStyle });
+  if (refresh) {
+    params.set("refresh", "true");
+  }
+  if (excludeIds.length > 0) {
+    params.set("exclude_ids", excludeIds.join(","));
+  }
+  return `/recommend?${params.toString()}`;
 }

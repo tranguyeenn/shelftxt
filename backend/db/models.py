@@ -1,10 +1,13 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, Uuid, false, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid, false, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
+
+JSON_LIST = JSON().with_variant(JSONB, "postgresql")
 
 
 class Profile(Base):
@@ -133,6 +136,11 @@ class Book(Base):
         nullable=True,
     )
 
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     page_count_checked: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -146,12 +154,27 @@ class Book(Base):
     )
 
     subjects: Mapped[list[str] | None] = mapped_column(
-        JSON,
+        JSON_LIST,
         nullable=True,
     )
 
     genres: Mapped[list[str] | None] = mapped_column(
-        JSON,
+        JSON_LIST,
+        nullable=True,
+    )
+
+    first_publish_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    metadata_source: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    metadata_enriched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 
@@ -167,5 +190,65 @@ class Book(Base):
 
     edition_key: Mapped[str | None] = mapped_column(
         String,
+        nullable=True,
+    )
+
+
+class MetadataJob(Base):
+    __tablename__ = "metadata_jobs"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("profiles.id"),
+        nullable=False,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+    )
+
+    processed_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    total_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    error_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )

@@ -15,11 +15,13 @@ export function RankingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false, excludeIds: string[] = []) => {
     setLoading(true);
     setError("");
     try {
-      const ranked = await fetchJson<RecommendationItem[]>(recommendQuery(settings));
+      const ranked = await fetchJson<RecommendationItem[]>(recommendQuery(settings, refresh, excludeIds), {
+        skipClientCache: refresh,
+      });
       setItems(Array.isArray(ranked) ? ranked : []);
     } catch (err) {
       setItems([]);
@@ -33,13 +35,18 @@ export function RankingPage() {
     void load();
   }, [load]);
 
+  function refreshRecommendations() {
+    const excludeIds = items.map((item) => (item.recommended_book ?? item.book).id).filter(Boolean);
+    void load(true, excludeIds);
+  }
+
   return (
     <div className="grid gap-6">
       <PageHeader
         title="Top recommendations"
         subtitle="Your top 10 to-read picks with scores, explanations, and similar books."
         actions={
-          <Button variant="secondary" onClick={() => void load()} disabled={loading}>
+          <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
           </Button>
         }
@@ -58,8 +65,8 @@ export function RankingPage() {
 
       {!loading && !error && items.length === 0 ? (
         <EmptyState
-          title="No recommendations yet"
-          description="Add to-read books and mark some as read so the ranker can score your TBR."
+          title="No strong recommendations yet"
+          description="No unread book currently passes the metadata match threshold. Enrich your library and rate completed books to unlock better matches."
         />
       ) : null}
 

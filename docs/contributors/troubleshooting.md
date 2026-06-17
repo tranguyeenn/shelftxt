@@ -6,6 +6,44 @@ Symptoms → likely cause → fix. See also [deployment.md](../engineering/deplo
 
 ## Backend (local)
 
+### Protected endpoints return `401` with `Authorization: Bearer ...`
+
+**Cause:** The local backend may be running without the same root `.env`
+configuration used by production, or it may point at a different Supabase
+project/database than the frontend.
+
+**Fix:** Run uvicorn from the repository root and keep backend env in
+`./.env`:
+
+```bash
+source .venv/bin/activate
+uvicorn backend.api:app --reload
+```
+
+Required backend variables:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_or_publishable_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+DATABASE_URL=postgresql+psycopg://...
+```
+
+`SUPABASE_URL` must match `frontend/.env.local` `VITE_SUPABASE_URL`, and
+`DATABASE_URL` must point at the database containing that user's
+`public.profiles` row. `SUPABASE_JWT_SECRET` is not required.
+
+Do not rely on `frontend/.env.local` for backend values. The frontend uses
+`VITE_SUPABASE_ANON_KEY`; the root backend-loaded `.env` uses
+`SUPABASE_ANON_KEY`. The values can be the same, but the names cannot. For
+local compatibility only, root `.env` may contain `VITE_SUPABASE_ANON_KEY` and
+the backend will alias it to `SUPABASE_ANON_KEY`; the backend does not read
+frontend env files.
+
+On local auth failures, backend logs include only safe diagnostics:
+authorization header presence, backend Supabase env presence, Supabase
+`/auth/v1/user` status, and whether a profile row was found.
+
 ### `User profile not found`
 
 **Cause:** The backend received a valid Supabase JWT, but the database configured by `DATABASE_URL` does not contain a `profiles.id` row matching that Supabase auth user id. This usually happens when the frontend uses hosted Supabase Auth and creates `profiles` rows in Supabase Postgres, while the backend still points at local Docker Postgres.
@@ -155,6 +193,28 @@ git remote set-url origin https://github.com/tranguyeenn/shelftxt.git
 | Add / patch / import | `backend.services.postgres_books` or `backend.repository.postgres_books_repository` |
 | Delete / remove | `backend.services.postgres_books` or `backend.repository.postgres_books_repository` |
 | Recommend | `backend.routes.recommendation.get_recommendation` |
+
+---
+
+## Performance Verification
+
+Manual checklist after changing clear/import/library/recommendation behavior:
+
+1. Start the backend.
+2. Login as a test user.
+3. Load Library and confirm there are no Open Library or Google Books logs.
+4. Run `SELECT count(*) FROM books WHERE user_id = '<test_user_id>';`.
+5. Click Clear library.
+6. Confirm the response is fast.
+7. Verify the books count for that user becomes `0`.
+8. If a search index exists, verify it has no visible records for deleted books.
+9. Import a CSV.
+10. Confirm the import response is fast.
+11. Confirm there are no external API logs during import.
+12. Load Library again and confirm it is fast.
+13. Open Settings and click Generate Metadata.
+14. Confirm the UI returns control immediately and Metadata Progress updates.
+15. Confirm Open Library or Google Books logs only appear after the explicit metadata action.
 
 ---
 

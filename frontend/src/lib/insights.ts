@@ -24,17 +24,21 @@ export type PatternInsight =
   | { kind: "value"; label: string; value: string; detail?: string }
   | { kind: "empty"; label: string; message: string };
 
-function genreFromBook(book: BookRecord): string | null {
+function genresFromBook(book: BookRecord): string[] {
   const raw =
+    (book as Record<string, unknown>).Genres ??
+    (book as Record<string, unknown>).genres ??
     (book as Record<string, unknown>).Genre ??
     (book as Record<string, unknown>).genre ??
     (book as Record<string, unknown>)["Book Genre"];
-  const text = String(raw ?? "").trim();
-  return text ? text : null;
+  const values = Array.isArray(raw) ? raw : String(raw ?? "").split(/[,;|]/);
+  return values
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.length > 0);
 }
 
 export function libraryHasGenre(library: BookRecord[]): boolean {
-  return library.some((book) => genreFromBook(book) !== null);
+  return library.some((book) => genresFromBook(book).length > 0);
 }
 
 export function computeReadingSummary(library: BookRecord[]): ReadingSummary {
@@ -43,7 +47,12 @@ export function computeReadingSummary(library: BookRecord[]): ReadingSummary {
   const reading = apiBooks.filter((b) => b.status === "reading").length;
   const notStarted = apiBooks.filter((b) => b.status === "not_started").length;
 
-  const totalPagesRead = apiBooks.reduce((sum, book) => sum + (book.pages_read ?? 0), 0);
+  const totalPagesRead = apiBooks.reduce((sum, book) => {
+    if (book.status === "completed" && book.total_pages != null && book.total_pages > 0) {
+      return sum + book.total_pages;
+    }
+    return sum + (book.pages_read ?? 0);
+  }, 0);
 
   const rated = library
     .filter((b) => recordToApiBook(b).status === "completed")
@@ -75,9 +84,9 @@ export function computeReadingPatterns(library: BookRecord[]): PatternInsight[] 
   if (libraryHasGenre(library)) {
     const genreCounts = new Map<string, number>();
     for (const book of completed) {
-      const genre = genreFromBook(book);
-      if (!genre) continue;
-      genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
+      for (const genre of genresFromBook(book)) {
+        genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
+      }
     }
     if (genreCounts.size > 0) {
       const [topGenre, count] = [...genreCounts.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -98,7 +107,7 @@ export function computeReadingPatterns(library: BookRecord[]): PatternInsight[] 
     patterns.push({
       kind: "empty",
       label: "Favorite genre",
-      message: "Genre is not tracked in your library yet."
+      message: "Genre data has not been generated yet."
     });
   }
 
@@ -126,12 +135,13 @@ export function computeReadingPatterns(library: BookRecord[]): PatternInsight[] 
   if (libraryHasGenre(library)) {
     const genreRatings = new Map<string, number[]>();
     for (const book of completed) {
-      const genre = genreFromBook(book);
       const rating = starRating(book);
-      if (!genre || rating === null) continue;
-      const list = genreRatings.get(genre) ?? [];
-      list.push(rating);
-      genreRatings.set(genre, list);
+      if (rating === null) continue;
+      for (const genre of genresFromBook(book)) {
+        const list = genreRatings.get(genre) ?? [];
+        list.push(rating);
+        genreRatings.set(genre, list);
+      }
     }
     if (genreRatings.size > 0) {
       const ranked = [...genreRatings.entries()]
@@ -158,7 +168,7 @@ export function computeReadingPatterns(library: BookRecord[]): PatternInsight[] 
     patterns.push({
       kind: "empty",
       label: "Highest rated genre",
-      message: "Genre and ratings together are not available in your library yet."
+      message: "Genre data has not been generated yet."
     });
   }
 

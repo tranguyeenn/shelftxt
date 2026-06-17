@@ -21,13 +21,15 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false, excludeIds: string[] = []) => {
     setLoading(true);
     setError("");
     try {
       const [books, recs] = await Promise.all([
         fetchAllLibraryBooks(),
-        fetchJson<RecommendationItem[]>(recommendQuery(settings))
+        fetchJson<RecommendationItem[]>(recommendQuery(settings, refresh, excludeIds), {
+          skipClientCache: refresh
+        })
       ]);
       setLibrary(books);
       setRecommendations(Array.isArray(recs) ? recs : []);
@@ -46,14 +48,21 @@ export function DashboardPage() {
 
   const topPick = recommendations[0] ?? null;
 
+  function refreshRecommendations() {
+    const excludeIds = recommendations
+      .map((item) => (item.recommended_book ?? item.book).id)
+      .filter(Boolean);
+    void load(true, excludeIds);
+  }
+
   return (
     <div className="grid gap-8">
       <PageHeader
         title="Recommended Next"
         subtitle="Our system thinks you should read next."
         actions={
-          <Button variant="secondary" onClick={() => void load()} disabled={loading}>
-            {loading ? "Refreshing…" : "Refresh signals"}
+          <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
+            {loading ? "Refreshing…" : "Refresh"}
           </Button>
         }
       />
@@ -73,8 +82,8 @@ export function DashboardPage() {
 
       {!loading && !topPick && !error ? (
         <EmptyState
-          title="No TBR recommendation yet"
-          description="Add books with status “to-read” to your library, or import a CSV, then the ranker can pick your next read."
+          title="No strong recommendation yet"
+          description="Add or enrich to-read books and rate completed books so ShelfTxt can find a real genre, subject, author, or description match."
           action={
             <Link
               to="/add"

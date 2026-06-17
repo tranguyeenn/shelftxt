@@ -3,16 +3,13 @@
 import os
 import logging
 from collections.abc import Generator
-from pathlib import Path
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-ENV_PATH = ROOT_DIR / ".env"
+from backend.env import ENV_PATH, load_backend_env
 
-load_dotenv(dotenv_path=ENV_PATH, override=False)
+load_backend_env()
 
 logger = logging.getLogger(__name__)
 

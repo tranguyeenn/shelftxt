@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatCard } from "@/components/ui/StatCard";
@@ -16,8 +17,15 @@ import {
   computeReadingPatterns,
   computeReadingSummary,
   currentlyReadingBooks,
+  libraryHasGenre,
   topRecommendationThemes
 } from "@/lib/insights";
+import {
+  fetchMetadataStatus,
+  metadataStatusLabel,
+  startMetadataGeneration,
+  type MetadataStatus
+} from "@/lib/metadata";
 import type { RecommendationItem } from "@/lib/types";
 
 function PatternCard({
@@ -39,6 +47,8 @@ export function InsightsPage() {
   const { settings } = useUserSettings();
   const [library, setLibrary] = useState<BookRecord[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
+  const [metadataStatus, setMetadataStatus] = useState<MetadataStatus | null>(null);
+  const [metadataStarting, setMetadataStarting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -46,15 +56,18 @@ export function InsightsPage() {
     setLoading(true);
     setError("");
     try {
-      const [books, recs] = await Promise.all([
+      const [books, recs, metadata] = await Promise.all([
         fetchAllLibraryBooks(),
-        fetchJson<RecommendationItem[]>(recommendQuery(settings))
+        fetchJson<RecommendationItem[]>(recommendQuery(settings)),
+        fetchMetadataStatus()
       ]);
       setLibrary(books);
       setRecommendations(Array.isArray(recs) ? recs : []);
+      setMetadataStatus(metadata);
     } catch (err) {
       setLibrary([]);
       setRecommendations([]);
+      setMetadataStatus(null);
       setError(err instanceof Error ? err.message : "Failed to load insights");
     } finally {
       setLoading(false);
@@ -69,9 +82,22 @@ export function InsightsPage() {
   const inProgress = useMemo(() => currentlyReadingBooks(library), [library]);
   const patterns = useMemo(() => computeReadingPatterns(library), [library]);
   const themes = useMemo(() => topRecommendationThemes(recommendations), [recommendations]);
+  const hasGenres = useMemo(() => libraryHasGenre(library), [library]);
 
   const avgRatingDisplay =
     summary.averageRating !== null ? `${summary.averageRating.toFixed(1)} / 5` : "—";
+
+  async function handleGenerateMetadata() {
+    setMetadataStarting(true);
+    setError("");
+    try {
+      setMetadataStatus(await startMetadataGeneration());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start metadata generation");
+    } finally {
+      setMetadataStarting(false);
+    }
+  }
 
   return (
     <div className="grid gap-8">
@@ -172,6 +198,31 @@ export function InsightsPage() {
 
           <section className="grid gap-3">
             <h2 className="text-sm font-medium text-text-dim">Reading patterns</h2>
+            {!hasGenres ? (
+              <Card className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div>
+                  <p className="text-sm font-medium text-text">
+                    Genre data has not been generated yet.
+                  </p>
+                  <p className="mt-1 text-sm text-text-muted">
+                    Metadata Progress: {metadataStatus?.job.processed_count ?? 0} /{" "}
+                    {metadataStatus?.job.total_count ?? 0} books ·{" "}
+                    {metadataStatusLabel(metadataStatus?.job.status ?? "completed")}
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  onClick={() => void handleGenerateMetadata()}
+                  disabled={
+                    metadataStarting ||
+                    metadataStatus?.job.status === "pending" ||
+                    metadataStatus?.job.status === "processing"
+                  }
+                >
+                  {metadataStarting ? "Generating" : "Generate Metadata"}
+                </Button>
+              </Card>
+            ) : null}
             <div className="grid gap-3 md:grid-cols-2">
               {patterns.map((pattern) => (
                 <PatternCard key={pattern.label} label={pattern.label}>

@@ -13,8 +13,19 @@ type RecommendationCardProps = {
 
 export function RecommendationCard({ item, rank }: RecommendationCardProps) {
   const { settings } = useUserSettings();
-  const { book, score, explanation, similar_books } = item;
+  const book = item.recommended_book ?? item.book;
+  const {
+    score,
+    explanation,
+    reason,
+    similar_books,
+    matched_genres = [],
+    matched_subjects = [],
+    matched_liked_books = [],
+  } = item;
   const showExplanation = settings.showRecommendationExplanations;
+  const displayReason = reason || explanation;
+  const tags = [...matched_genres, ...matched_subjects].slice(0, 6);
 
   return (
     <Card className="grid gap-4">
@@ -40,8 +51,35 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
 
       {showExplanation ? (
         <blockquote className="border-l-2 border-accent/40 pl-4 text-sm leading-relaxed text-text-muted">
-          {explanation}
+          {displayReason}
         </blockquote>
+      ) : null}
+
+      {showExplanation && tags.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {tags.map((tag) => (
+            <Badge key={tag} tone="neutral">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      {showExplanation && matched_liked_books.length > 0 ? (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-text-dim">Based on</p>
+          <ul className="mt-2 grid gap-1 text-sm text-text-muted">
+            {matched_liked_books.map((liked) => (
+              <li key={liked.id || `${liked.title}-${liked.author}`}>
+                <span className="text-text">{liked.title}</span>
+                <span className="text-text-dim"> — {liked.author}</span>
+                {liked.rating != null ? (
+                  <span className="text-text-dim"> · {Number(liked.rating).toFixed(1)}★</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {showExplanation && similar_books.length > 0 ? (

@@ -34,7 +34,9 @@ The frontend gets this token from the persisted Supabase session in `frontend/sr
 Backend verification happens in `backend/auth/dependencies.py`:
 
 - `HTTPBearer` requires the Authorization header.
-- Supabase verifies the access token with `supabase.auth.get_user(token)`.
+- The backend validates the access token with `GET {SUPABASE_URL}/auth/v1/user`,
+  using `Authorization: Bearer <token>` and backend `SUPABASE_ANON_KEY` as the
+  Supabase `apikey`.
 - The backend loads the matching `profiles` row.
 - Book CRUD and recommendation services receive `current_user.id` and scope data by that user id.
 

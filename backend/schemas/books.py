@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
+from backend.services.ratings import RATING_COLUMN_ALIASES, parse_rating_value
+
 
 class ReadingDateRangeMixin(BaseModel):
     start_date: str | None = None
@@ -61,6 +63,7 @@ class ImportRow(ReadingDateRangeMixin):
                     "author": "Ursula K. Le Guin",
                     "total_pages": 304,
                     "read_status": "reading",
+                    "star_rating": 4.75,
                     "pages_read": 120,
                     "progress_percent": 39.47,
                 }
@@ -91,6 +94,12 @@ class ImportRow(ReadingDateRangeMixin):
         default=None,
         validation_alias=AliasChoices("read_status", "status", "Read Status"),
     )
+    star_rating: float | None = Field(
+        default=None,
+        ge=0,
+        le=5,
+        validation_alias=AliasChoices(*RATING_COLUMN_ALIASES),
+    )
     last_date_read: str | None = Field(
         default=None,
         validation_alias=AliasChoices("last_date_read", "Last Date Read", "date_read", "Date Read"),
@@ -115,6 +124,11 @@ class ImportRow(ReadingDateRangeMixin):
         validation_alias=AliasChoices("progress_percent", "Progress (%)"),
     )
 
+    @field_validator("star_rating", mode="before")
+    @classmethod
+    def parse_import_star_rating(cls, value):
+        return parse_rating_value(value)
+
 
 class ImportBooks(BaseModel):
     model_config = ConfigDict(
@@ -127,6 +141,7 @@ class ImportBooks(BaseModel):
                             "author": "Ursula K. Le Guin",
                             "total_pages": 304,
                             "read_status": "reading",
+                            "star_rating": 4.75,
                             "pages_read": 120,
                             "progress_percent": 39.47,
                         }
@@ -162,6 +177,12 @@ class BookResponse(BaseModel):
     progress_percent: float | None = None
     pages_read: int | None = None
     total_pages: int | None = None
+    description: str | None = None
+    subjects: list[str] | None = None
+    genres: list[str] | None = None
+    first_publish_year: int | None = None
+    metadata_source: str | None = None
+    metadata_enriched_at: str | None = None
 
 
 class BooksPage(BaseModel):

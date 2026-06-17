@@ -24,7 +24,7 @@ export async function deleteBook(bookId: string): Promise<{ message: string }> {
   return fetchJson<{ message: string }>(`/books/${encodedId}`, { method: "DELETE" });
 }
 
-export async function clearLibrary(): Promise<{ message: string; deleted: number }> {
+export async function clearLibrary(): Promise<{ deleted: number }> {
   assertDemoWritable();
   const response = await apiFetch("/books/clear", {
     method: "POST",
@@ -36,5 +36,5 @@ export async function clearLibrary(): Promise<{ message: string; deleted: number
     throw new Error(await getApiErrorMessage(response, `Clear failed (${response.status})`));
   }
 
-  return response.json() as Promise<{ message: string; deleted: number }>;
+  return response.json() as Promise<{ deleted: number }>;
 }

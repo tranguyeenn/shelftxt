@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.exc import OperationalError, TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import get_current_user
 from backend.db.database import get_db
 from backend.db.models import Profile
+from backend.env import is_local_env
 from backend.schemas.books import (
     AddBook,
     BookProgressPatch,
@@ -31,8 +32,6 @@ from backend.services.postgres_books import (
     patch_book_by_id_service,
     update_book_progress_by_id_service,
 )
-from backend.services.page_count_lookup import backfill_missing_page_counts
-
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -44,12 +43,13 @@ async def get_books(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    logger.info(
-        "GET /books request start user_id=%s page=%s limit=%s",
-        current_user.id,
-        page,
-        limit,
-    )
+    if is_local_env():
+        logger.info(
+            "GET /books request start user_id=%s page=%s limit=%s",
+            current_user.id,
+            page,
+            limit,
+        )
     try:
         return get_books_service(db, current_user.id, page, limit)
     except (SQLAlchemyTimeoutError, OperationalError):
@@ -118,13 +118,10 @@ async def patch_book(
 @router.post("/books/import", response_model=ImportResult)
 async def import_books(
     data: ImportBooks,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    result = import_books_service(db, data, current_user.id)
-    background_tasks.add_task(backfill_missing_page_counts)
-    return result
+    return import_books_service(db, data, current_user.id)
 
 
 @router.get("/books/{book_id}")

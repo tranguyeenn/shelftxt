@@ -1,4 +1,5 @@
 import logging
+import random
 import time
 
 import pandas as pd
@@ -43,6 +44,111 @@ def _similar_books(
     return similar[:limit]
 
 
+def _match_details(
+    candidate: pd.Series,
+    read_df: pd.DataFrame,
+    precomputed_matches: list | None = None,
+) -> dict:
+    if precomputed_matches is not None:
+        similar = []
+        for index, similarity, rating in precomputed_matches[:5]:
+            if index in read_df.index:
+                similar.append((read_df.loc[index], similarity, rating))
+    else:
+        similar = [
+            (row, similarity, float(row.get("rating_norm", 0.0) or 0.0))
+            for row, similarity in meaningful_similar_books(candidate, read_df, limit=5)
+        ]
+
+    genres: list[str] = []
+    subjects: list[str] = []
+    authors: list[str] = []
+    liked_books: list[dict] = []
+
+    for row, similarity, rating in similar:
+        for genre in similarity.shared_genres:
+            if genre not in genres:
+                genres.append(genre)
+        for subject in similarity.shared_subjects:
+            if subject not in subjects:
+                subjects.append(subject)
+        author = str(row.get("Authors", row.get("author", "Unknown")) or "Unknown").strip()
+        if similarity.same_author and author and author not in authors:
+            authors.append(author)
+        title = str(row.get("Title", row.get("title", "a book you rated highly")) or "").strip()
+        if title:
+            raw_rating = row.get("Star Rating", row.get("star_rating"))
+            try:
+                display_rating = float(raw_rating)
+            except (TypeError, ValueError):
+                display_rating = None
+            liked_books.append(
+                {
+                    "id": str(row.get("ISBN/UID", row.get("isbn_uid", "")) or "").strip(),
+                    "title": title,
+                    "author": author,
+                    "rating": display_rating,
+                }
+            )
+
+    return {
+        "matched_genres": genres[:4],
+        "matched_subjects": subjects[:4],
+        "matched_authors": authors[:3],
+        "matched_liked_books": liked_books[:3],
+    }
+
+
+def _format_rating(value) -> str | None:
+    try:
+        rating = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f"{rating:g}★"
+
+
+def _reason_from_details(details: dict, read_df: pd.DataFrame) -> str:
+    liked_books = details["matched_liked_books"]
+    genres = details["matched_genres"]
+    subjects = details["matched_subjects"]
+    authors = details["matched_authors"]
+
+    if genres and liked_books:
+        book = liked_books[0]
+        rating = _format_rating(book.get("rating"))
+        suffix = f", which you rated {rating}" if rating else ", from your completed books"
+        signals = genres[:2] + subjects[:2]
+        return f"Shares {', '.join(signals[:4])} with {book['title']}{suffix}."
+
+    if subjects and liked_books:
+        titles = " and ".join(book["title"] for book in liked_books[:2])
+        return f"Matches your interest in {', '.join(subjects[:2])} from {titles}."
+
+    if authors and liked_books:
+        examples = " and ".join(book["title"] for book in liked_books[:2])
+        return f"You rated books by {', '.join(authors[:2])} highly, including {examples}."
+
+    has_metadata = False
+    for _, row in read_df.iterrows():
+        if row.get("Genres") or row.get("genres") or row.get("Subjects") or row.get("subjects"):
+            has_metadata = True
+            break
+
+    if not has_metadata:
+        return "Genre metadata has not been generated yet, so this uses rating and author signals only."
+
+    liked_titles: list[str] = []
+    for _, row in read_df.iterrows():
+        title = str(row.get("Title", row.get("title", "")) or "").strip()
+        if title:
+            liked_titles.append(title)
+        if len(liked_titles) >= 2:
+            break
+    if liked_titles:
+        return f"You rated completed books highly, including {' and '.join(liked_titles)}."
+    return "Recommended from your completed books and stored ratings."
+
+
 def _explanation(
     candidate: pd.Series,
     read_df: pd.DataFrame,
@@ -55,36 +161,56 @@ def _explanation(
     except (TypeError, ValueError):
         pass
 
-    if precomputed_matches is not None:
-        similar = []
-        for index, similarity, rating in precomputed_matches[:5]:
-            if index in read_df.index:
-                similar.append((read_df.loc[index], similarity, rating))
-    else:
-        similar = [
-            (row, similarity, float(row.get("rating_norm", 0.0) or 0.0))
-            for row, similarity in meaningful_similar_books(candidate, read_df, limit=5)
-        ]
-
-    if any(similarity.same_author for _, similarity, _ in similar):
-        return "You’ve read books by this author."
-    if any(similarity.shared_genres or similarity.shared_subjects for _, similarity, _ in similar):
-        return "This matches genres you’ve read before."
-    if any(rating >= 0.8 for _, _, rating in similar):
-        return "You rated similar books highly."
-    return "Recommended as a discovery pick from your unread books."
+    return _reason_from_details(_match_details(candidate, read_df, precomputed_matches), read_df)
 
 
-def _rank_tbr_for_style(df: pd.DataFrame, style: str) -> pd.DataFrame:
+def _rank_tbr_for_style(df: pd.DataFrame, style: str, refresh: bool = False) -> pd.DataFrame:
     style = (style or "balanced").strip().lower()
     if style == "popular":
         return score_tbr_books(df, randomness_strength=0.0, diverse_authors=False)
     if style == "discovery":
-        return score_tbr_books(df, randomness_strength=0.12, diverse_authors=True)
-    return score_tbr_books(df, randomness_strength=0.05, diverse_authors=False)
+        return score_tbr_books(df, randomness_strength=0.0, diverse_authors=True)
+    return score_tbr_books(df, randomness_strength=0.0, diverse_authors=False)
 
 
-def build_recommendations(df: pd.DataFrame, top_n: int = 10, style: str = "balanced") -> list[dict]:
+def _refresh_ranked_candidates(
+    ranked: pd.DataFrame,
+    *,
+    exclude_ids: set[str],
+    top_n: int,
+) -> pd.DataFrame:
+    if ranked.empty or "score" not in ranked.columns:
+        return ranked
+
+    max_score = float(ranked["score"].max())
+    strong = ranked[ranked["score"] >= max(0.35, max_score - 0.15)].copy()
+    if strong.empty:
+        return ranked
+
+    id_col = _resolve_column(strong, ["ISBN/UID", "isbn_uid"])
+    if id_col is None:
+        return strong
+
+    excluded_mask = strong[id_col].astype(str).isin(exclude_ids)
+    fresh = strong[~excluded_mask].copy()
+    fallback = strong[excluded_mask].copy()
+
+    fresh_rows = list(fresh.index)
+    random.shuffle(fresh_rows)
+    fallback_rows = list(fallback.index)
+    random.shuffle(fallback_rows)
+    ordered_index = fresh_rows + fallback_rows
+
+    return ranked.loc[ordered_index]
+
+
+def build_recommendations(
+    df: pd.DataFrame,
+    top_n: int = 10,
+    style: str = "balanced",
+    refresh: bool = False,
+    exclude_ids: set[str] | None = None,
+) -> list[dict]:
     total_started = time.perf_counter()
     timings: dict[str, float] = {}
     if df.empty:
@@ -96,7 +222,13 @@ def build_recommendations(df: pd.DataFrame, top_n: int = 10, style: str = "balan
     timings["metadata_normalization"] = (time.perf_counter() - phase_started) * 1000
 
     phase_started = time.perf_counter()
-    tbr_ranked = _rank_tbr_for_style(df, style)
+    tbr_ranked = _rank_tbr_for_style(df, style, refresh=refresh)
+    if refresh:
+        tbr_ranked = _refresh_ranked_candidates(
+            tbr_ranked,
+            exclude_ids=exclude_ids or set(),
+            top_n=top_n,
+        )
     timings["candidate_selection_ranking"] = (time.perf_counter() - phase_started) * 1000
 
     if tbr_ranked.empty:
@@ -121,16 +253,31 @@ def build_recommendations(df: pd.DataFrame, top_n: int = 10, style: str = "balan
             precomputed_matches = None
 
         book_api = series_to_api_book(row)
+        details = _match_details(row, read_df, precomputed_matches)
+        reason = _explanation(row, read_df, precomputed_matches)
+        recommended_book = {
+            "id": book_api["id"],
+            "title": book_api["title"],
+            "author": book_api["author"],
+        }
 
         results.append(
             {
-                "book": {
-                    "id": book_api["id"],
-                    "title": book_api["title"],
-                    "author": book_api["author"],
-                },
+                "recommended_book": recommended_book,
+                "book": recommended_book,
                 "score": round(min(1.0, max(0.0, score)), 4),
-                "explanation": _explanation(row, read_df, precomputed_matches),
+                "reason": reason,
+                "explanation": reason,
+                "matched_genres": details["matched_genres"],
+                "matched_subjects": details["matched_subjects"],
+                "matched_authors": details["matched_authors"],
+                "matched_liked_books": details["matched_liked_books"],
+                "score_breakdown": {
+                    "overall": round(min(1.0, max(0.0, score)), 4),
+                    "metadata": bool(details["matched_genres"] or details["matched_subjects"]),
+                    "author": bool(details["matched_authors"]),
+                    "fallback": not bool(details["matched_genres"] or details["matched_subjects"] or details["matched_authors"]),
+                },
                 "similar_books": _similar_books(
                     row,
                     read_df,
