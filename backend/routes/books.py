@@ -1,5 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy.exc import OperationalError, TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_current_user
@@ -31,6 +34,7 @@ from backend.services.postgres_books import (
 from backend.services.page_count_lookup import backfill_missing_page_counts
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/books", response_model=BooksPage)
@@ -40,7 +44,23 @@ async def get_books(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
-    return get_books_service(db, current_user.id, page, limit)
+    logger.info(
+        "GET /books request start user_id=%s page=%s limit=%s",
+        current_user.id,
+        page,
+        limit,
+    )
+    try:
+        return get_books_service(db, current_user.id, page, limit)
+    except (SQLAlchemyTimeoutError, OperationalError):
+        logger.exception("GET /books database unavailable user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable. Please try again shortly.",
+        )
+    except Exception:
+        logger.exception("GET /books failed user_id=%s", current_user.id)
+        raise
 
 
 @router.get("/books/export")

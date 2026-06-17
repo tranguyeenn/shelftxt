@@ -32,6 +32,9 @@ export function apiUrl(path: string): string {
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const GET_CACHE_TTL_MS = 15_000;
+const API_FETCH_TIMEOUT_MS = Number(
+  import.meta.env.VITE_API_FETCH_TIMEOUT_MS ?? 20_000
+);
 let sessionPromise: ReturnType<typeof supabase.auth.getSession> | null = null;
 let sessionCacheUntil = 0;
 const jsonCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
@@ -68,11 +71,31 @@ export async function apiFetch(path: string, init?: ApiFetchInit): Promise<Respo
     clearApiClientCache();
   }
 
-  return fetch(apiUrl(path), {
-    cache: "no-store",
-    ...fetchInit,
-    headers: await authHeaders(fetchInit.headers, requireAuth)
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, API_FETCH_TIMEOUT_MS);
+  fetchInit.signal?.addEventListener("abort", () => controller.abort(), {
+    once: true
   });
+
+  try {
+    return await fetch(apiUrl(path), {
+      cache: "no-store",
+      ...fetchInit,
+      headers: await authHeaders(fetchInit.headers, requireAuth),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error("Request timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function getApiErrorMessage(

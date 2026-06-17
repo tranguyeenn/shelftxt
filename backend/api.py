@@ -5,6 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import httpx
 import logging
 import time
+from sqlalchemy.exc import OperationalError, TimeoutError as SQLAlchemyTimeoutError
 from starlette.responses import JSONResponse
 
 from backend.demo_mode import is_demo_read_only
@@ -62,6 +63,32 @@ app = FastAPI(
 )
 
 
+@app.exception_handler(SQLAlchemyTimeoutError)
+async def sqlalchemy_timeout_handler(request, exc):
+    logger.exception(
+        "Database connection timed out during %s %s",
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database unavailable. Please try again shortly."},
+    )
+
+
+@app.exception_handler(OperationalError)
+async def sqlalchemy_operational_error_handler(request, exc):
+    logger.exception(
+        "Database operational error during %s %s",
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database unavailable. Please try again shortly."},
+    )
+
+
 # -----------------------------
 # CORS
 # -----------------------------
@@ -93,6 +120,8 @@ async def demo_read_only_guard(request, call_next):
 @app.middleware("http")
 async def endpoint_timing_logger(request, call_next):
     started = time.perf_counter()
+    if request.url.path == "/books" and request.method == "GET":
+        logger.info("GET /books request start")
     response = await call_next(request)
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     if duration_ms >= 250:

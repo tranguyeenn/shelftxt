@@ -1,6 +1,7 @@
 # backend/db/database.py
 
 import os
+import logging
 from collections.abc import Generator
 from pathlib import Path
 
@@ -12,6 +13,8 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = ROOT_DIR / ".env"
 
 load_dotenv(dotenv_path=ENV_PATH, override=False)
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -32,10 +35,25 @@ def get_database_url() -> str:
 def get_engine_kwargs(database_url: str) -> dict:
     engine_kwargs = {"pool_pre_ping": True}
 
+    if database_url.startswith("postgresql"):
+        engine_kwargs.update(
+            {
+                "pool_recycle": 300,
+                "pool_timeout": 10,
+                "pool_size": int(os.getenv("DB_POOL_SIZE", "2")),
+                "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "1")),
+            }
+        )
+
     if database_url.startswith("postgresql+psycopg"):
         # Supabase pooled/PgBouncer connections can reuse server connections across
         # clients, so psycopg prepared statement names may collide.
-        engine_kwargs["connect_args"] = {"prepare_threshold": None}
+        engine_kwargs["connect_args"] = {
+            "prepare_threshold": None,
+            "connect_timeout": 10,
+        }
+    elif database_url.startswith("postgresql"):
+        engine_kwargs["connect_args"] = {"connect_timeout": 10}
 
     return engine_kwargs
 
@@ -68,9 +86,11 @@ def get_session_local():
 
 
 def get_db() -> Generator[Session, None, None]:
+    logger.info("Creating DB session")
     db = get_session_local()()
 
     try:
         yield db
     finally:
+        logger.info("Closing DB session")
         db.close()

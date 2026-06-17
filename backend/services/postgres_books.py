@@ -118,7 +118,14 @@ def _validate_date_range(start: date | None, end: date | None) -> None:
 
 
 def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
+    logger.info(
+        "GET /books before query user_id=%s page=%s limit=%s",
+        user_id,
+        page,
+        limit,
+    )
     books = get_all_books(db, user_id)
+    logger.info("GET /books after query user_id=%s rows=%s", user_id, len(books))
     total = len(books)
     start = (page - 1) * limit
 
