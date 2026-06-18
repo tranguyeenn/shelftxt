@@ -16,6 +16,18 @@ import { loadCachedProfile, profileDisplayName } from "@/lib/profile";
 import { recommendQuery } from "@/lib/userSettings";
 import type { RecommendationItem } from "@/lib/types";
 
+function timeBasedGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return "good morning";
+  }
+  if (hour < 18) {
+    return "good afternoon";
+  }
+  return "good evening";
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
   const { settings } = useUserSettings();
@@ -55,6 +67,7 @@ export function DashboardPage() {
   const profileName = profileDisplayName(loadCachedProfile());
   const fallbackName = user?.email?.split("@")[0] || "reader";
   const greetingName = (profileName === "Reader" ? fallbackName : profileName).toLowerCase();
+  const greeting = timeBasedGreeting();
 
   function refreshRecommendations() {
     const excludeIds = recommendations
@@ -66,7 +79,7 @@ export function DashboardPage() {
   return (
     <div className="grid gap-8">
       <PageHeader
-        title={`good afternoon, ${greetingName}.`}
+        title={`${greeting}, ${greetingName}.`}
         subtitle={`you have ${tbrCount} books on your TBR.`}
         actions={
           <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
@@ -94,7 +107,7 @@ export function DashboardPage() {
           description="Rate completed books and keep your TBR up to date so ShelfTxt can suggest what to read next."
           action={
             <Link
-              to="/add"
+              to="/app/add"
               className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg hover:bg-accent-dim"
             >
               Add your first book
@@ -110,7 +123,7 @@ export function DashboardPage() {
           <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-text">continue reading</h2>
-              <Link to="/library" className="text-sm text-accent hover:underline">
+              <Link to="/app/library" className="text-sm text-accent hover:underline">
                 library
               </Link>
             </div>
@@ -136,7 +149,7 @@ export function DashboardPage() {
           />
           {recommendations.length > 1 ? (
             <Link
-              to="/ranking"
+              to="/app/ranking"
               className="rounded-lg border border-border bg-bg-elevated p-4 text-sm text-text-muted transition-colors hover:border-accent hover:text-text"
             >
               View all recommendations

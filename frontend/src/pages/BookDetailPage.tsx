@@ -68,7 +68,7 @@ export function BookDetailPage() {
 
   return (
     <div className="grid gap-6">
-      <Link to="/library" className="text-sm text-accent hover:underline">
+      <Link to="/app/library" className="text-sm text-accent hover:underline">
         ← Back to library
       </Link>
       <PageHeader
@@ -252,7 +252,7 @@ export function BookDetailPage() {
             <BookDeleteButton
               bookId={book.id}
               bookTitle={book.title}
-              onDeleted={() => navigate("/library")}
+              onDeleted={() => navigate("/app/library")}
             />
           </Card>
           {editing ? (

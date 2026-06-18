@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AppShell } from "@/components/layout/AppShell";
@@ -17,6 +17,11 @@ import { InsightsPage } from "@/pages/InsightsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { RegisterPage } from "@/pages/RegisterPage";
 
+function LegacyBookRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/app/book/${encodeURIComponent(id ?? "")}`} replace />;
+}
+
 export function App() {
   return (
     <AuthProvider>
@@ -33,17 +38,29 @@ export function App() {
                 </ProtectedRoute>
               }
             >
-              <Route path="app" element={<DashboardPage />} />
-              <Route path="library" element={<LibraryPage />} />
-              <Route path="ranking" element={<RankingPage />} />
-              <Route path="book/:id" element={<BookDetailPage />} />
-              <Route path="add" element={isReadOnlyDemo ? <Navigate to="/app" replace /> : <AddBookPage />} />
-              <Route path="insights" element={<InsightsPage />} />
-              <Route path="profile" element={<ProfilePage />} />
-              <Route path="system" element={<Navigate to="/insights" replace />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="*" element={<Navigate to="/app" replace />} />
+              <Route path="app">
+                <Route index element={<DashboardPage />} />
+                <Route path="home" element={<Navigate to="/app" replace />} />
+                <Route path="library" element={<LibraryPage />} />
+                <Route path="ranking" element={<RankingPage />} />
+                <Route path="book/:id" element={<BookDetailPage />} />
+                <Route path="add" element={isReadOnlyDemo ? <Navigate to="/app" replace /> : <AddBookPage />} />
+                <Route path="insights" element={<InsightsPage />} />
+                <Route path="profile" element={<ProfilePage />} />
+                <Route path="system" element={<Navigate to="/app/insights" replace />} />
+                <Route path="settings" element={<SettingsPage />} />
+                <Route path="*" element={<Navigate to="/app" replace />} />
+              </Route>
+              <Route path="library" element={<Navigate to="/app/library" replace />} />
+              <Route path="ranking" element={<Navigate to="/app/ranking" replace />} />
+              <Route path="book/:id" element={<LegacyBookRedirect />} />
+              <Route path="add" element={<Navigate to="/app/add" replace />} />
+              <Route path="insights" element={<Navigate to="/app/insights" replace />} />
+              <Route path="profile" element={<Navigate to="/app/profile" replace />} />
+              <Route path="system" element={<Navigate to="/app/insights" replace />} />
+              <Route path="settings" element={<Navigate to="/app/settings" replace />} />
             </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </UserSettingsProvider>
       </BrowserRouter>

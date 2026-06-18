@@ -3,12 +3,12 @@ import { NavLink } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
-  { to: "/", label: "Home", icon: DashboardIcon },
-  { to: "/library", label: "Library", icon: LibraryIcon },
-  { to: "/ranking", label: "Recommendations", icon: RankingIcon },
-  { to: "/insights", label: "Stats", icon: InsightsIcon },
-  { to: "/profile", label: "Profile", icon: ProfileIcon },
-  { to: "/settings", label: "Settings", icon: SettingsIcon }
+  { to: "/app", label: "Home", icon: DashboardIcon },
+  { to: "/app/library", label: "Library", icon: LibraryIcon },
+  { to: "/app/ranking", label: "Recommendations", icon: RankingIcon },
+  { to: "/app/insights", label: "Stats", icon: InsightsIcon },
+  { to: "/app/profile", label: "Profile", icon: ProfileIcon },
+  { to: "/app/settings", label: "Settings", icon: SettingsIcon }
 ] as const;
 
 function linkClass({ isActive }: { isActive: boolean }) {
@@ -34,7 +34,7 @@ export function Sidebar() {
         aria-label="Main"
       >
         {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === "/"} className={linkClass}>
+          <NavLink key={to} to={to} end={to === "/app"} className={linkClass}>
             <Icon className="h-4 w-4 shrink-0 opacity-80" />
             <span className="hidden md:inline">{label}</span>
             <span className="text-[10px] md:hidden">{label}</span>

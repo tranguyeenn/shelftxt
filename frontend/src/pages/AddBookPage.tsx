@@ -138,7 +138,7 @@ export function AddBookPage() {
             <Button variant="primary" type="submit" disabled={loading}>
               {loading ? "Adding…" : "Add book"}
             </Button>
-            <Button variant="ghost" type="button" onClick={() => navigate("/ranking")}>
+            <Button variant="ghost" type="button" onClick={() => navigate("/app/ranking")}>
               Go to ranking
             </Button>
           </div>

@@ -132,7 +132,7 @@ export function InsightsPage() {
           description="Add books to your library to see summaries, patterns, and recommendation insights."
           action={
             <Link
-              to="/add"
+              to="/app/add"
               className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg hover:bg-accent-dim"
             >
               Add a book
@@ -201,7 +201,7 @@ export function InsightsPage() {
               <Card>
                 <p className="text-sm text-text-muted">
                   You are not reading any books right now. Open your{" "}
-                  <Link to="/library" className="text-accent hover:underline">
+                  <Link to="/app/library" className="text-accent hover:underline">
                     library
                   </Link>{" "}
                   to start one.
@@ -213,7 +213,7 @@ export function InsightsPage() {
                   <Card key={book.id} className="grid gap-3 sm:grid-cols-[1fr_auto]">
                     <div>
                       <Link
-                        to={`/book/${encodeURIComponent(book.id)}`}
+                        to={`/app/book/${encodeURIComponent(book.id)}`}
                         className="text-base font-semibold text-text hover:text-accent hover:underline"
                       >
                         {book.title}

@@ -12,18 +12,18 @@ export function QuickActions() {
       <p className="text-sm text-text-muted">Quick actions</p>
       <div className="flex flex-wrap gap-2">
         {!isReadOnlyDemo ? (
-          <Link to="/add" className={`${actionLink} bg-accent font-medium text-bg hover:bg-accent-dim`}>
+          <Link to="/app/add" className={`${actionLink} bg-accent font-medium text-bg hover:bg-accent-dim`}>
             Add book
           </Link>
         ) : null}
         <Link
-          to="/ranking"
+          to="/app/ranking"
           className={`${actionLink} border border-border bg-surface text-text hover:bg-surface-hover`}
         >
           Open TBR ranking
         </Link>
         <Link
-          to="/insights"
+          to="/app/insights"
           className={`${actionLink} text-text-muted hover:bg-surface hover:text-text`}
         >
           View insights
