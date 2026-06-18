@@ -2,19 +2,22 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BookCard } from "@/components/books/BookCard";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { QuickActions } from "@/features/dashboard/QuickActions";
+import { MiniVibeCard } from "@/components/ui/MiniVibeCard";
 import { ReadingStats } from "@/features/dashboard/ReadingStats";
 import { RecommendedNextCard } from "@/features/dashboard/RecommendedNextCard";
-import { RecommendationsList } from "@/features/recommendations/RecommendationsList";
+import { useAuth } from "@/contexts/AuthContext";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
-import { fetchAllLibraryBooks, type BookRecord } from "@/lib/books";
+import { fetchAllLibraryBooks, recordToApiBook, type BookRecord } from "@/lib/books";
+import { loadCachedProfile, profileDisplayName } from "@/lib/profile";
 import { recommendQuery } from "@/lib/userSettings";
 import type { RecommendationItem } from "@/lib/types";
 
 export function DashboardPage() {
+  const { user } = useAuth();
   const { settings } = useUserSettings();
   const [library, setLibrary] = useState<BookRecord[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
@@ -47,6 +50,11 @@ export function DashboardPage() {
   }, [load]);
 
   const topPick = recommendations[0] ?? null;
+  const tbrCount = library.filter((book) => recordToApiBook(book).status !== "completed").length;
+  const reading = library.map(recordToApiBook).filter((book) => book.status === "reading").slice(0, 4);
+  const profileName = profileDisplayName(loadCachedProfile());
+  const fallbackName = user?.email?.split("@")[0] || "reader";
+  const greetingName = (profileName === "Reader" ? fallbackName : profileName).toLowerCase();
 
   function refreshRecommendations() {
     const excludeIds = recommendations
@@ -58,8 +66,8 @@ export function DashboardPage() {
   return (
     <div className="grid gap-8">
       <PageHeader
-        title="Recommended Next"
-        subtitle="Our system thinks you should read next."
+        title={`good afternoon, ${greetingName}.`}
+        subtitle={`you have ${tbrCount} books on your TBR.`}
         actions={
           <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
@@ -82,8 +90,8 @@ export function DashboardPage() {
 
       {!loading && !topPick && !error ? (
         <EmptyState
-          title="No strong recommendation yet"
-          description="Add or enrich to-read books and rate completed books so ShelfTxt can find a real genre, subject, author, or description match."
+          title="Add more books to get recommendations."
+          description="Rate completed books and keep your TBR up to date so ShelfTxt can suggest what to read next."
           action={
             <Link
               to="/add"
@@ -95,25 +103,49 @@ export function DashboardPage() {
         />
       ) : null}
 
-      {topPick ? <RecommendedNextCard item={topPick} /> : null}
+      <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
+        <div className="grid gap-6">
+          {topPick ? <RecommendedNextCard item={topPick} /> : null}
 
-      {recommendations.length > 0 ? (
-        <section className="grid gap-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-text">Top 10 recommendations</h2>
-            <Link to="/ranking" className="text-sm text-accent hover:underline">
-              View all
-            </Link>
-          </div>
-          <RecommendationsList
-            items={topPick ? recommendations.slice(1) : recommendations}
-            limit={topPick ? 9 : 10}
+          <section className="grid gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-text">continue reading</h2>
+              <Link to="/library" className="text-sm text-accent hover:underline">
+                library
+              </Link>
+            </div>
+            {reading.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {reading.map((book) => (
+                  <BookCard key={book.id} book={book} />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg border border-border bg-surface p-4 text-sm text-text-muted">
+                No books are marked currently reading.
+              </p>
+            )}
+          </section>
+        </div>
+        <div className="grid content-start gap-4">
+          <MiniVibeCard
+            mood="late night reads"
+            genre="indie folk"
+            song="august - Taylor Swift"
+            spotifyUrl="https://open.spotify.com/search/august%20Taylor%20Swift"
           />
-        </section>
-      ) : null}
+          {recommendations.length > 1 ? (
+            <Link
+              to="/ranking"
+              className="rounded-lg border border-border bg-bg-elevated p-4 text-sm text-text-muted transition-colors hover:border-accent hover:text-text"
+            >
+              View all recommendations
+            </Link>
+          ) : null}
+        </div>
+      </div>
 
       <ReadingStats library={library} />
-      <QuickActions />
     </div>
   );
 }

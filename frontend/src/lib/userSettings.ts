@@ -1,6 +1,6 @@
 export type RecommendationStyle = "balanced" | "popular" | "discovery";
 export type AccentColor = "teal" | "blue" | "violet" | "amber" | "rose";
-export type AppTheme = "dark" | "light";
+export type AppTheme = "dark" | "light" | "system";
 
 export type UserSettings = {
   recommendationStyle: RecommendationStyle;
@@ -8,6 +8,7 @@ export type UserSettings = {
   compactMode: boolean;
   accentColor: AccentColor;
   theme: AppTheme;
+  showVibeSuggestions: boolean;
 };
 
 const STORAGE_KEY = "shelftxt.userSettings";
@@ -17,7 +18,8 @@ const DEFAULTS: UserSettings = {
   showRecommendationExplanations: true,
   compactMode: false,
   accentColor: "teal",
-  theme: "dark"
+  theme: "dark",
+  showVibeSuggestions: false
 };
 
 export const ACCENT_PRESETS: Record<
@@ -25,34 +27,34 @@ export const ACCENT_PRESETS: Record<
   { label: string; accent: string; accentDim: string; accentMuted: string }
 > = {
   teal: {
-    label: "Teal",
-    accent: "#2dd4bf",
-    accentDim: "#14b8a6",
-    accentMuted: "rgba(45, 212, 191, 0.12)"
+    label: "Moss",
+    accent: "#8FAF7A",
+    accentDim: "#A3C68B",
+    accentMuted: "rgba(143, 175, 122, 0.14)"
   },
   blue: {
-    label: "Blue",
-    accent: "#60a5fa",
-    accentDim: "#3b82f6",
-    accentMuted: "rgba(96, 165, 250, 0.14)"
+    label: "Sage",
+    accent: "#7F9185",
+    accentDim: "#9AA99D",
+    accentMuted: "rgba(127, 145, 133, 0.14)"
   },
   violet: {
-    label: "Violet",
-    accent: "#a78bfa",
-    accentDim: "#8b5cf6",
-    accentMuted: "rgba(167, 139, 250, 0.14)"
+    label: "Olive",
+    accent: "#A5A06B",
+    accentDim: "#BBB57C",
+    accentMuted: "rgba(165, 160, 107, 0.14)"
   },
   amber: {
-    label: "Amber",
-    accent: "#fbbf24",
-    accentDim: "#f59e0b",
-    accentMuted: "rgba(251, 191, 36, 0.14)"
+    label: "Ochre",
+    accent: "#B6A27C",
+    accentDim: "#C9B891",
+    accentMuted: "rgba(182, 162, 124, 0.14)"
   },
   rose: {
-    label: "Rose",
-    accent: "#fb7185",
-    accentDim: "#f43f5e",
-    accentMuted: "rgba(251, 113, 133, 0.14)"
+    label: "Clay",
+    accent: "#B98275",
+    accentDim: "#CC978B",
+    accentMuted: "rgba(185, 130, 117, 0.14)"
   }
 };
 
@@ -68,7 +70,8 @@ function normalizeSettings(parsed: Partial<UserSettings>): UserSettings {
       parsed.showRecommendationExplanations ?? DEFAULTS.showRecommendationExplanations,
     compactMode: parsed.compactMode ?? DEFAULTS.compactMode,
     accentColor: accent in ACCENT_PRESETS ? accent : DEFAULTS.accentColor,
-    theme: theme === "light" ? "light" : "dark"
+    theme: theme === "light" || theme === "system" ? theme : "dark",
+    showVibeSuggestions: parsed.showVibeSuggestions ?? DEFAULTS.showVibeSuggestions
   };
 }
 
@@ -96,7 +99,14 @@ export function applyAccentColor(accent: AccentColor): void {
 }
 
 export function applyTheme(theme: AppTheme): void {
-  document.documentElement.dataset.theme = theme;
+  const resolved =
+    theme === "system" && window.matchMedia?.("(prefers-color-scheme: light)").matches
+      ? "light"
+      : theme === "system"
+        ? "dark"
+        : theme;
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.themePreference = theme;
 }
 
 export function applyAppearance(settings: UserSettings): void {

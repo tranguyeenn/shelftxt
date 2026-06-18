@@ -4,28 +4,28 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-bg: #0b0f14;
-  --color-bg-elevated: #111820;
-  --color-surface: #151c26;
-  --color-surface-hover: #1a2330;
-  --color-border: #243044;
-  --color-border-subtle: #1c2636;
+  --color-bg: #0f1110;
+  --color-bg-elevated: #171a18;
+  --color-surface: #1e221f;
+  --color-surface-hover: #252b27;
+  --color-border: #2a302b;
+  --color-border-subtle: #20251f;
 
-  --color-text: #e8edf4;
-  --color-text-muted: #8b9bb0;
-  --color-text-dim: #5c6b80;
+  --color-text: #f2f0ea;
+  --color-text-muted: #a8aea7;
+  --color-text-dim: #71776f;
 
-  --color-accent: #2dd4bf;
-  --color-accent-dim: #14b8a6;
-  --color-accent-muted: rgba(45, 212, 191, 0.12);
+  --color-accent: #8faf7a;
+  --color-accent-dim: #a3c68b;
+  --color-accent-muted: rgba(143, 175, 122, 0.14);
 
-  --color-score-rating: #34d399;
-  --color-score-recency: #fb923c;
-  --color-score-author: #60a5fa;
-  --color-score-other: #a78bfa;
+  --color-score-rating: #f2c94c;
+  --color-score-recency: #8faf7a;
+  --color-score-author: #b6a27c;
+  --color-score-other: #7f9185;
 
-  --color-danger: #f87171;
-  --color-danger-muted: rgba(248, 113, 113, 0.12);
+  --color-danger: #d97777;
+  --color-danger-muted: rgba(217, 119, 119, 0.12);
 }
 
 @layer base {
@@ -59,14 +59,14 @@ html[data-compact="true"] #root .gap-4 {
 
 html[data-theme="light"] {
   color-scheme: light;
-  --color-bg: #f4f6f9;
-  --color-bg-elevated: #ffffff;
+  --color-bg: #f4f3ee;
+  --color-bg-elevated: #fbfaf6;
   --color-surface: #ffffff;
-  --color-surface-hover: #eef2f7;
-  --color-border: #d5dde8;
-  --color-border-subtle: #e8edf4;
-  --color-text: #0f172a;
-  --color-text-muted: #475569;
-  --color-text-dim: #64748b;
-  --color-danger-muted: rgba(248, 113, 113, 0.1);
+  --color-surface-hover: #efeee8;
+  --color-border: #d8d6cc;
+  --color-border-subtle: #e7e4da;
+  --color-text: #191b19;
+  --color-text-muted: #5f665f;
+  --color-text-dim: #7d837b;
+  --color-danger-muted: rgba(217, 119, 119, 0.1);
 }

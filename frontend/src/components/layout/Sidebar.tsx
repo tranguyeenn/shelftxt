@@ -1,20 +1,19 @@
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/contexts/AuthContext";
-import { isReadOnlyDemo } from "@/lib/demoMode";
 
 const navItems = [
-  { to: "/", label: "Dashboard", icon: DashboardIcon },
+  { to: "/", label: "Home", icon: DashboardIcon },
   { to: "/library", label: "Library", icon: LibraryIcon },
   { to: "/ranking", label: "Recommendations", icon: RankingIcon },
-  { to: "/add", label: "Add Book", icon: AddIcon, hideInDemo: true },
-  { to: "/insights", label: "Insights", icon: InsightsIcon },
+  { to: "/insights", label: "Stats", icon: InsightsIcon },
+  { to: "/profile", label: "Profile", icon: ProfileIcon },
   { to: "/settings", label: "Settings", icon: SettingsIcon }
 ] as const;
 
 function linkClass({ isActive }: { isActive: boolean }) {
   return [
-    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors md:w-full",
     isActive
       ? "bg-accent-muted text-accent"
       : "text-text-muted hover:bg-surface-hover hover:text-text"
@@ -25,22 +24,20 @@ export function Sidebar() {
   const { logout, user } = useAuth();
 
   return (
-    <aside className="flex w-full shrink-0 flex-row items-center gap-2 border-b border-border bg-bg-elevated px-3 py-2 md:w-56 md:flex-col md:items-stretch md:border-b-0 md:border-r md:px-0 md:py-0">
+    <aside className="md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col md:border-r md:border-border md:bg-bg-elevated">
       <div className="hidden border-b border-border-subtle px-4 py-5 md:block">
-        <p className="font-mono text-xs uppercase tracking-widest text-text-dim">ShelfTxt</p>
-        <p className="mt-1 text-sm text-text-muted">Recommendation lab</p>
+        <p className="text-base font-semibold tracking-tight text-text">ShelfTxt</p>
+        <p className="mt-1 text-sm text-text-muted">read this next</p>
       </div>
-      <p className="font-mono text-xs uppercase tracking-widest text-text-dim md:hidden">ShelfTxt</p>
       <nav
-        className="flex flex-1 flex-row gap-1 overflow-x-auto p-1 md:flex-col md:overflow-visible md:p-3"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-bg-elevated/95 px-1 py-2 backdrop-blur md:static md:flex md:flex-1 md:grid-cols-none md:flex-col md:gap-1 md:border-t-0 md:bg-transparent md:p-3"
         aria-label="Main"
       >
-        {navItems
-          .filter((item) => !(isReadOnlyDemo && "hideInDemo" in item && item.hideInDemo))
-          .map(({ to, label, icon: Icon }) => (
+        {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} end={to === "/"} className={linkClass}>
             <Icon className="h-4 w-4 shrink-0 opacity-80" />
-            {label}
+            <span className="hidden md:inline">{label}</span>
+            <span className="text-[10px] md:hidden">{label}</span>
           </NavLink>
         ))}
       </nav>
@@ -53,15 +50,8 @@ export function Sidebar() {
         >
           Log out
         </button>
-        <p className="mt-3 font-mono text-[10px] leading-relaxed text-text-dim">v0.2.0 · rule-based ranker</p>
+        <p className="mt-3 text-[10px] leading-relaxed text-text-dim">v0.2.0 · focused reading</p>
       </div>
-      <button
-        className="shrink-0 cursor-pointer rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-surface-hover hover:text-text md:hidden"
-        type="button"
-        onClick={() => void logout()}
-      >
-        Log out
-      </button>
     </aside>
   );
 }
@@ -95,10 +85,11 @@ function RankingIcon({ className }: { className?: string }) {
   );
 }
 
-function AddIcon({ className }: { className?: string }) {
+function ProfileIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <path d="M12 5v14M5 12h14" />
+      <path d="M20 21a8 8 0 0 0-16 0" />
+      <circle cx="12" cy="7" r="4" />
     </svg>
   );
 }

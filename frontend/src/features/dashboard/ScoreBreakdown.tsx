@@ -11,7 +11,7 @@ export function ScoreBreakdownPanel({ breakdown }: ScoreBreakdownProps) {
     <Card>
       <h2 className="text-sm font-medium text-text">Score breakdown</h2>
       <p className="mt-1 text-xs text-text-muted">
-        Transparent signal weights used to explain this recommendation.
+        Supporting details from your library match.
       </p>
       <div className="mt-5 grid gap-5">
         {breakdown.factors.map((factor) => (
@@ -21,7 +21,7 @@ export function ScoreBreakdownPanel({ breakdown }: ScoreBreakdownProps) {
             value={factor.value}
             weight={factor.weight}
             color={factor.color}
-            explanation={`${factor.explanation} Weight: ${Math.round(factor.weight * 100)}%.`}
+            explanation={factor.explanation}
           />
         ))}
       </div>

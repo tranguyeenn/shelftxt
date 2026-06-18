@@ -67,6 +67,10 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertIn("matched_genres", first)
         self.assertIn("matched_liked_books", first)
         self.assertIn("score_breakdown", first)
+        self.assertIn("recommendation_reasons", first)
+        self.assertIn("recommendation_breakdown", first)
+        self.assertIn("signals", first)
+        self.assertIn("related_books", first)
         self.assertIn("similar_books", first)
         titles = {item["book"]["title"] for item in results}
         self.assertEqual(titles, {"TBR One", "TBR Two"})
@@ -102,6 +106,7 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertIn("5★", result["reason"])
         self.assertIn("romance", result["matched_genres"])
         self.assertEqual(result["matched_liked_books"][0]["title"], "Book Lovers")
+        self.assertEqual(result["related_books"][0]["title"], "Book Lovers")
 
     def test_normal_recommendation_is_deterministic(self):
         df = pd.DataFrame(
@@ -163,10 +168,9 @@ class RecommendationBuilderTests(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["book"]["title"], "Có hạnh phúc")
-        self.assertEqual(
-            result[0]["explanation"],
-            "You rated completed books highly, including Fahrenheit 451 and The Great Gatsby.",
-        )
+        self.assertEqual(result[0]["explanation"], "Recommended based on your reading history.")
+        self.assertEqual(result[0]["matched_liked_books"], [])
+        self.assertEqual(result[0]["recommendation_reasons"], [])
 
     def test_generic_genres_do_not_create_similarity_but_can_fallback(self):
         df = pd.DataFrame(

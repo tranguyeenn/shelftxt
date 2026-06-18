@@ -214,17 +214,33 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         position = len(scores_by_index)
         noise_value = noise[position] if position < len(noise) else 0.0
         scores_by_index[row.name] = score + noise_value
+        similar_strength = min(1.0, len(similar) / 3) if similar else 0.0
+        similar_matches_by_index[(row.name, "_signals")] = {
+            "genre_fit": max(genre_score, subject_score),
+            "mood_match": max(subject_score, description_score),
+            "reader_similarity": similar_strength,
+            "author_affinity": author_score,
+        }
 
     if not scores_by_index:
         fallback = tbr_df.copy()
         if "recency_norm" not in fallback.columns:
             fallback["recency_norm"] = 0.5
         fallback["score"] = (
-            0.45 * fallback["author_score"].fillna(0.5)
-            + 0.35 * fallback.get("rating_norm", 0.5)
-            + 0.20 * fallback["recency_norm"].fillna(0.5)
+            0.55 * fallback["author_score"].fillna(0.5)
+            + 0.25 * fallback["recency_norm"].fillna(0.5)
+            + 0.20 * fallback.get("rating_norm", 0.5)
         ).clip(0, 1)
         fallback["_similar_matches"] = [[] for _ in range(len(fallback))]
+        fallback["_signal_scores"] = [
+            {
+                "genre_fit": None,
+                "mood_match": None,
+                "reader_similarity": None,
+                "author_affinity": float(max(0.0, min(1.0, value))) if value > 0.5 else None,
+            }
+            for value in fallback["author_score"].fillna(0.5)
+        ]
         fallback = fallback.sort_values(by="score", ascending=False)
         if diverse_authors:
             fallback = fallback.drop_duplicates(subset=[author_col])
@@ -233,6 +249,9 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
     tbr_df = tbr_df.loc[list(scores_by_index.keys())].copy()
     tbr_df["score"] = tbr_df.index.map(scores_by_index)
     tbr_df["_similar_matches"] = tbr_df.index.map(lambda index: similar_matches_by_index.get(index, []))
+    tbr_df["_signal_scores"] = tbr_df.index.map(
+        lambda index: similar_matches_by_index.get((index, "_signals"), {})
+    )
     timings["genre_matching"] = genre_ms
     timings["subject_matching"] = subject_ms
 

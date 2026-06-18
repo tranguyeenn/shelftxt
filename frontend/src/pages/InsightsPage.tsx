@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { MonthlyBooksChart } from "@/components/ui/MonthlyBooksChart";
 import { StatCard } from "@/components/ui/StatCard";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
@@ -14,6 +15,8 @@ import { statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, type BookRecord } from "@/lib/books";
 import {
   RECOMMENDATION_SIGNALS,
+  completionYears,
+  computeMonthlyCompletions,
   computeReadingPatterns,
   computeReadingSummary,
   currentlyReadingBooks,
@@ -49,6 +52,7 @@ export function InsightsPage() {
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [metadataStatus, setMetadataStatus] = useState<MetadataStatus | null>(null);
   const [metadataStarting, setMetadataStarting] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -81,6 +85,11 @@ export function InsightsPage() {
   const summary = useMemo(() => computeReadingSummary(library), [library]);
   const inProgress = useMemo(() => currentlyReadingBooks(library), [library]);
   const patterns = useMemo(() => computeReadingPatterns(library), [library]);
+  const availableYears = useMemo(() => completionYears(library), [library]);
+  const monthlyCompletions = useMemo(
+    () => computeMonthlyCompletions(library, selectedYear),
+    [library, selectedYear]
+  );
   const themes = useMemo(() => topRecommendationThemes(recommendations), [recommendations]);
   const hasGenres = useMemo(() => libraryHasGenre(library), [library]);
 
@@ -102,8 +111,8 @@ export function InsightsPage() {
   return (
     <div className="grid gap-8">
       <PageHeader
-        title="Insights"
-        subtitle="Understand your library, progress, and what shapes your recommendations."
+        title="Stats"
+        subtitle="Reading analytics for your library and habits."
       />
 
       {error ? (
@@ -135,19 +144,16 @@ export function InsightsPage() {
       {!loading && library.length > 0 ? (
         <>
           <section className="grid gap-3">
-            <h2 className="text-sm font-medium text-text-dim">Reading summary</h2>
+            <h2 className="text-sm font-medium text-text-dim">reading summary</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <StatCard label="Total books" value={String(summary.totalBooks)} />
-              <StatCard label="Completed" value={String(summary.completed)} />
-              <StatCard label="Currently reading" value={String(summary.reading)} />
-              <StatCard label="Not started" value={String(summary.notStarted)} />
+              <StatCard label="books read" value={String(summary.completed)} />
               <StatCard
-                label="Total pages read"
+                label="pages read"
                 value={summary.totalPagesRead.toLocaleString()}
                 hint="Across all books in your library"
               />
               <StatCard
-                label="Average rating"
+                label="average rating"
                 value={avgRatingDisplay}
                 hint={
                   summary.ratedCount > 0
@@ -155,11 +161,42 @@ export function InsightsPage() {
                     : "No ratings on completed books yet"
                 }
               />
+              <StatCard label="on TBR" value={String(summary.notStarted + summary.reading)} />
             </div>
           </section>
 
+          <section className="grid gap-3 lg:grid-cols-2">
+            <Card className="grid gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-sm font-medium text-text">books read per month</h2>
+                <label className="grid gap-1 text-xs text-text-dim">
+                  <span className="sr-only">Chart year</span>
+                  <select
+                    value={selectedYear}
+                    onChange={(event) => setSelectedYear(Number(event.target.value))}
+                    className="rounded-lg border border-border bg-bg-elevated px-2 py-1 text-sm text-text"
+                  >
+                    {availableYears.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <MonthlyBooksChart data={monthlyCompletions} />
+            </Card>
+            <Card className="grid gap-4">
+              <h2 className="text-sm font-medium text-text">reading moods</h2>
+              <EmptyState
+                title="No reading mood data yet."
+                description="Mood stats will appear when books have mood metadata."
+              />
+            </Card>
+          </section>
+
           <section className="grid gap-3">
-            <h2 className="text-sm font-medium text-text-dim">Current progress</h2>
+            <h2 className="text-sm font-medium text-text-dim">current progress</h2>
             {inProgress.length === 0 ? (
               <Card>
                 <p className="text-sm text-text-muted">
@@ -197,7 +234,7 @@ export function InsightsPage() {
           </section>
 
           <section className="grid gap-3">
-            <h2 className="text-sm font-medium text-text-dim">Reading patterns</h2>
+            <h2 className="text-sm font-medium text-text-dim">genre distribution</h2>
             {!hasGenres ? (
               <Card className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
                 <div>
@@ -242,7 +279,7 @@ export function InsightsPage() {
           </section>
 
           <section className="grid gap-3">
-            <h2 className="text-sm font-medium text-text-dim">Recommendation signals</h2>
+            <h2 className="text-sm font-medium text-text-dim">recommendation signals</h2>
             <Card className="grid gap-3">
               <p className="text-sm text-text-muted">
                 ShelfTxt learns from your own shelf — not from a generic bestseller list. Here is
@@ -263,7 +300,7 @@ export function InsightsPage() {
 
           {themes.length > 0 ? (
             <section className="grid gap-3">
-              <h2 className="text-sm font-medium text-text-dim">Top recommendation themes</h2>
+              <h2 className="text-sm font-medium text-text-dim">favorite authors in recommendations</h2>
               <Card className="grid gap-3">
                 <p className="text-sm text-text-muted">
                   Common authors showing up in your current top recommendations:

@@ -34,6 +34,22 @@ export type RecommendationItem = {
   matched_subjects?: string[];
   matched_authors?: string[];
   matched_liked_books?: MatchedLikedBook[];
+  related_books?: MatchedLikedBook[];
+  recommendation_reasons?: Array<{ label: string; detail: string }>;
+  signals?: {
+    genre_fit?: number | null;
+    mood_match?: number | null;
+    reader_similarity?: number | null;
+    author_affinity?: number | null;
+  };
+  recommendation_breakdown?: {
+    genre_fit?: number | null;
+    genre_label?: string | null;
+    mood_match?: number | null;
+    reader_similarity?: number | null;
+    author_affinity?: number | null;
+    inspired_by?: MatchedLikedBook[];
+  };
   score_breakdown?: Record<string, unknown>;
   similar_books: SimilarBook[];
 };

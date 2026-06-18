@@ -13,6 +13,7 @@ from backend.env import is_local_env, load_backend_env, log_local_env_presence
 from backend.routes.books import router as books_router
 from backend.routes.health import router as health_router
 from backend.routes.metadata import router as metadata_router
+from backend.routes.profile import router as profile_router
 from backend.routes.recommendation import router as recommendations_router
 
 load_backend_env()
@@ -146,5 +147,7 @@ app.include_router(health_router)
 app.include_router(books_router)
 
 app.include_router(metadata_router)
+
+app.include_router(profile_router)
 
 app.include_router(recommendations_router)

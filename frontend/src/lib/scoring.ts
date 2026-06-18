@@ -65,7 +65,7 @@ const FACTOR_META: Record<
   other: {
     label: "Other Factors",
     color: "score-other",
-    explanation: () => "Genre & popularity signals (placeholder until genre weighting ships)."
+    explanation: () => "Additional metadata signals from your library."
   }
 };
 

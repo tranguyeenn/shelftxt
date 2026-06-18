@@ -64,6 +64,8 @@ def _match_details(
     subjects: list[str] = []
     authors: list[str] = []
     liked_books: list[dict] = []
+    same_author = False
+    keyword_match = False
 
     for row, similarity, rating in similar:
         for genre in similarity.shared_genres:
@@ -75,6 +77,9 @@ def _match_details(
         author = str(row.get("Authors", row.get("author", "Unknown")) or "Unknown").strip()
         if similarity.same_author and author and author not in authors:
             authors.append(author)
+            same_author = True
+        if similarity.keyword_overlap:
+            keyword_match = True
         title = str(row.get("Title", row.get("title", "a book you rated highly")) or "").strip()
         if title:
             raw_rating = row.get("Star Rating", row.get("star_rating"))
@@ -96,6 +101,8 @@ def _match_details(
         "matched_subjects": subjects[:4],
         "matched_authors": authors[:3],
         "matched_liked_books": liked_books[:3],
+        "has_same_author": same_author,
+        "has_keyword_match": keyword_match,
     }
 
 
@@ -137,16 +144,107 @@ def _reason_from_details(details: dict, read_df: pd.DataFrame) -> str:
     if not has_metadata:
         return "Genre metadata has not been generated yet, so this uses rating and author signals only."
 
-    liked_titles: list[str] = []
-    for _, row in read_df.iterrows():
-        title = str(row.get("Title", row.get("title", "")) or "").strip()
-        if title:
-            liked_titles.append(title)
-        if len(liked_titles) >= 2:
+    return "Recommended based on your reading history."
+
+
+def _signal_percent(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(min(1.0, max(0.0, numeric)) * 100)
+
+
+def _signals_from_row(row: pd.Series) -> dict:
+    raw = row.get("_signal_scores")
+    if not isinstance(raw, dict):
+        raw = {}
+
+    return {
+        "genre_fit": _signal_percent(raw.get("genre_fit")),
+        "mood_match": _signal_percent(raw.get("mood_match")),
+        "reader_similarity": _signal_percent(raw.get("reader_similarity")),
+        "author_affinity": _signal_percent(raw.get("author_affinity")),
+    }
+
+
+def _breakdown_from_details(details: dict, signals: dict) -> dict:
+    return {
+        "genre_fit": signals.get("genre_fit"),
+        "genre_label": ", ".join((details["matched_genres"] or details["matched_subjects"])[:2]) or None,
+        "mood_match": signals.get("mood_match"),
+        "reader_similarity": signals.get("reader_similarity"),
+        "author_affinity": signals.get("author_affinity"),
+        "inspired_by": details["matched_liked_books"][:3],
+    }
+
+
+def _recommendation_reasons(details: dict) -> list[dict]:
+    reasons: list[dict] = []
+    liked_books = details["matched_liked_books"]
+    genres = details["matched_genres"]
+    subjects = details["matched_subjects"]
+    authors = details["matched_authors"]
+
+    if genres:
+        reasons.append(
+            {
+                "label": "Genre Match",
+                "detail": f"Similar to {', '.join(genres[:2])} books you rated highly.",
+            }
+        )
+
+    if subjects:
+        reasons.append(
+            {
+                "label": "Mood Match",
+                "detail": f"Shares themes like {', '.join(subjects[:2])}.",
+            }
+        )
+
+    if authors:
+        reasons.append(
+            {
+                "label": "Author Affinity",
+                "detail": f"Connected to authors you have enjoyed: {', '.join(authors[:2])}.",
+            }
+        )
+
+    if liked_books:
+        titles = ", ".join(book["title"] for book in liked_books[:3])
+        reasons.append(
+            {
+                "label": "Inspired by books you enjoyed",
+                "detail": titles,
+            }
+        )
+
+    return reasons[:4]
+
+
+def _related_books_from_details(details: dict) -> list[dict]:
+    related: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for book in details["matched_liked_books"]:
+        title = str(book.get("title", "")).strip()
+        author = str(book.get("author", "")).strip()
+        key = (title.lower(), author.lower())
+        if not title or key in seen:
+            continue
+        seen.add(key)
+        related.append(
+            {
+                "id": str(book.get("id", "") or "").strip(),
+                "title": title,
+                "author": author,
+                "rating": book.get("rating"),
+            }
+        )
+        if len(related) >= 3:
             break
-    if liked_titles:
-        return f"You rated completed books highly, including {' and '.join(liked_titles)}."
-    return "Recommended from your completed books and stored ratings."
+    return related
 
 
 def _explanation(
@@ -255,6 +353,10 @@ def build_recommendations(
         book_api = series_to_api_book(row)
         details = _match_details(row, read_df, precomputed_matches)
         reason = _explanation(row, read_df, precomputed_matches)
+        recommendation_reasons = _recommendation_reasons(details)
+        related_books = _related_books_from_details(details)
+        signals = _signals_from_row(row)
+        recommendation_breakdown = _breakdown_from_details(details, signals)
         recommended_book = {
             "id": book_api["id"],
             "title": book_api["title"],
@@ -272,6 +374,10 @@ def build_recommendations(
                 "matched_subjects": details["matched_subjects"],
                 "matched_authors": details["matched_authors"],
                 "matched_liked_books": details["matched_liked_books"],
+                "related_books": related_books,
+                "recommendation_reasons": recommendation_reasons,
+                "signals": signals,
+                "recommendation_breakdown": recommendation_breakdown,
                 "score_breakdown": {
                     "overall": round(min(1.0, max(0.0, score)), 4),
                     "metadata": bool(details["matched_genres"] or details["matched_subjects"]),

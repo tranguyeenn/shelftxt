@@ -2,9 +2,11 @@ import { Link } from "react-router-dom";
 import { useState } from "react";
 
 import { BookEditModal } from "@/components/books/BookEditModal";
+import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { statusLabel } from "@/lib/bookProgress";
@@ -24,9 +26,11 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
     book.status === "completed" ? "success" : book.status === "reading" ? "accent" : "neutral";
 
   return (
-    <Card className="grid gap-4">
+    <Card className="grid gap-4 md:grid-cols-[64px_1fr]">
+      <BookCoverPlaceholder title={book.title} className="w-16" />
+      <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-lg font-semibold text-text">
             <Link
               to={`/book/${encodeURIComponent(book.id)}`}
@@ -41,10 +45,14 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
           <Badge tone={tone}>{statusLabel(book.status)}</Badge>
           {!isReadOnlyDemo ? (
             <Button variant="ghost" onClick={() => setEditing(true)}>
-              Edit
+              edit
             </Button>
           ) : null}
         </div>
+      </div>
+
+      <div className="max-w-lg">
+        <ProgressBar value={book.progress_pct} />
       </div>
 
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-6">
@@ -89,6 +97,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
           onUpdated={onUpdated}
         />
       ) : null}
+      </div>
     </Card>
   );
 }

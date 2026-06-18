@@ -43,8 +43,8 @@ export function RankingPage() {
   return (
     <div className="grid gap-6">
       <PageHeader
-        title="Top recommendations"
-        subtitle="Your top 10 to-read picks with scores, explanations, and similar books."
+        title="Recommendations"
+        subtitle="Ranked books from your own shelf patterns."
         actions={
           <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
@@ -63,14 +63,24 @@ export function RankingPage() {
 
       {loading ? <p className="text-sm text-text-muted">Loading recommendations…</p> : null}
 
+      <div className="border-b border-border-subtle pb-2">
+        <span className="inline-flex rounded-lg bg-accent-muted px-3 py-1.5 text-sm text-accent">
+          for you
+        </span>
+      </div>
+
       {!loading && !error && items.length === 0 ? (
         <EmptyState
-          title="No strong recommendations yet"
-          description="No unread book currently passes the metadata match threshold. Enrich your library and rate completed books to unlock better matches."
+          title="Add more books to get recommendations."
+          description="Add more rated books to improve recommendations."
         />
       ) : null}
 
-      {!loading && items.length > 0 ? <RecommendationsList items={items} limit={10} /> : null}
+      {!loading && items.length > 0 ? (
+        <div className="grid gap-4">
+          <RecommendationsList items={items} limit={10} />
+        </div>
+      ) : null}
     </div>
   );
 }

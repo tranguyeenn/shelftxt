@@ -6,15 +6,18 @@ import { BookEditModal } from "@/components/books/BookEditModal";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
+import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
 import { statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, formatDisplayDate, recordToApiBook, type BookRecord } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
+import { readerFacingExplanation } from "@/lib/recommendationDisplay";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
 export function BookDetailPage() {
@@ -25,6 +28,7 @@ export function BookDetailPage() {
   const [recommendation, setRecommendation] = useState<RecommendationItem | null>(null);
   const [book, setBook] = useState<ApiBook | null>(null);
   const [editing, setEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "details" | "reviews" | "quotes">("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -92,34 +96,43 @@ export function BookDetailPage() {
 
       {book ? (
         <>
-          <Card className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-text-dim">Status</p>
-              <p className="mt-1 text-text">
+          <Card padding="lg" className="grid gap-6 md:grid-cols-[156px_1fr]">
+            <BookCoverPlaceholder title={book.title} className="w-full max-w-[156px]" />
+            <div className="grid gap-5">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight text-text">{book.title}</h2>
+                <p className="mt-1 text-sm text-text-muted">{book.author}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
                 <Badge tone="accent">{statusLabel(book.status)}</Badge>
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-text-dim">Progress</p>
-              <p className="mt-1 font-mono text-text">{book.progress_pct.toFixed(0)}%</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-text-dim">Rating</p>
-              <p className="mt-1 font-mono text-text">{ratingLabel}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-text-dim">Pages</p>
-              <p className="mt-1 font-mono text-text">
-                {book.pages_read} / {book.total_pages ?? "—"}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-text-dim">Started</p>
-              <p className="mt-1 text-text">{formatDisplayDate(book.start_date)}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-text-dim">Finished</p>
-              <p className="mt-1 text-text">{formatDisplayDate(book.end_date)}</p>
+                <Badge tone="warning">{ratingLabel === "—" ? "unrated" : `${ratingLabel} rating`}</Badge>
+                <Badge tone="neutral">literary fiction</Badge>
+                <Badge tone="neutral">contemporary</Badge>
+              </div>
+              <div className="grid gap-2">
+                <ProgressBar
+                  value={book.progress_pct}
+                  label={`${book.pages_read} / ${book.total_pages ?? "—"} pages`}
+                />
+                <p className="text-sm text-text-muted">{book.progress_pct.toFixed(0)}% complete</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-4">
+                {(["overview", "details", "reviews", "quotes"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={[
+                      "cursor-pointer rounded-lg px-3 py-2 text-sm transition-colors",
+                      activeTab === tab
+                        ? "bg-accent-muted text-accent"
+                        : "text-text-muted hover:bg-surface-hover hover:text-text"
+                    ].join(" ")}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
             </div>
           </Card>
 
@@ -131,25 +144,102 @@ export function BookDetailPage() {
             </div>
           ) : null}
 
-          <BookProgressEditor
-            book={book}
-            onUpdated={(updated) => {
-              setBook(updated);
-              void load();
-            }}
-          />
+          <section className="grid gap-4 lg:grid-cols-[1fr_320px]">
+            <Card className="grid gap-4">
+              <h3 className="text-sm font-medium text-text">reading progress</h3>
+              <BookProgressEditor
+                book={book}
+                onUpdated={(updated) => {
+                  setBook(updated);
+                  void load();
+                }}
+              />
+              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                <div>
+                  <dt className="text-xs lowercase tracking-wide text-text-dim">started</dt>
+                  <dd className="mt-1 text-text">{formatDisplayDate(book.start_date)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs lowercase tracking-wide text-text-dim">finished</dt>
+                  <dd className="mt-1 text-text">{formatDisplayDate(book.end_date)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs lowercase tracking-wide text-text-dim">pages</dt>
+                  <dd className="mt-1 text-text">{book.total_pages ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs lowercase tracking-wide text-text-dim">rating</dt>
+                  <dd className="mt-1 text-score-rating">{ratingLabel}</dd>
+                </div>
+              </dl>
+            </Card>
+
+          <Card className="grid gap-3">
+            {activeTab === "overview" ? (
+              <>
+                <h3 className="text-sm font-medium text-text">overview</h3>
+                <p className="text-sm text-text-muted">
+                  Track status, pages, dates, and recommendation context for this book.
+                </p>
+              </>
+            ) : null}
+            {activeTab === "details" ? (
+              <>
+                <h3 className="text-sm font-medium text-text">details</h3>
+                <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                  <div>
+                    <dt className="text-text-dim">status</dt>
+                    <dd className="mt-1 text-text">{statusLabel(book.status)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-text-dim">total pages</dt>
+                    <dd className="mt-1 text-text">{book.total_pages ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-text-dim">rating</dt>
+                    <dd className="mt-1 text-text">{ratingLabel}</dd>
+                  </div>
+                </dl>
+              </>
+            ) : null}
+            {activeTab === "reviews" ? (
+              <EmptyState title="No reviews saved yet." description="Reviews will appear here when review support is available." />
+            ) : null}
+            {activeTab === "quotes" ? (
+              <EmptyState title="No quotes saved yet." description="Quotes will appear here when quote support is available." />
+            ) : null}
+          </Card>
+            <div className="grid gap-4 content-start">
+              <Card className="grid gap-3">
+                <h3 className="text-sm font-medium text-text">mood</h3>
+                <EmptyState
+                  title="No mood tags yet."
+                  description="Mood tags will appear when this book has mood metadata."
+                />
+              </Card>
+              <Card className="grid gap-3">
+                <h3 className="text-sm font-medium text-text">readers often listen to</h3>
+                <EmptyState
+                  title="No listening suggestions available."
+                  description="Vibe suggestions will appear here when recommendation metadata includes music links."
+                />
+              </Card>
+            </div>
+          </section>
 
           {recommendation && settings.showRecommendationExplanations ? (
             <Card className="grid gap-3">
               <h3 className="text-sm font-medium text-text">Recommendation insight</h3>
-              <p className="text-sm leading-relaxed text-text-muted">{recommendation.explanation}</p>
-              {recommendation.similar_books.length > 0 ? (
+              <p className="text-sm leading-relaxed text-text-muted">
+                {readerFacingExplanation(recommendation)}
+              </p>
+              {(recommendation.related_books ?? recommendation.recommendation_breakdown?.inspired_by ?? recommendation.matched_liked_books ?? []).length > 0 ? (
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-text-dim">Similar to</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-text-dim">Related books</p>
                   <ul className="mt-2 text-sm text-text-muted">
-                    {recommendation.similar_books.map((similar) => (
-                      <li key={similar.id || similar.title}>
-                        {similar.title} — {similar.author}
+                    {(recommendation.related_books ?? recommendation.recommendation_breakdown?.inspired_by ?? recommendation.matched_liked_books ?? []).slice(0, 3).map((similar) => (
+                      <li key={similar.id || `${similar.title}-${similar.author}`}>
+                        {similar.title}
                       </li>
                     ))}
                   </ul>

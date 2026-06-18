@@ -4,6 +4,7 @@ import {
   daysSince,
   finishDateValue,
   parseDate,
+  progressPct,
   recordToApiBook,
   starRating,
   type BookRecord
@@ -23,6 +24,22 @@ export type ReadingSummary = {
 export type PatternInsight =
   | { kind: "value"; label: string; value: string; detail?: string }
   | { kind: "empty"; label: string; message: string };
+
+export type MonthlyCompletion = {
+  month: string;
+  count: number;
+};
+
+export type CompletionChartData = {
+  months: MonthlyCompletion[];
+  selectedYear: number;
+  completedCount: number;
+  datedCompletedCount: number;
+  undatedCompletedCount: number;
+  futureDatedCount: number;
+};
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function genresFromBook(book: BookRecord): string[] {
   const raw =
@@ -70,6 +87,66 @@ export function computeReadingSummary(library: BookRecord[]): ReadingSummary {
     totalPagesRead,
     averageRating,
     ratedCount: rated.length
+  };
+}
+
+export function completionYears(library: BookRecord[], currentYear = new Date().getFullYear()): number[] {
+  const years = new Set<number>([currentYear]);
+  const now = new Date();
+  for (const book of library) {
+    const apiBook = recordToApiBook(book);
+    const isCompleted = apiBook.status === "completed" || progressPct(book) >= 100;
+    if (!isCompleted) continue;
+    const completionDate = parseDate(finishDateValue(book));
+    if (!completionDate || completionDate > now) continue;
+    years.add(completionDate.getFullYear());
+  }
+  return [...years].sort((a, b) => b - a);
+}
+
+export function computeMonthlyCompletions(
+  library: BookRecord[],
+  selectedYear = new Date().getFullYear(),
+  now = new Date()
+): CompletionChartData {
+  const months = MONTH_LABELS.map((month) => ({ month, count: 0 }));
+  let completedCount = 0;
+  let datedCompletedCount = 0;
+  let undatedCompletedCount = 0;
+  let futureDatedCount = 0;
+
+  for (const book of library) {
+    const apiBook = recordToApiBook(book);
+    const isCompleted = apiBook.status === "completed" || progressPct(book) >= 100;
+    if (!isCompleted) continue;
+
+    completedCount += 1;
+    const completionDate = parseDate(finishDateValue(book));
+    if (!completionDate) {
+      undatedCompletedCount += 1;
+      continue;
+    }
+
+    if (completionDate > now) {
+      futureDatedCount += 1;
+      continue;
+    }
+
+    if (completionDate.getFullYear() !== selectedYear) {
+      continue;
+    }
+
+    months[completionDate.getMonth()].count += 1;
+    datedCompletedCount += 1;
+  }
+
+  return {
+    months,
+    selectedYear,
+    completedCount,
+    datedCompletedCount,
+    undatedCompletedCount,
+    futureDatedCount
   };
 }
 

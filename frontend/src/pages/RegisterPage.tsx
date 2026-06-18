@@ -16,7 +16,7 @@ export function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (!loading && user && !submitting && !error) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/app" replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -35,7 +35,7 @@ export function RegisterPage() {
         setMessage("Check your email to confirm your account, then log in.");
         return;
       }
-      navigate("/", { replace: true });
+      navigate("/app", { replace: true });
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to create account.");
     } finally {

@@ -27,22 +27,6 @@ export function SettingsPage() {
         subtitle="Manage your library, reading preferences, and how ShelfTxt looks."
       />
 
-      <SettingsSection
-        title="Data management"
-        description="Import, export, or reset your library."
-      >
-        <CsvImportSection />
-
-        <div className="border-t border-border-subtle pt-4">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-text-dim">
-            More actions
-          </p>
-          <LibraryActions />
-        </div>
-      </SettingsSection>
-
-      <MetadataSection />
-
       <SettingsSection title="Account" description="Manage the signed-in ShelfTxt account.">
         <SettingRow label="Email">
           <p className="truncate text-sm text-text">{user?.email ?? "Unknown"}</p>
@@ -58,7 +42,7 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Reading preferences"
+        title="Preferences"
         description="These settings shape how recommendations are ranked."
       >
         <SettingRow
@@ -94,9 +78,26 @@ export function SettingsPage() {
             <span>{settings.showRecommendationExplanations ? "Visible" : "Hidden"}</span>
           </label>
         </SettingRow>
+
+        <SettingRow
+          label="Show reading vibe suggestions"
+          hint="Small mood cues may appear beside recommendations and reading progress."
+        >
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={settings.showVibeSuggestions}
+              onChange={(e) =>
+                updateSettings({ showVibeSuggestions: e.target.checked })
+              }
+              className="h-4 w-4 rounded border-border bg-bg-elevated accent-accent"
+            />
+            <span>{settings.showVibeSuggestions ? "On" : "Off"}</span>
+          </label>
+        </SettingRow>
       </SettingsSection>
 
-      <SettingsSection title="Appearance" description="Customize layout and colors.">
+      <SettingsSection title="Theme" description="Customize layout and colors.">
         <SettingRow label="Compact mode" hint="Tighter spacing across the app.">
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text">
             <input
@@ -141,8 +142,42 @@ export function SettingsPage() {
           >
             <option value="dark">Dark</option>
             <option value="light">Light</option>
+            <option value="system">System</option>
           </select>
         </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Import/export data"
+        description="Import, export, or reset your library."
+      >
+        <CsvImportSection />
+
+        <div className="border-t border-border-subtle pt-4">
+          <p className="mb-3 text-xs font-medium lowercase tracking-wide text-text-dim">
+            more actions
+          </p>
+          <LibraryActions />
+        </div>
+      </SettingsSection>
+
+      <MetadataSection />
+
+      <SettingsSection title="Notifications" description="Reading reminders and quiet nudges.">
+        <SettingRow label="Reading reminders">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              disabled
+              className="h-4 w-4 rounded border-border bg-bg-elevated accent-accent"
+            />
+            <span>Off - reminders are not available yet</span>
+          </label>
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="Privacy" description="Control local account and library data.">
+        <p className="text-sm text-text-muted">Your library data stays tied to your ShelfTxt account.</p>
       </SettingsSection>
 
       <SettingsSection title="About ShelfTxt">

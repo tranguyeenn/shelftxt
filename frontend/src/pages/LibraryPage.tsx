@@ -13,6 +13,7 @@ type StatusFilter = "all" | ReadingStatus;
 export function LibraryPage() {
   const [books, setBooks] = useState<ApiBook[]>([]);
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -36,9 +37,16 @@ export function LibraryPage() {
   }, [load]);
 
   const filtered = useMemo(() => {
-    if (filter === "all") return books;
-    return books.filter((b) => b.status === filter);
-  }, [books, filter]);
+    const query = search.trim().toLowerCase();
+    return books.filter((book) => {
+      const matchesFilter = filter === "all" ? true : book.status === filter;
+      const matchesSearch =
+        !query ||
+        book.title.toLowerCase().includes(query) ||
+        book.author.toLowerCase().includes(query);
+      return matchesFilter && matchesSearch;
+    });
+  }, [books, filter, search]);
 
   function handleBookUpdated(updated: ApiBook) {
     setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
@@ -55,7 +63,7 @@ export function LibraryPage() {
         subtitle={
           isReadOnlyDemo
             ? "Browse books and reading progress (read-only demo)."
-            : "View and edit reading status and progress for every book."
+            : "Search, filter, and update reading status for every book."
         }
         actions={
           <Button variant="secondary" onClick={() => void load()} disabled={loading}>
@@ -73,13 +81,28 @@ export function LibraryPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid gap-3">
+        <label className="sr-only" htmlFor="library-search">
+          Search library
+        </label>
+        <input
+          id="library-search"
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="search by title or author"
+          className="w-full rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-2 border-b border-border-subtle pb-2">
         {(
           [
-            ["all", "All"],
-            ["not_started", "Not started"],
-            ["reading", "Reading"],
-            ["completed", "Completed"]
+            ["all", "all"],
+            ["reading", "currently reading"],
+            ["not_started", "want to read"],
+            ["completed", "completed"],
+            ["dnf", "dnf"]
           ] as const
         ).map(([value, label]) => (
           <button
@@ -107,7 +130,7 @@ export function LibraryPage() {
         />
       ) : null}
 
-      <div className="grid gap-4">
+      <div className="grid gap-3">
         {filtered.map((book) => (
           <BookLibraryCard
             key={book.id}
