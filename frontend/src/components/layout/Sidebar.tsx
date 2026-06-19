@@ -13,7 +13,7 @@ const navItems = [
 
 function linkClass({ isActive }: { isActive: boolean }) {
   return [
-    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors md:w-full",
+    "flex items-center justify-center rounded-lg px-3 py-2.5 text-sm transition-colors md:w-full md:justify-start md:gap-3",
     isActive
       ? "bg-accent-muted text-accent"
       : "text-text-muted hover:bg-surface-hover hover:text-text"
@@ -34,10 +34,9 @@ export function Sidebar() {
         aria-label="Main"
       >
         {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink key={to} to={to} end={to === "/app"} className={linkClass}>
-            <Icon className="h-4 w-4 shrink-0 opacity-80" />
+          <NavLink key={to} to={to} end={to === "/app"} className={linkClass} aria-label={label} title={label}>
+            <Icon className="h-5 w-5 shrink-0 opacity-80 md:h-4 md:w-4" />
             <span className="hidden md:inline">{label}</span>
-            <span className="text-[10px] md:hidden">{label}</span>
           </NavLink>
         ))}
       </nav>
