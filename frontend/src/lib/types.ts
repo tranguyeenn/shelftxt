@@ -1,4 +1,5 @@
 export type ReadingStatus = "not_started" | "reading" | "completed" | "dnf";
+export type TrackingMode = "percentage" | "pages";
 
 export type ApiBook = {
   id: string;
@@ -8,6 +9,7 @@ export type ApiBook = {
   total_pages: number | null;
   pages_read: number;
   progress_pct: number;
+  tracking_mode: TrackingMode;
   rating?: number | null;
   read_status?: string;
   start_date?: string | null;

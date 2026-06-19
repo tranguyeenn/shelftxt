@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from backend.services.metadata_normalization import (
+    clean_reader_tags,
     filter_specific_genres,
     filter_specific_subjects,
     normalize_author,
@@ -78,14 +79,14 @@ def row_title(row: pd.Series) -> str:
 
 
 def row_subjects(row: pd.Series) -> list[str]:
-    return filter_specific_subjects(_row_value(row, ["subjects", "Subjects"], []))
+    return clean_reader_tags(filter_specific_subjects(_row_value(row, ["subjects", "Subjects"], [])))
 
 
 def row_genres(row: pd.Series) -> list[str]:
-    genres = filter_specific_genres(_row_value(row, ["genres", "genre", "Genres", "Genre"], []))
+    genres = clean_reader_tags(filter_specific_genres(_row_value(row, ["genres", "genre", "Genres", "Genre"], [])))
     if genres:
         return genres
-    return subjects_to_genres(_row_value(row, ["subjects", "Subjects"], []))
+    return clean_reader_tags(subjects_to_genres(_row_value(row, ["subjects", "Subjects"], [])))
 
 
 def row_languages(row: pd.Series) -> list[str]:

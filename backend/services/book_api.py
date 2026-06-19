@@ -46,6 +46,9 @@ def series_to_api_book(row: pd.Series) -> dict:
     pages_read = _int_or_none(row.get("Pages Read")) or 0
     progress = _float_or_none(row.get("Progress (%)")) or 0.0
     read_status = str(row.get("Read Status", "to-read"))
+    tracking_mode = str(row.get("tracking_mode", row.get("Tracking Mode", ""))).strip().lower()
+    if tracking_mode not in {"percentage", "pages"}:
+        tracking_mode = "pages" if total_pages is not None else "percentage"
 
     return {
         "id": book_id,
@@ -55,6 +58,7 @@ def series_to_api_book(row: pd.Series) -> dict:
         "total_pages": total_pages,
         "pages_read": pages_read,
         "progress_pct": round(min(100.0, max(0.0, progress)), 2),
+        "tracking_mode": tracking_mode,
         "rating": _float_or_none(row.get("Star Rating")),
         "read_status": read_status,
     }

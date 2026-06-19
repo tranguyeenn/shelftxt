@@ -100,6 +100,11 @@ def normalize_book_row(row):
     if not isbn_uid:
         raise ValueError(f"Missing ISBN/UID for title: {title}")
 
+    total_pages = clean_int(row.get("Total Pages"))
+    tracking_mode = clean_string(row.get("tracking_mode") or row.get("Tracking Mode"))
+    if tracking_mode not in {"percentage", "pages"}:
+        tracking_mode = "pages" if total_pages is not None else "percentage"
+
     return {
         "title": title,
         "authors": authors,
@@ -107,9 +112,12 @@ def normalize_book_row(row):
         "read_status": clean_string(row.get("Read Status"), default="to-read"),
         "star_rating": clean_float(row.get("Star Rating")),
         "last_date_read": clean_date(row.get("Last Date Read")),
+        "start_date": clean_date(row.get("start_date") or row.get("Start Date")),
+        "end_date": clean_date(row.get("end_date") or row.get("End Date")),
         "progress_percent": clean_float(row.get("Progress (%)"), default=0),
         "pages_read": clean_int(row.get("Pages Read"), default=0),
-        "total_pages": clean_int(row.get("Total Pages")),
+        "total_pages": total_pages,
+        "tracking_mode": tracking_mode,
     }
 
 

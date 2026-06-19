@@ -12,6 +12,18 @@ from backend.services.recommendation_signals import meaningful_similar_books, re
 logger = logging.getLogger(__name__)
 
 
+def _unique_tags(tags: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        key = str(tag).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(str(tag).strip())
+    return unique
+
+
 def _read_books(df: pd.DataFrame) -> pd.DataFrame:
     return read_dataframe(df)
 
@@ -96,9 +108,15 @@ def _match_details(
                 }
             )
 
+    matched_genres = _unique_tags(genres)[:5]
+    genre_keys = {genre.lower() for genre in matched_genres}
+    matched_subjects = [
+        subject for subject in _unique_tags(subjects) if subject.lower() not in genre_keys
+    ][: max(0, 5 - len(matched_genres))]
+
     return {
-        "matched_genres": genres[:4],
-        "matched_subjects": subjects[:4],
+        "matched_genres": matched_genres,
+        "matched_subjects": matched_subjects,
         "matched_authors": authors[:3],
         "matched_liked_books": liked_books[:3],
         "has_same_author": same_author,
@@ -119,12 +137,17 @@ def _reason_from_details(details: dict, read_df: pd.DataFrame) -> str:
     genres = details["matched_genres"]
     subjects = details["matched_subjects"]
     authors = details["matched_authors"]
+    useful_tags = _unique_tags(genres + subjects)
+
+    if len(useful_tags) < 2 and liked_books:
+        titles = " and ".join(book["title"] for book in liked_books[:2])
+        return f"Because you enjoyed {titles}, this may fit your reading taste."
 
     if genres and liked_books:
         book = liked_books[0]
         rating = _format_rating(book.get("rating"))
         suffix = f", which you rated {rating}" if rating else ", from your completed books"
-        signals = genres[:2] + subjects[:2]
+        signals = useful_tags
         return f"Shares {', '.join(signals[:4])} with {book['title']}{suffix}."
 
     if subjects and liked_books:
@@ -173,7 +196,7 @@ def _signals_from_row(row: pd.Series) -> dict:
 def _breakdown_from_details(details: dict, signals: dict) -> dict:
     return {
         "genre_fit": signals.get("genre_fit"),
-        "genre_label": ", ".join((details["matched_genres"] or details["matched_subjects"])[:2]) or None,
+        "genre_label": ", ".join(_unique_tags(details["matched_genres"] + details["matched_subjects"])[:2]) or None,
         "mood_match": signals.get("mood_match"),
         "reader_similarity": signals.get("reader_similarity"),
         "author_affinity": signals.get("author_affinity"),
@@ -187,8 +210,9 @@ def _recommendation_reasons(details: dict) -> list[dict]:
     genres = details["matched_genres"]
     subjects = details["matched_subjects"]
     authors = details["matched_authors"]
+    useful_tags = _unique_tags(genres + subjects)
 
-    if genres:
+    if genres and len(useful_tags) >= 2:
         reasons.append(
             {
                 "label": "Genre Match",
@@ -196,7 +220,7 @@ def _recommendation_reasons(details: dict) -> list[dict]:
             }
         )
 
-    if subjects:
+    if subjects and len(useful_tags) >= 2:
         reasons.append(
             {
                 "label": "Mood Match",

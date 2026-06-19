@@ -87,6 +87,7 @@ def _seed_book(
     progress_percent=0,
     pages_read=0,
     total_pages=None,
+    tracking_mode=None,
     description=None,
     subjects=None,
     genres=None,
@@ -112,6 +113,7 @@ def _seed_book(
         progress_percent=progress_percent,
         pages_read=pages_read,
         total_pages=total_pages,
+        tracking_mode=tracking_mode,
         description=description,
         subjects=subjects,
         genres=genres,
@@ -573,6 +575,413 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["Read Status"], "to-read")
         self.assertEqual(payload["Progress (%)"], 24)
 
+    def test_update_book_progress_accepts_percent_only_without_total_pages(self):
+        _seed_book(
+            title="Percent Progress",
+            authors="A",
+            isbn_uid="percent-only",
+            total_pages=None,
+        )
+
+        response = self.client.patch(
+            "/books/percent-only/progress",
+            json={"progress_percent": 42},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Read Status"], "to-read")
+        self.assertEqual(payload["Total Pages"], None)
+        self.assertEqual(payload["Pages Read"], 0)
+        self.assertEqual(payload["Progress (%)"], 42)
+
+    def test_update_book_progress_calculates_percent_from_pages_and_total(self):
+        _seed_book(
+            title="Page Progress",
+            authors="A",
+            isbn_uid="page-progress",
+            total_pages=None,
+        )
+
+        response = self.client.patch(
+            "/books/page-progress/progress",
+            json={"status": "reading", "pages_read": 50, "total_pages": 200},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Total Pages"], 200)
+        self.assertEqual(payload["Pages Read"], 50)
+        self.assertEqual(payload["Progress (%)"], 25)
+
+    def test_inline_edit_total_pages(self):
+        _seed_book(
+            title="Inline Total",
+            authors="A",
+            isbn_uid="inline-total",
+            pages_read=40,
+            total_pages=None,
+            progress_percent=20,
+        )
+
+        response = self.client.patch(
+            "/books/inline-total/progress",
+            json={"total_pages": 200},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Total Pages"], 200)
+        self.assertEqual(payload["Pages Read"], 40)
+        self.assertEqual(payload["Progress (%)"], 20)
+
+    def test_inline_edit_pages_read(self):
+        _seed_book(
+            title="Inline Pages",
+            authors="A",
+            isbn_uid="inline-pages",
+            pages_read=10,
+            total_pages=300,
+            progress_percent=3.33,
+        )
+
+        response = self.client.patch(
+            "/books/inline-pages/progress",
+            json={"pages_read": 120},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Pages Read"], 120)
+        self.assertEqual(payload["Progress (%)"], 40)
+
+    def test_inline_edit_progress_percent(self):
+        _seed_book(
+            title="Inline Percent",
+            authors="A",
+            isbn_uid="inline-percent",
+        )
+
+        response = self.client.patch(
+            "/books/inline-percent/progress",
+            json={"progress_percent": 45},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Progress (%)"], 45)
+        self.assertEqual(payload["Pages Read"], 0)
+        self.assertIsNone(payload["Total Pages"])
+
+    def test_tracking_mode_persisted_after_patch(self):
+        _seed_book(
+            title="Mode Patch",
+            authors="A",
+            isbn_uid="mode-patch",
+            total_pages=300,
+            tracking_mode="pages",
+        )
+
+        response = self.client.patch(
+            "/books/mode-patch/progress",
+            json={"tracking_mode": "percentage", "progress_percent": 45},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tracking_mode"], "percentage")
+
+    def test_tracking_mode_remains_after_api_fetch(self):
+        _seed_book(
+            title="Mode Reload",
+            authors="A",
+            isbn_uid="mode-reload",
+            total_pages=300,
+            tracking_mode="percentage",
+        )
+
+        response = self.client.get("/books/mode-reload")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tracking_mode"], "percentage")
+        self.assertEqual(response.json()["Tracking Mode"], "percentage")
+
+    def test_switching_to_percentage_and_refreshing_keeps_percentage(self):
+        _seed_book(
+            title="Mode Percentage",
+            authors="A",
+            isbn_uid="mode-percentage",
+            total_pages=300,
+            tracking_mode="pages",
+        )
+
+        patch_response = self.client.patch(
+            "/books/mode-percentage/progress",
+            json={"tracking_mode": "percentage", "progress_percent": 25},
+        )
+        fetch_response = self.client.get("/books/mode-percentage")
+
+        self.assertEqual(patch_response.status_code, 200)
+        self.assertEqual(fetch_response.json()["tracking_mode"], "percentage")
+
+    def test_switching_to_pages_and_refreshing_keeps_pages(self):
+        _seed_book(
+            title="Mode Pages",
+            authors="A",
+            isbn_uid="mode-pages",
+            total_pages=None,
+            tracking_mode="percentage",
+        )
+
+        patch_response = self.client.patch(
+            "/books/mode-pages/progress",
+            json={"tracking_mode": "pages", "pages_read": 20, "total_pages": 200},
+        )
+        fetch_response = self.client.get("/books/mode-pages")
+
+        self.assertEqual(patch_response.status_code, 200)
+        self.assertEqual(fetch_response.json()["tracking_mode"], "pages")
+
+    def test_adding_total_pages_later_does_not_overwrite_tracking_mode(self):
+        _seed_book(
+            title="Mode With Pages Later",
+            authors="A",
+            isbn_uid="mode-with-pages-later",
+            total_pages=None,
+            tracking_mode="percentage",
+        )
+
+        response = self.client.patch(
+            "/books/mode-with-pages-later/progress",
+            json={"total_pages": 320},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["Total Pages"], 320)
+        self.assertEqual(response.json()["tracking_mode"], "percentage")
+
+    def test_existing_book_with_total_pages_defaults_tracking_mode_to_pages(self):
+        _seed_book(
+            title="Legacy Pages",
+            authors="A",
+            isbn_uid="legacy-pages",
+            total_pages=300,
+            tracking_mode=None,
+        )
+
+        response = self.client.get("/books/legacy-pages")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tracking_mode"], "pages")
+
+    def test_existing_book_without_total_pages_defaults_tracking_mode_to_percentage(self):
+        _seed_book(
+            title="Legacy Percentage",
+            authors="A",
+            isbn_uid="legacy-percentage",
+            total_pages=None,
+            tracking_mode=None,
+        )
+
+        response = self.client.get("/books/legacy-percentage")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tracking_mode"], "percentage")
+
+    def test_update_book_progress_rejects_invalid_tracking_mode(self):
+        _seed_book(title="Bad Mode", authors="A", isbn_uid="bad-mode")
+
+        response = self.client.patch(
+            "/books/bad-mode/progress",
+            json={"tracking_mode": "chapters"},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_inline_edit_start_date(self):
+        _seed_book(title="Inline Start", authors="A", isbn_uid="inline-start")
+
+        response = self.client.patch(
+            "/books/inline-start/progress",
+            json={"start_date": "2026-01-05"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["Start Date"], "2026-01-05")
+
+    def test_inline_edit_end_date(self):
+        _seed_book(title="Inline End", authors="A", isbn_uid="inline-end")
+
+        response = self.client.patch(
+            "/books/inline-end/progress",
+            json={"end_date": "2026-01-12"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["End Date"], "2026-01-12")
+
+    def test_update_book_progress_allows_missing_total_pages(self):
+        _seed_book(
+            title="No Total",
+            authors="A",
+            isbn_uid="no-total",
+            total_pages=None,
+        )
+
+        response = self.client.patch(
+            "/books/no-total/progress",
+            json={"status": "reading", "progress_percent": 12.5},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Total Pages"], None)
+        self.assertEqual(payload["Progress (%)"], 12.5)
+
+    def test_completed_book_preserves_end_date_after_total_pages_update(self):
+        _seed_book(
+            title="Already Done",
+            authors="A",
+            isbn_uid="already-done",
+            read_status="read",
+            progress_percent=100,
+            pages_read=0,
+            total_pages=None,
+            last_date_read="2025-02-03",
+            end_date="2025-02-03",
+        )
+
+        response = self.client.patch(
+            "/books/already-done",
+            json={"total_pages": 320},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Read Status"], "read")
+        self.assertEqual(payload["Total Pages"], 320)
+        self.assertEqual(payload["End Date"], "2025-02-03")
+
+    def test_non_completed_book_becoming_completed_sets_end_date(self):
+        _seed_book(
+            title="Now Done",
+            authors="A",
+            isbn_uid="now-done",
+            progress_percent=80,
+            pages_read=0,
+            total_pages=None,
+        )
+
+        response = self.client.patch(
+            "/books/now-done/progress",
+            json={"status": "completed", "progress_percent": 100},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Read Status"], "read")
+        self.assertEqual(payload["Progress (%)"], 100)
+        self.assertIsNotNone(payload["End Date"])
+
+    def test_non_completed_book_becoming_completed_respects_manual_end_date(self):
+        _seed_book(
+            title="Done With Date",
+            authors="A",
+            isbn_uid="done-with-date",
+            progress_percent=80,
+        )
+
+        response = self.client.patch(
+            "/books/done-with-date/progress",
+            json={
+                "status": "completed",
+                "progress_percent": 100,
+                "end_date": "2026-01-12",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Read Status"], "read")
+        self.assertEqual(payload["End Date"], "2026-01-12")
+
+    def test_completed_book_keeps_end_date_when_metadata_fields_change(self):
+        _seed_book(
+            title="Metadata Done",
+            authors="A",
+            isbn_uid="metadata-done",
+            read_status="read",
+            progress_percent=100,
+            end_date="2025-02-03",
+        )
+
+        response = self.client.patch(
+            "/books/metadata-done",
+            json={"title": "Metadata Done Updated", "author": "B"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["Title"], "Metadata Done Updated")
+        self.assertEqual(payload["End Date"], "2025-02-03")
+
+    def test_completed_book_keeps_end_date_when_status_is_still_completed(self):
+        _seed_book(
+            title="Still Done",
+            authors="A",
+            isbn_uid="still-done",
+            read_status="read",
+            progress_percent=100,
+            end_date="2025-02-03",
+        )
+
+        response = self.client.patch(
+            "/books/still-done/progress",
+            json={"status": "completed", "progress_percent": 100},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["End Date"], "2025-02-03")
+
+    def test_update_book_progress_rejects_progress_percent_outside_range(self):
+        _seed_book(title="Bad Percent", authors="A", isbn_uid="bad-percent")
+
+        response = self.client.patch(
+            "/books/bad-percent/progress",
+            json={"progress_percent": 101},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_update_book_progress_rejects_negative_pages_read(self):
+        _seed_book(title="Bad Pages", authors="A", isbn_uid="bad-pages")
+
+        response = self.client.patch(
+            "/books/bad-pages/progress",
+            json={"pages_read": -1},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_update_book_progress_rejects_invalid_total_pages(self):
+        _seed_book(title="Bad Total", authors="A", isbn_uid="bad-total")
+
+        response = self.client.patch(
+            "/books/bad-total/progress",
+            json={"total_pages": 0},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_update_book_progress_rejects_start_date_after_end_date(self):
+        _seed_book(title="Bad Date Range", authors="A", isbn_uid="bad-date-range")
+
+        response = self.client.patch(
+            "/books/bad-date-range/progress",
+            json={"start_date": "2026-02-01", "end_date": "2026-01-01"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_update_book_progress_auto_completes(self):
         _seed_book(
             title="Almost Done",
@@ -647,6 +1056,34 @@ class ApiTests(unittest.TestCase):
         payload = self.client.get("/books").json()
         self.assertEqual(payload["total"], 0)
 
+    def test_clear_library_resets_metadata_progress(self):
+        _seed_book(title="Gone", authors="A", isbn_uid="gone")
+        db = TestingSessionLocal()
+        try:
+            db.add(
+                MetadataJob(
+                    user_id=TEST_USER_ID,
+                    status="processing",
+                    processed_count=70,
+                    total_count=252,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        clear_response = self.client.post("/books/clear", json={"confirm": True})
+        status_response = self.client.get("/metadata/status")
+
+        self.assertEqual(clear_response.status_code, 200)
+        self.assertEqual(status_response.status_code, 200)
+        payload = status_response.json()
+        self.assertEqual(payload["total_books"], 0)
+        self.assertEqual(payload["books_with_genres"], 0)
+        self.assertEqual(payload["job"]["status"], "completed")
+        self.assertEqual(payload["job"]["processed_count"], 0)
+        self.assertEqual(payload["job"]["total_count"], 0)
+
     def test_clear_library_requires_confirm(self):
         response = self.client.post("/books/clear", json={"confirm": False})
 
@@ -699,6 +1136,81 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"deleted": 1})
+
+    def test_delete_all_books_individually_resets_metadata_progress(self):
+        _seed_book(title="Gone 1", authors="A", isbn_uid="gone-1")
+        _seed_book(title="Gone 2", authors="A", isbn_uid="gone-2")
+        db = TestingSessionLocal()
+        try:
+            db.add(
+                MetadataJob(
+                    user_id=TEST_USER_ID,
+                    status="pending",
+                    processed_count=1,
+                    total_count=2,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        first = self.client.delete("/books/gone-1")
+        mid_status = self.client.get("/metadata/status").json()
+        second = self.client.delete("/books/gone-2")
+        final_status = self.client.get("/metadata/status").json()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(mid_status["total_books"], 1)
+        self.assertEqual(mid_status["job"]["status"], "pending")
+        self.assertEqual(final_status["total_books"], 0)
+        self.assertEqual(final_status["job"]["status"], "completed")
+        self.assertEqual(final_status["job"]["processed_count"], 0)
+        self.assertEqual(final_status["job"]["total_count"], 0)
+
+    def test_metadata_generation_interrupted_by_deletion_resets_progress(self):
+        _seed_book(title="Gone", authors="A", isbn_uid="gone")
+        db = TestingSessionLocal()
+        try:
+            job = MetadataJob(
+                user_id=TEST_USER_ID,
+                status="processing",
+                processed_count=70,
+                total_count=252,
+            )
+            db.add(job)
+            db.commit()
+        finally:
+            db.close()
+
+        delete_response = self.client.delete("/books/gone")
+        status_response = self.client.get("/metadata/status")
+
+        self.assertEqual(delete_response.status_code, 200)
+        payload = status_response.json()
+        self.assertEqual(payload["total_books"], 0)
+        self.assertEqual(payload["job"]["status"], "completed")
+        self.assertEqual(payload["job"]["processed_count"], 0)
+        self.assertEqual(payload["job"]["total_count"], 0)
+
+    @patch("backend.routes.metadata.process_metadata_job")
+    def test_metadata_status_refresh_after_deletion_returns_zero_progress(self, mock_process_metadata_job):
+        _seed_book(title="Gone", authors="A", isbn_uid="gone")
+        self.client.post("/metadata/generate")
+
+        self.client.delete("/books/gone")
+        refreshed = self.client.get("/metadata/status")
+
+        self.assertEqual(refreshed.status_code, 200)
+        payload = refreshed.json()
+        self.assertEqual(payload["total_books"], 0)
+        self.assertEqual(payload["job"], {
+            "status": "completed",
+            "processed_count": 0,
+            "total_count": 0,
+            "error_message": None,
+        })
+        mock_process_metadata_job.assert_called_once()
 
     def test_import_skips_duplicate_title(self):
         _seed_book(
@@ -1144,6 +1656,131 @@ class ApiTests(unittest.TestCase):
         mock_lookup_open_library_by_title.assert_not_called()
 
     @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_dates_read_range_parses_start_and_end_dates(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "StoryGraph Range",
+                        "author": "A",
+                        "read_status": "Read",
+                        "Dates Read": "2025/01/28-2025/02/02",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Start Date"], "2025-01-28")
+        self.assertEqual(book["End Date"], "2025-02-02")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_last_date_read_overrides_dates_read_end(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Last Date Wins",
+                        "author": "A",
+                        "read_status": "Read",
+                        "Dates Read": "2025/01/28-2025/02/02",
+                        "Last Date Read": "2025/02/03",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Start Date"], "2025-01-28")
+        self.assertEqual(book["End Date"], "2025-02-03")
+        self.assertEqual(book["Last Date Read"], "2025-02-03")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_explicit_start_date_overrides_dates_read_start(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Explicit Start Wins",
+                        "author": "A",
+                        "read_status": "Read",
+                        "start_date": "2025-01-30",
+                        "Dates Read": "2025/01/28-2025/02/02",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Start Date"], "2025-01-30")
+        self.assertEqual(book["End Date"], "2025-02-02")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_empty_dates_read_leaves_dates_null(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Empty Dates Read", "author": "A", "read_status": "Read", "Dates Read": ""}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertIsNone(book["Start Date"])
+        self.assertIsNone(book["End Date"])
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_to_read_empty_dates_read_leaves_dates_null(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Unread Dates Read", "author": "A", "read_status": "To Read", "Dates Read": ""}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertIsNone(book["Start Date"])
+        self.assertIsNone(book["End Date"])
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_dates_read_parses_dash_and_slash_formats(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Dash Dates",
+                        "author": "A",
+                        "read_status": "Read",
+                        "dates_read": "2025-10-01-2025-10-07",
+                    },
+                    {
+                        "title": "Single Slash Date",
+                        "author": "A",
+                        "read_status": "Read",
+                        "Dates read": "2025/10/07",
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        books = {row["Title"]: row for row in self.client.get("/books?limit=100").json()["results"]}
+        self.assertEqual(books["Dash Dates"]["Start Date"], "2025-10-01")
+        self.assertEqual(books["Dash Dates"]["End Date"], "2025-10-07")
+        self.assertEqual(books["Single Slash Date"]["Start Date"], "2025-10-07")
+        self.assertEqual(books["Single Slash Date"]["End Date"], "2025-10-07")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
     def test_import_accepts_blank_reading_dates(self, mock_lookup_open_library_by_title):
         response = self.client.post(
             "/books/import",
@@ -1164,6 +1801,81 @@ class ApiTests(unittest.TestCase):
         book = self.client.get("/books").json()["results"][0]
         self.assertIsNone(book["Start Date"])
         self.assertIsNone(book["End Date"])
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_accepts_date_started_alias(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={"books": [{"title": "Started Alias", "author": "A", "date_started": "2026-01-05"}]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["Start Date"], "2026-01-05")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_accepts_finish_date_aliases(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {"title": "Finish Alias", "author": "A", "status": "Completed", "finish_date": "2026-01-12"},
+                    {
+                        "title": "Date Finished Alias",
+                        "author": "A",
+                        "status": "Completed",
+                        "date_finished": "2026-02-03",
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        books = {row["Title"]: row for row in self.client.get("/books?limit=100").json()["results"]}
+        self.assertEqual(books["Finish Alias"]["End Date"], "2026-01-12")
+        self.assertEqual(books["Date Finished Alias"]["End Date"], "2026-02-03")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_tracking_mode(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {
+                        "title": "Imported Mode",
+                        "author": "A",
+                        "total_pages": 300,
+                        "tracking_mode": "percentage",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["tracking_mode"], "percentage")
+        self.assertEqual(book["Tracking Mode"], "percentage")
+        mock_lookup_open_library_by_title.assert_not_called()
+
+    @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
+    def test_import_infers_tracking_mode_when_missing(self, mock_lookup_open_library_by_title):
+        response = self.client.post(
+            "/books/import",
+            json={
+                "books": [
+                    {"title": "Imported Pages Mode", "author": "A", "total_pages": 300},
+                    {"title": "Imported Percentage Mode", "author": "A"},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        books = {row["Title"]: row for row in self.client.get("/books?limit=100").json()["results"]}
+        self.assertEqual(books["Imported Pages Mode"]["tracking_mode"], "pages")
+        self.assertEqual(books["Imported Percentage Mode"]["tracking_mode"], "percentage")
         mock_lookup_open_library_by_title.assert_not_called()
 
     @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
@@ -1412,6 +2124,9 @@ class ApiTests(unittest.TestCase):
         self.assertIn("ISBN/UID", response.text)
         self.assertIn("Start Date", response.text)
         self.assertIn("End Date", response.text)
+        self.assertIn("start_date", response.text)
+        self.assertIn("end_date", response.text)
+        self.assertIn("tracking_mode", response.text)
 
     @patch("backend.services.page_lookup.lookup_open_library_by_title", return_value=None)
     def test_export_import_round_trip_preserves_reading_dates(self, mock_lookup_open_library_by_title):

@@ -13,6 +13,18 @@ function sentenceJoin(parts: string[]): string {
   return `${filtered.slice(0, -1).join(", ")}, and ${filtered[filtered.length - 1]}`;
 }
 
+function uniqueTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  return tags
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      const key = tag.toLowerCase();
+      if (!tag || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function readingCategory(genres: string[]): string {
   const normalized = genres.map((genre) => genre.toLowerCase());
   if (normalized.some((genre) => genre.includes("romance"))) return "romance";
@@ -105,6 +117,7 @@ export function readerFacingExplanation(item: RecommendationItem): string {
   const book = item.recommended_book ?? item.book;
   const genres = (item.matched_genres ?? []).slice(0, 3);
   const themes = (item.matched_subjects ?? []).slice(0, 3);
+  const usefulTags = uniqueTags([...genres, ...themes]);
   const inspiredBy = (
     item.related_books ??
     item.recommendation_breakdown?.inspired_by ??
@@ -114,6 +127,11 @@ export function readerFacingExplanation(item: RecommendationItem): string {
   const authors = (item.matched_authors ?? []).slice(0, 2);
   const signals = recommendationSignals(item);
   const sentences: string[] = [];
+
+  if (usefulTags.length < 2 && inspiredBy.length > 0) {
+    const titles = sentenceJoin(inspiredBy.slice(0, 2).map((liked) => liked.title));
+    return `Because you enjoyed ${titles}, this may fit your reading taste.`;
+  }
 
   if (inspiredBy.length > 0) {
     const titles = sentenceJoin(inspiredBy.slice(0, 2).map((liked) => liked.title));

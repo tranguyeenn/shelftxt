@@ -30,7 +30,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
     matched_liked_books = [],
   } = item;
   const showExplanation = settings.showRecommendationExplanations;
-  const tags = [...matched_genres, ...matched_subjects].slice(0, 6);
+  const tags = [...matched_genres, ...matched_subjects].slice(0, 5);
   const match = recommendationMatchPercent(score);
   const signals = recommendationSignals(item);
   const relatedBooks = (item.related_books ?? item.recommendation_breakdown?.inspired_by ?? matched_liked_books).slice(0, 3);

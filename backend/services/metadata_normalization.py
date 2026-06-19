@@ -61,6 +61,54 @@ BROAD_SUBJECTS = {
 }
 
 MAX_GENRES_PER_BOOK = 3
+MAX_READER_TAGS = 5
+
+READER_TAG_JUNK_PATTERNS = (
+    "reading level",
+    "grade",
+    "large type",
+    "large print",
+    "electronic book",
+    "accessible book",
+    "internet archive",
+    "works by one author",
+    "fictional works",
+    "juvenile",
+    "bibliography",
+    "translations",
+    "adaptations",
+    "study guides",
+    "examinations",
+    "textbooks",
+    "protected daisy",
+)
+
+READER_TAG_GENERIC = {
+    "fiction",
+    "general",
+    "fiction general",
+    "literature",
+    "english literature",
+    "american literature",
+}
+
+READER_TAG_VARIANTS = {
+    "dystopia": "Dystopian",
+    "dystopias": "Dystopian",
+    "dystopies": "Dystopian",
+    "dystopian": "Dystopian",
+    "dystopian fiction": "Dystopian",
+    "love stories": "Romance",
+    "love story": "Romance",
+    "romance": "Romance",
+    "romance fiction": "Romance",
+    "young adult": "Young Adult",
+    "young adult fiction": "Young Adult",
+    "historical": "Historical Fiction",
+    "historical fiction": "Historical Fiction",
+    "science fiction": "Science Fiction",
+    "sci fi": "Science Fiction",
+}
 
 
 @dataclass(frozen=True)
@@ -152,6 +200,41 @@ def normalize_values(values: object, normalizer) -> list[str]:
         seen.add(item)
         normalized.append(item)
     return normalized
+
+
+def _reader_tag_display(value: str) -> str:
+    small_words = {"and", "by", "for", "in", "of", "on", "the", "to", "with"}
+    words = value.split()
+    return " ".join(word if index > 0 and word in small_words else word.capitalize() for index, word in enumerate(words))
+
+
+def clean_reader_tags(values: object, *, max_tags: int = MAX_READER_TAGS) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    approved_sources = set(READER_TAG_VARIANTS)
+    approved_outputs = {normalize_text(value) for value in READER_TAG_VARIANTS.values()}
+
+    for raw in _flatten_values(values):
+        normalized = normalize_text(raw)
+        if not normalized:
+            continue
+        if any(pattern in normalized for pattern in READER_TAG_JUNK_PATTERNS):
+            continue
+        if normalized in READER_TAG_GENERIC:
+            continue
+        if len(normalized.split()) > 4 and normalized not in approved_sources and normalized not in approved_outputs:
+            continue
+
+        display = READER_TAG_VARIANTS.get(normalized, _reader_tag_display(normalized))
+        key = display.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(display)
+        if len(tags) >= max_tags:
+            break
+
+    return tags
 
 
 def normalize_title_keywords(value: object) -> list[str]:

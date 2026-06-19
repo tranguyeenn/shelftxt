@@ -61,8 +61,35 @@ def _job_to_dict(job: MetadataJob | None) -> dict:
     }
 
 
+def _reset_metadata_jobs_for_empty_library(db: Session, user_id: UUID) -> None:
+    now = datetime.now(timezone.utc)
+    active_jobs = (
+        db.query(MetadataJob)
+        .filter(MetadataJob.user_id == user_id)
+        .filter(MetadataJob.status.in_(ACTIVE_JOB_STATUSES))
+        .all()
+    )
+    for job in active_jobs:
+        job.status = "completed"
+        job.processed_count = 0
+        job.total_count = 0
+        job.error_message = None
+        job.completed_at = now
+        job.updated_at = now
+    if active_jobs:
+        db.commit()
+
+
 def get_metadata_status(db: Session, user_id: UUID) -> dict:
     books_with_genres, total_books = _metadata_counts(db, user_id)
+    if total_books == 0:
+        _reset_metadata_jobs_for_empty_library(db, user_id)
+        return {
+            "books_with_genres": 0,
+            "total_books": 0,
+            "job": _job_to_dict(None),
+        }
+
     job = _latest_job(db, user_id)
     return {
         "books_with_genres": books_with_genres,
@@ -72,6 +99,21 @@ def get_metadata_status(db: Session, user_id: UUID) -> dict:
 
 
 def create_metadata_job(db: Session, user_id: UUID) -> MetadataJob:
+    _, total_books = _metadata_counts(db, user_id)
+    if total_books == 0:
+        _reset_metadata_jobs_for_empty_library(db, user_id)
+        job = MetadataJob(
+            user_id=user_id,
+            status="completed",
+            processed_count=0,
+            total_count=0,
+            completed_at=datetime.now(timezone.utc),
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        return job
+
     active = _active_job(db, user_id)
     if active is not None:
         return active
@@ -92,6 +134,12 @@ def create_metadata_job(db: Session, user_id: UUID) -> MetadataJob:
     db.commit()
     db.refresh(job)
     return job
+
+
+def reset_metadata_progress_if_library_empty(db: Session, user_id: UUID) -> None:
+    _, total_books = _metadata_counts(db, user_id)
+    if total_books == 0:
+        _reset_metadata_jobs_for_empty_library(db, user_id)
 
 
 def process_metadata_job(job_id: int) -> None:

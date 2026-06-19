@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { progressLabel } from "@/lib/bookProgress";
 import type { ApiBook } from "@/lib/types";
 
 type BookCardProps = {
@@ -23,7 +24,7 @@ export function BookCard({ book }: BookCardProps) {
         <p className="mt-1 truncate text-xs text-text-muted">{book.author}</p>
       </div>
       <ProgressBar value={book.progress_pct} />
-      <p className="text-xs text-text-muted">{book.progress_pct.toFixed(0)}%</p>
+      <p className="text-xs text-text-muted">{progressLabel(book)}</p>
     </Card>
   );
 }

@@ -10,6 +10,9 @@ class ReadingDateRangeMixin(BaseModel):
     end_date: str | None = None
 
 
+TrackingMode = Literal["percentage", "pages"]
+
+
 class AddBook(ReadingDateRangeMixin):
     title: str = Field(
         min_length=1,
@@ -21,6 +24,7 @@ class AddBook(ReadingDateRangeMixin):
         gt=0,
         validation_alias=AliasChoices("total_pages", "Total Pages"),
     )
+    tracking_mode: TrackingMode | None = None
 
 
 class PatchBook(ReadingDateRangeMixin):
@@ -37,6 +41,8 @@ class PatchBook(ReadingDateRangeMixin):
         validation_alias=AliasChoices("total_pages", "Total Pages"),
     )
     pages_read: int | None = Field(default=None, ge=0)
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
+    tracking_mode: TrackingMode | None = None
     move_to: Literal["want", "reading", "read", "dnf"] | None = None
     read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
     status: Literal["not_started", "reading", "completed", "dnf"] | None = None
@@ -50,6 +56,8 @@ class PatchBookById(ReadingDateRangeMixin):
     isbn_uid: str | None = Field(default=None, min_length=1)
     total_pages: int | None = Field(default=None, gt=0)
     pages_read: int | None = Field(default=None, ge=0)
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
+    tracking_mode: TrackingMode | None = None
     read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
     status: Literal["not_started", "reading", "completed", "dnf"] | None = None
 
@@ -94,6 +102,10 @@ class ImportRow(ReadingDateRangeMixin):
         default=None,
         validation_alias=AliasChoices("read_status", "status", "Read Status"),
     )
+    tracking_mode: TrackingMode | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tracking_mode", "Tracking Mode"),
+    )
     star_rating: float | None = Field(
         default=None,
         ge=0,
@@ -104,13 +116,32 @@ class ImportRow(ReadingDateRangeMixin):
         default=None,
         validation_alias=AliasChoices("last_date_read", "Last Date Read", "date_read", "Date Read"),
     )
+    dates_read: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("dates_read", "Dates Read", "Dates read"),
+    )
     start_date: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("start_date", "Start Date", "Started", "Date Started"),
+        validation_alias=AliasChoices(
+            "start_date",
+            "Start Date",
+            "Started",
+            "Date Started",
+            "date_started",
+        ),
     )
     end_date: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("end_date", "End Date", "Finished", "Finished On"),
+        validation_alias=AliasChoices(
+            "end_date",
+            "End Date",
+            "Finished",
+            "Finished On",
+            "finish_date",
+            "Finish Date",
+            "date_finished",
+            "Date Finished",
+        ),
     )
     pages_read: int | None = Field(
         default=None,
@@ -154,9 +185,13 @@ class ImportBooks(BaseModel):
     books: list[ImportRow] = Field(min_length=1)
 
 
-class BookProgressPatch(BaseModel):
-    status: Literal["not_started", "reading", "completed", "dnf"]
-    pages_read: int = Field(ge=0)
+class BookProgressPatch(ReadingDateRangeMixin):
+    status: Literal["not_started", "reading", "completed", "dnf"] | None = None
+    read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
+    tracking_mode: TrackingMode | None = None
+    pages_read: int | None = Field(default=None, ge=0)
+    total_pages: int | None = Field(default=None, gt=0)
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
 
 
 class ClearLibraryRequest(BaseModel):
@@ -177,6 +212,7 @@ class BookResponse(BaseModel):
     progress_percent: float | None = None
     pages_read: int | None = None
     total_pages: int | None = None
+    tracking_mode: str | None = None
     description: str | None = None
     subjects: list[str] | None = None
     genres: list[str] | None = None

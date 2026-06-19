@@ -11,6 +11,7 @@ type ImportRow = {
   author: string | null;
   total_pages: number | null;
   read_status: string | null;
+  tracking_mode: string | null;
   star_rating: number | null;
   start_date: string | null;
   end_date: string | null;
@@ -23,6 +24,26 @@ function parseRating(value: unknown): number | null {
   if (!raw || raw.toLowerCase() === "nan") return null;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDatesRead(value: unknown): { start: string | null; end: string | null } {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { start: null, end: null };
+  const matches = raw.match(/\d{4}[/-]\d{2}[/-]\d{2}/g) ?? [];
+  if (matches.length === 0) return { start: null, end: null };
+  const normalized = matches.map((date) => date.replaceAll("/", "-"));
+  return {
+    start: normalized[0] ?? null,
+    end: normalized[1] ?? normalized[0] ?? null
+  };
+}
+
+function statusAllowsDatesRead(status: string, pagesRead: number | null, progress: number | null): boolean {
+  const normalized = status.trim().toLowerCase();
+  if (["read", "completed", "finished", "reading", "in progress", "in-progress", "started", "dnf"].includes(normalized)) {
+    return true;
+  }
+  return (pagesRead ?? 0) > 0 || (progress ?? 0) > 0;
 }
 
 export function CsvImportSection() {
@@ -64,6 +85,7 @@ export function CsvImportSection() {
         const pagesRaw = String(row.total_pages ?? row["Total Pages"] ?? "").trim();
         const pagesNum = pagesRaw ? Number(pagesRaw) : null;
         const status = String(row.read_status ?? row.status ?? row["Read Status"] ?? "").trim();
+        const trackingMode = String(row.tracking_mode ?? row["Tracking Mode"] ?? "").trim();
         const starRating = parseRating(
           row["Star Rating"] ??
             row.star_rating ??
@@ -72,12 +94,27 @@ export function CsvImportSection() {
             row.Stars ??
             row["My Rating"]
         );
-        const startDate = String(row.start_date ?? row["Start Date"] ?? "").trim();
-        const endDate = String(row.end_date ?? row["End Date"] ?? row["Last Date Read"] ?? "").trim();
+        const explicitStartDate = String(
+          row.start_date ?? row.date_started ?? row["Start Date"] ?? row["Date Started"] ?? ""
+        ).trim();
+        const explicitEndDate = String(
+          row.end_date ??
+            row.finish_date ??
+            row.date_finished ??
+            row["End Date"] ??
+            row["Finish Date"] ??
+            row["Date Finished"] ??
+            ""
+        ).trim();
         const pagesReadRaw = String(row.pages_read ?? row["Pages Read"] ?? "").trim();
         const pagesReadNum = pagesReadRaw ? Number(pagesReadRaw) : null;
         const progressRaw = String(row.progress_percent ?? row["Progress (%)"] ?? "").trim();
         const progressNum = progressRaw ? Number(progressRaw) : null;
+        const datesRead = parseDatesRead(row.dates_read ?? row["Dates Read"] ?? row["Dates read"]);
+        const lastDateRead = String(row.last_date_read ?? row["Last Date Read"] ?? "").trim();
+        const allowDatesRead = statusAllowsDatesRead(status, pagesReadNum, progressNum);
+        const startDate = explicitStartDate || (allowDatesRead ? datesRead.start ?? "" : "");
+        const endDate = explicitEndDate || lastDateRead || (allowDatesRead ? datesRead.end ?? "" : "");
 
         return {
           title,
@@ -86,6 +123,7 @@ export function CsvImportSection() {
           total_pages:
             Number.isFinite(pagesNum) && pagesNum && pagesNum > 0 ? Math.round(pagesNum) : null,
           read_status: status || null,
+          tracking_mode: trackingMode || null,
           star_rating: starRating,
           start_date: startDate || null,
           end_date: endDate || null,
@@ -155,6 +193,7 @@ export function CsvImportSection() {
           <span className="font-mono text-text">author</span>,{" "}
           <span className="font-mono text-text">total_pages</span>,{" "}
           <span className="font-mono text-text">read_status</span>,{" "}
+          <span className="font-mono text-text">tracking_mode</span>,{" "}
           <span className="font-mono text-text">start_date</span>,{" "}
           <span className="font-mono text-text">end_date</span>,{" "}
           <span className="font-mono text-text">pages_read</span>, and{" "}

@@ -14,7 +14,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
-import { statusLabel } from "@/lib/bookProgress";
+import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, formatDisplayDate, recordToApiBook, type BookRecord } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { readerFacingExplanation } from "@/lib/recommendationDisplay";
@@ -112,9 +112,9 @@ export function BookDetailPage() {
               <div className="grid gap-2">
                 <ProgressBar
                   value={book.progress_pct}
-                  label={`${book.pages_read} / ${book.total_pages ?? "—"} pages`}
+                  label={pagesLabel(book)}
                 />
-                <p className="text-sm text-text-muted">{book.progress_pct.toFixed(0)}% complete</p>
+                <p className="text-sm text-text-muted">{progressLabel(book)}</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-4">
                 {(["overview", "details", "reviews", "quotes"] as const).map((tab) => (
@@ -165,7 +165,7 @@ export function BookDetailPage() {
                 </div>
                 <div>
                   <dt className="text-xs lowercase tracking-wide text-text-dim">pages</dt>
-                  <dd className="mt-1 text-text">{book.total_pages ?? "—"}</dd>
+                  <dd className="mt-1 text-text">{pagesLabel(book)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs lowercase tracking-wide text-text-dim">rating</dt>

@@ -20,7 +20,7 @@ export function RecommendedNextCard({ item }: RecommendedNextCardProps) {
   const [showWhy, setShowWhy] = useState(false);
   const { book, score, matched_genres = [], matched_subjects = [] } = item;
   const match = recommendationMatchPercent(score);
-  const tags = [...matched_genres, ...matched_subjects].slice(0, 4);
+  const tags = [...matched_genres, ...matched_subjects].slice(0, 5);
   const signals = recommendationSignals(item);
   const relatedBooks = (item.related_books ?? item.recommendation_breakdown?.inspired_by ?? item.matched_liked_books ?? []).slice(0, 3);
   const explanation = readerFacingExplanation(item);

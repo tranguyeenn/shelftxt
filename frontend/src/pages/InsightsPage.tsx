@@ -11,7 +11,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
-import { statusLabel } from "@/lib/bookProgress";
+import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, type BookRecord } from "@/lib/books";
 import {
   RECOMMENDATION_SIGNALS,
@@ -68,6 +68,9 @@ export function InsightsPage() {
       setLibrary(books);
       setRecommendations(Array.isArray(recs) ? recs : []);
       setMetadataStatus(metadata);
+      if (metadata.total_books === 0) {
+        setMetadataStarting(false);
+      }
     } catch (err) {
       setLibrary([]);
       setRecommendations([]);
@@ -92,6 +95,12 @@ export function InsightsPage() {
   );
   const themes = useMemo(() => topRecommendationThemes(recommendations), [recommendations]);
   const hasGenres = useMemo(() => libraryHasGenre(library), [library]);
+  const hasNoBooks = (metadataStatus?.total_books ?? 0) === 0;
+  const metadataBusy =
+    !hasNoBooks &&
+    (metadataStarting ||
+      metadataStatus?.job.status === "pending" ||
+      metadataStatus?.job.status === "processing");
 
   const avgRatingDisplay =
     summary.averageRating !== null ? `${summary.averageRating.toFixed(1)} / 5` : "—";
@@ -220,8 +229,7 @@ export function InsightsPage() {
                       </Link>
                       <p className="mt-0.5 text-sm text-text-muted">{book.author}</p>
                       <p className="mt-2 font-mono text-sm text-text">
-                        {book.pages_read} / {book.total_pages ?? "—"} pages ·{" "}
-                        {book.progress_pct.toFixed(0)}%
+                        {pagesLabel(book)} · {progressLabel(book)}
                       </p>
                     </div>
                     <div className="flex items-start sm:justify-end">
@@ -242,21 +250,19 @@ export function InsightsPage() {
                     Genre data has not been generated yet.
                   </p>
                   <p className="mt-1 text-sm text-text-muted">
-                    Metadata Progress: {metadataStatus?.job.processed_count ?? 0} /{" "}
-                    {metadataStatus?.job.total_count ?? 0} books ·{" "}
-                    {metadataStatusLabel(metadataStatus?.job.status ?? "completed")}
+                    {hasNoBooks
+                      ? "No books to enrich"
+                      : `Metadata Progress: ${metadataStatus?.job.processed_count ?? 0} / ${
+                          metadataStatus?.job.total_count ?? 0
+                        } books · ${metadataStatusLabel(metadataStatus?.job.status ?? "completed")}`}
                   </p>
                 </div>
                 <Button
                   variant="primary"
                   onClick={() => void handleGenerateMetadata()}
-                  disabled={
-                    metadataStarting ||
-                    metadataStatus?.job.status === "pending" ||
-                    metadataStatus?.job.status === "processing"
-                  }
+                  disabled={metadataBusy || hasNoBooks}
                 >
-                  {metadataStarting ? "Generating" : "Generate Metadata"}
+                  {hasNoBooks ? "No books to enrich" : metadataBusy ? "Generating" : "Generate Metadata"}
                 </Button>
               </Card>
             ) : null}

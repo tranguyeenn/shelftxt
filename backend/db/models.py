@@ -161,6 +161,11 @@ class Book(Base):
         nullable=True,
     )
 
+    tracking_mode: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+
     description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,

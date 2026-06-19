@@ -11,6 +11,7 @@ import {
 
 function progressLabel(status: MetadataStatus | null): string {
   if (!status) return "Processed: 0 / 0 books";
+  if (status.total_books === 0) return "No books to enrich";
   return `Processed: ${status.job.processed_count} / ${status.job.total_count} books`;
 }
 
@@ -24,6 +25,9 @@ export function MetadataSection() {
     try {
       const next = await fetchMetadataStatus();
       setStatus(next);
+      if (next.total_books === 0) {
+        setGenerating(false);
+      }
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load metadata status");
@@ -56,6 +60,9 @@ export function MetadataSection() {
   }
 
   const busy = generating || status?.job.status === "pending" || status?.job.status === "processing";
+  const hasNoBooks = (status?.total_books ?? 0) === 0;
+  const displayStatus = hasNoBooks ? "No books to enrich" : metadataStatusLabel(status?.job.status ?? "completed");
+  const buttonLabel = hasNoBooks ? "No books to enrich" : busy ? "Generating" : "Generate Metadata";
 
   return (
     <SettingsSection
@@ -88,7 +95,7 @@ export function MetadataSection() {
 
       <SettingRow label="Metadata Progress" hint={progressLabel(status)}>
         <p className="text-sm text-text">
-          {loading ? "Loading" : metadataStatusLabel(status?.job.status ?? "completed")}
+          {loading ? "Loading" : displayStatus}
         </p>
       </SettingRow>
 
@@ -96,9 +103,9 @@ export function MetadataSection() {
         <Button
           variant="primary"
           onClick={() => void handleGenerate()}
-          disabled={busy || loading || (status?.total_books ?? 0) === 0}
+          disabled={busy || loading || hasNoBooks}
         >
-          {busy ? "Generating" : "Generate Metadata"}
+          {buttonLabel}
         </Button>
       </div>
     </SettingsSection>

@@ -1,6 +1,6 @@
 import { fetchJson } from "@/lib/api";
 import { recordToApiBook, type BookRecord } from "@/lib/books";
-import type { ApiBook, ReadingStatus } from "@/lib/types";
+import type { ApiBook, ReadingStatus, TrackingMode } from "@/lib/types";
 
 export type ProgressValidation = {
   valid: boolean;
@@ -39,9 +39,46 @@ export function validatePagesRead(
   return { valid: true };
 }
 
+export function validateTotalPages(totalPages: number | null): ProgressValidation {
+  if (totalPages !== null && (!Number.isFinite(totalPages) || totalPages <= 0)) {
+    return { valid: false, message: "Total pages must be positive or blank." };
+  }
+  return { valid: true };
+}
+
+export function validateProgressPercent(progressPercent: number): ProgressValidation {
+  if (!Number.isFinite(progressPercent) || progressPercent < 0 || progressPercent > 100) {
+    return { valid: false, message: "Progress must be between 0 and 100%." };
+  }
+  return { valid: true };
+}
+
+export function progressLabel(book: Pick<ApiBook, "status" | "progress_pct">): string {
+  if (book.status === "completed" || book.progress_pct >= 100) return "100% complete";
+  if (book.progress_pct > 0) return `${book.progress_pct.toFixed(0)}%`;
+  return "Progress not set";
+}
+
+export function pagesLabel(book: Pick<ApiBook, "pages_read" | "total_pages">): string {
+  if (book.total_pages !== null && book.total_pages > 0) {
+    return `${book.pages_read ?? 0} / ${book.total_pages} pages`;
+  }
+  if ((book.pages_read ?? 0) > 0) return `${book.pages_read} pages read`;
+  return "Pages not set";
+}
+
 export async function patchBookProgress(
   bookId: string,
-  payload: { status: ReadingStatus; pages_read: number }
+  payload: {
+    status?: ReadingStatus;
+    read_status?: ReadingStatus;
+    tracking_mode?: TrackingMode;
+    pages_read?: number;
+    total_pages?: number | null;
+    progress_percent?: number;
+    start_date?: string | null;
+    end_date?: string | null;
+  }
 ): Promise<ApiBook> {
   const encodedId = encodeURIComponent(bookId);
   const result = await fetchJson<BookRecord>(`/books/${encodedId}/progress`, {

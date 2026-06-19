@@ -1,5 +1,6 @@
 import csv
 import logging
+import re
 import uuid
 from datetime import date, datetime, timezone
 from io import StringIO
@@ -26,10 +27,25 @@ from backend.services.page_lookup import (
 )
 from backend.env import is_local_env
 from backend.services.metadata_normalization import normalize_language
+from backend.services.metadata_jobs import reset_metadata_progress_if_library_empty
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
 logger = logging.getLogger(__name__)
+TRACKING_MODES = {"percentage", "pages"}
+
+
+def infer_tracking_mode(total_pages: int | None) -> str:
+    return "pages" if total_pages is not None else "percentage"
+
+
+def normalized_tracking_mode(value: str | None, total_pages: int | None) -> str:
+    if value is None or str(value).strip() == "":
+        return infer_tracking_mode(total_pages)
+    mode = str(value).strip().lower()
+    if mode not in TRACKING_MODES:
+        raise HTTPException(status_code=400, detail="tracking_mode must be percentage or pages")
+    return mode
 
 
 def _log_endpoint_timing(endpoint: str, user_id: UUID, started: float, rows: int) -> None:
@@ -62,6 +78,8 @@ def book_to_dict(book):
         "Progress (%)": book.progress_percent,
         "Pages Read": book.pages_read,
         "Total Pages": book.total_pages,
+        "Tracking Mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
+        "tracking_mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
         "Description": book.description,
         "Subjects": book.subjects,
         "Genres": book.genres,
@@ -93,6 +111,23 @@ def parse_date_or_today(date_str):
 
 def parse_import_finish_date(value) -> date | None:
     return parse_reading_date(value, field_name="Last Date Read")
+
+
+def parse_dates_read_range(value) -> tuple[date | None, date | None]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None, None
+
+    matches = [
+        match.group(0)
+        for match in re.finditer(r"\d{4}[/-]\d{2}[/-]\d{2}", raw)
+    ]
+    if not matches:
+        return None, None
+
+    start = parse_reading_date(matches[0], field_name="Dates Read")
+    end = parse_reading_date(matches[1], field_name="Dates Read") if len(matches) > 1 else start
+    return start, end
 
 
 def parse_reading_date(value, *, field_name: str) -> date | None:
@@ -165,9 +200,12 @@ def export_library_csv(db: Session, user_id: UUID) -> str:
         "Last Date Read",
         "Start Date",
         "End Date",
+        "start_date",
+        "end_date",
         "Progress (%)",
         "Pages Read",
         "Total Pages",
+        "tracking_mode",
     ]
 
     output = StringIO()
@@ -198,6 +236,10 @@ def add_book_service(db: Session, book, user_id: UUID):
             "progress_percent": 0,
             "pages_read": 0,
             "total_pages": book.total_pages,
+            "tracking_mode": normalized_tracking_mode(
+                getattr(book, "tracking_mode", None),
+                book.total_pages,
+            ),
             "page_count_checked": book.total_pages is not None,
         },
         user_id,
@@ -242,16 +284,29 @@ def _status_patch_value(body) -> str | None:
     return getattr(body, "status", None) or getattr(body, "read_status", None)
 
 
+def _normalized_status_from_book(book) -> str:
+    return normalize_status(
+        book.read_status,
+        progress_percent=float(book.progress_percent or 0),
+        pages_read=int(book.pages_read or 0),
+    )
+
+
 def _apply_status_and_progress(
     update_data: dict,
     status: str | None,
     pages_read: int | None,
     total_pages: int | None,
     current_pages_read: int | None,
+    progress_percent: float | None = None,
+    current_progress_percent: float | None = None,
+    current_status: str = "not_started",
+    current_start_date: date | None = None,
+    current_end_date: date | None = None,
+    current_last_date_read: date | None = None,
+    rating: float | None = None,
+    current_rating: float | None = None,
 ):
-    if status is None and pages_read is None:
-        return
-
     next_pages_read = int(pages_read if pages_read is not None else current_pages_read or 0)
     if next_pages_read < 0:
         raise HTTPException(status_code=400, detail="pages_read cannot be negative")
@@ -260,6 +315,30 @@ def _apply_status_and_progress(
     if total_pages_int is not None and next_pages_read > total_pages_int:
         raise HTTPException(status_code=400, detail="pages_read cannot exceed total_pages")
 
+    if status is None and pages_read is None and progress_percent is None:
+        return
+
+    next_progress_percent = (
+        float(progress_percent)
+        if progress_percent is not None
+        else float(current_progress_percent or 0)
+    )
+    if next_progress_percent < 0 or next_progress_percent > 100:
+        raise HTTPException(status_code=400, detail="progress_percent must be between 0 and 100")
+
+    if pages_read is not None and total_pages_int is not None and total_pages_int > 0:
+        next_progress_percent = round((next_pages_read / total_pages_int) * 100, 2)
+
+    if (
+        total_pages_int is not None
+        and total_pages_int > 0
+        and next_pages_read >= total_pages_int
+        and status in (None, "reading")
+    ):
+        status = "completed"
+    if progress_percent is not None and next_progress_percent >= 100 and status in (None, "reading"):
+        status = "completed"
+
     if status == "not_started":
         update_data.update({"read_status": "to-read", "pages_read": 0, "progress_percent": 0})
         return
@@ -267,25 +346,20 @@ def _apply_status_and_progress(
     if status == "completed":
         if total_pages_int is not None:
             next_pages_read = total_pages_int
-        update_data.update(
-            {
-                "read_status": "read",
-                "pages_read": next_pages_read,
-                "progress_percent": 100,
-                "last_date_read": parse_date_or_today(None),
-            }
-        )
-        return
-
-    if total_pages_int is not None and total_pages_int > 0 and next_pages_read >= total_pages_int:
-        update_data.update(
-            {
-                "read_status": "read",
-                "pages_read": total_pages_int,
-                "progress_percent": 100,
-                "last_date_read": parse_date_or_today(None),
-            }
-        )
+        completed_data = {
+            "read_status": "read",
+            "pages_read": next_pages_read,
+            "progress_percent": 100,
+            "star_rating": float(rating) if rating is not None else current_rating,
+        }
+        if current_status != "completed":
+            completed_data["last_date_read"] = parse_date_or_today(None)
+            completed_data["end_date"] = date.today()
+        elif current_last_date_read is not None:
+            completed_data["last_date_read"] = current_last_date_read
+        if current_end_date is not None:
+            completed_data["end_date"] = current_end_date
+        update_data.update({key: value for key, value in completed_data.items() if value is not None})
         return
 
     if status == "reading":
@@ -293,9 +367,8 @@ def _apply_status_and_progress(
             {
                 "read_status": "to-read",
                 "pages_read": next_pages_read,
-                "progress_percent": round((next_pages_read / total_pages_int) * 100, 2)
-                if total_pages_int
-                else 0,
+                "progress_percent": next_progress_percent,
+                "start_date": current_start_date or date.today(),
             }
         )
         return
@@ -305,10 +378,10 @@ def _apply_status_and_progress(
             {
                 "read_status": "dnf",
                 "pages_read": next_pages_read,
-                "progress_percent": round((next_pages_read / total_pages_int) * 100, 2)
-                if total_pages_int
-                else 0,
+                "progress_percent": next_progress_percent,
+                "star_rating": 1,
                 "last_date_read": parse_date_or_today(None),
+                "end_date": date.today(),
             }
         )
         return
@@ -317,9 +390,7 @@ def _apply_status_and_progress(
         update_data.update(
             {
                 "pages_read": next_pages_read,
-                "progress_percent": round((next_pages_read / total_pages_int) * 100, 2)
-                if total_pages_int
-                else 0,
+                "progress_percent": next_progress_percent,
             }
         )
         return
@@ -353,12 +424,18 @@ def import_books_service(db: Session, data, user_id: UUID):
             pages_read=pages_read,
         )
         total_pages = book.total_pages
+        tracking_mode = normalized_tracking_mode(book.tracking_mode, total_pages)
         stored_author = author or "Unknown"
         imported_finish_date = parse_import_finish_date(getattr(book, "last_date_read", None))
+        dates_read_start, dates_read_end = parse_dates_read_range(getattr(book, "dates_read", None))
         imported_start_date = parse_reading_date(getattr(book, "start_date", None), field_name="Start Date")
         imported_end_date = parse_reading_date(getattr(book, "end_date", None), field_name="End Date")
+        if normalized_status != "not_started" and imported_start_date is None:
+            imported_start_date = dates_read_start
         if imported_end_date is None:
             imported_end_date = imported_finish_date
+        if normalized_status != "not_started" and imported_end_date is None:
+            imported_end_date = dates_read_end
         _validate_date_range(imported_start_date, imported_end_date)
 
         if normalized_status == "completed":
@@ -385,6 +462,7 @@ def import_books_service(db: Session, data, user_id: UUID):
                 "progress_percent": progress_percent,
                 "pages_read": pages_read,
                 "total_pages": total_pages,
+                "tracking_mode": tracking_mode,
                 "page_count_checked": total_pages is not None,
             }
         )
@@ -417,6 +495,7 @@ def clear_library_service(db: Session, confirm: bool, user_id: UUID):
         )
 
     deleted = delete_books_for_user(db, user_id)
+    reset_metadata_progress_if_library_empty(db, user_id)
     _log_endpoint_timing("POST /books/clear", user_id, started, deleted)
 
     return {"deleted": deleted}
@@ -429,6 +508,7 @@ def delete_book_by_id_service(db: Session, book_id: str, user_id: UUID):
         raise HTTPException(status_code=404, detail="Book not found")
 
     delete_book(db, book.id, user_id)
+    reset_metadata_progress_if_library_empty(db, user_id)
 
     return {"message": "Book deleted"}
 
@@ -439,6 +519,7 @@ def delete_book_by_title_service(db: Session, title: str, user_id: UUID):
     for book in books:
         if book.title == title:
             delete_book(db, book.id, user_id)
+            reset_metadata_progress_if_library_empty(db, user_id)
             return {"message": "Book deleted"}
 
     raise HTTPException(status_code=404, detail="Book not found")
@@ -473,6 +554,12 @@ def patch_book_service(db: Session, p, user_id: UUID):
 
     if p.total_pages is not None:
         update_data["total_pages"] = p.total_pages
+
+    if getattr(p, "tracking_mode", None) is not None:
+        update_data["tracking_mode"] = normalized_tracking_mode(
+            p.tracking_mode,
+            update_data.get("total_pages", book.total_pages),
+        )
 
     next_start_date = book.start_date
     next_end_date = book.end_date
@@ -560,7 +647,12 @@ def patch_book_service(db: Session, p, user_id: UUID):
         else:
             raise HTTPException(status_code=400, detail="Invalid move target")
 
-    if _status_patch_value(p) is not None or p.pages_read is not None:
+    if (
+        _status_patch_value(p) is not None
+        or p.pages_read is not None
+        or p.progress_percent is not None
+        or p.total_pages is not None
+    ):
         total_pages = update_data.get("total_pages", book.total_pages)
         _apply_status_and_progress(
             update_data,
@@ -568,6 +660,13 @@ def patch_book_service(db: Session, p, user_id: UUID):
             p.pages_read,
             total_pages,
             book.pages_read,
+            progress_percent=p.progress_percent,
+            current_progress_percent=book.progress_percent,
+            current_status=_normalized_status_from_book(book),
+            current_start_date=next_start_date,
+            current_end_date=next_end_date,
+            current_last_date_read=book.last_date_read,
+            current_rating=book.star_rating,
         )
 
     update_book(db, book.id, update_data, user_id)
@@ -607,6 +706,12 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
     if "total_pages" in fields_set:
         update_data["total_pages"] = body.total_pages
 
+    if "tracking_mode" in fields_set:
+        update_data["tracking_mode"] = normalized_tracking_mode(
+            body.tracking_mode,
+            update_data.get("total_pages", book.total_pages),
+        )
+
     next_start_date = book.start_date
     next_end_date = book.end_date
     if "start_date" in fields_set:
@@ -619,13 +724,25 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
 
     total_pages = update_data.get("total_pages", book.total_pages)
     pages_read = body.pages_read if "pages_read" in fields_set else None
+    progress_percent = body.progress_percent if "progress_percent" in fields_set else None
     _apply_status_and_progress(
         update_data,
         _status_patch_value(body),
         pages_read,
         total_pages,
         book.pages_read,
+        progress_percent=progress_percent,
+        current_progress_percent=book.progress_percent,
+        current_status=_normalized_status_from_book(book),
+        current_start_date=next_start_date,
+        current_end_date=next_end_date,
+        current_last_date_read=book.last_date_read,
+        current_rating=book.star_rating,
     )
+    if "start_date" in fields_set:
+        update_data["start_date"] = next_start_date
+    if "end_date" in fields_set:
+        update_data["end_date"] = next_end_date
 
     updated = update_book(db, book.id, update_data, user_id)
 
@@ -638,94 +755,45 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id:
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
 
-    total_pages = book.total_pages
-    total_pages_int = (
-        int(total_pages)
-        if total_pages is not None and int(total_pages) > 0
-        else None
-    )
-    has_total = total_pages_int is not None
-
-    status = body.status
-    pages_read = int(body.pages_read)
-
-    if status in ("reading", "completed") and not has_total:
-        raise HTTPException(status_code=400, detail="Set total pages first")
-
-    if has_total and total_pages_int is not None:
-        if pages_read > total_pages_int:
-            raise HTTPException(
-                status_code=400,
-                detail="pages_read cannot exceed total_pages",
-            )
-
-        if status == "completed" and pages_read != total_pages_int:
-            raise HTTPException(
-                status_code=400,
-                detail="pages_read must equal total_pages when status is completed",
-            )
-
-        if pages_read == total_pages_int and status == "reading":
-            status = "completed"
-
     update_data = {}
+    fields_set = getattr(body, "model_fields_set", set())
+    if "total_pages" in fields_set:
+        update_data["total_pages"] = body.total_pages
 
-    if status == "not_started":
-        update_data.update(
-            {
-                "read_status": "to-read",
-                "progress_percent": 0,
-                "pages_read": 0,
-            }
+    if "tracking_mode" in fields_set:
+        update_data["tracking_mode"] = normalized_tracking_mode(
+            body.tracking_mode,
+            update_data.get("total_pages", book.total_pages),
         )
 
-    elif status == "reading":
-        progress_pct = (
-            round((pages_read / total_pages_int) * 100, 2)
-            if total_pages_int
-            else 0
-        )
+    next_start_date = book.start_date
+    next_end_date = book.end_date
+    if "start_date" in fields_set:
+        next_start_date = parse_reading_date(body.start_date, field_name="Start Date")
+        update_data["start_date"] = next_start_date
+    if "end_date" in fields_set:
+        next_end_date = parse_reading_date(body.end_date, field_name="End Date")
+        update_data["end_date"] = next_end_date
+    _validate_date_range(next_start_date, next_end_date)
 
-        update_data.update(
-            {
-                "read_status": "to-read",
-                "pages_read": pages_read,
-                "progress_percent": progress_pct,
-                "start_date": book.start_date or date.today(),
-            }
-        )
-
-    elif status == "completed":
-        rating = getattr(body, "rating", None)
-
-        update_data.update(
-            {
-                "read_status": "read",
-                "star_rating": float(rating)
-                if rating is not None
-                else book.star_rating,
-                "progress_percent": 100,
-                "pages_read": pages_read,
-                "last_date_read": parse_date_or_today(None),
-                "start_date": book.start_date,
-                "end_date": date.today(),
-            }
-        )
-
-    elif status == "dnf":
-        update_data.update(
-            {
-                "read_status": "dnf",
-                "star_rating": 1,
-                "progress_percent": 0,
-                "pages_read": pages_read,
-                "last_date_read": parse_date_or_today(None),
-                "end_date": date.today(),
-            }
-        )
-
-    else:
-        raise HTTPException(status_code=400, detail="Invalid status")
+    _apply_status_and_progress(
+        update_data,
+        _status_patch_value(body),
+        body.pages_read if "pages_read" in fields_set else None,
+        update_data.get("total_pages", book.total_pages),
+        book.pages_read,
+        progress_percent=body.progress_percent if "progress_percent" in fields_set else None,
+        current_progress_percent=book.progress_percent,
+        current_status=_normalized_status_from_book(book),
+        current_start_date=next_start_date,
+        current_end_date=next_end_date,
+        current_last_date_read=book.last_date_read,
+        current_rating=book.star_rating,
+    )
+    if "start_date" in fields_set:
+        update_data["start_date"] = next_start_date
+    if "end_date" in fields_set:
+        update_data["end_date"] = next_end_date
 
     updated = update_book(db, book.id, update_data, user_id)
 

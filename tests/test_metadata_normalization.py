@@ -1,4 +1,5 @@
 from backend.services.metadata_normalization import (
+    clean_reader_tags,
     filter_specific_subjects,
     genre_confidence_scores,
     normalize_genre,
@@ -65,3 +66,21 @@ def test_genre_confidence_requires_strong_or_repeated_support():
 
     assert result["fantasy"] == 0.45
     assert subjects_to_genres(["Magic", "Imaginary places"]) == ["fantasy"]
+
+
+def test_reader_tag_cleaner_removes_open_library_cataloging_noise():
+    result = clean_reader_tags(
+        [
+            "reading level grade 11",
+            "Large type books",
+            "Dramatic works by one author",
+            "Fiction General",
+            "Dystopias",
+            "Love stories",
+            "Historical Fiction",
+            "historical fiction",
+            "continental european drama dramatic works by one author",
+        ]
+    )
+
+    assert result == ["Dystopian", "Romance", "Historical Fiction"]

@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
-import { statusLabel } from "@/lib/bookProgress";
+import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { formatDisplayDate } from "@/lib/books";
 import type { ApiBook } from "@/lib/types";
@@ -57,16 +57,12 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
 
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-6">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Total pages</dt>
-          <dd className="mt-1 font-mono text-text">{book.total_pages ?? "—"}</dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Pages read</dt>
-          <dd className="mt-1 font-mono text-text">{book.pages_read}</dd>
+          <dt className="text-xs uppercase tracking-wide text-text-dim">Pages</dt>
+          <dd className="mt-1 font-mono text-text">{pagesLabel(book)}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-wide text-text-dim">Progress</dt>
-          <dd className="mt-1 font-mono text-text">{book.progress_pct.toFixed(0)}%</dd>
+          <dd className="mt-1 font-mono text-text">{progressLabel(book)}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-wide text-text-dim">Status</dt>

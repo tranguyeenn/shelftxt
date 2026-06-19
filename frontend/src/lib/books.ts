@@ -1,5 +1,5 @@
 import { fetchJson } from "@/lib/api";
-import type { ApiBook, ReadingStatus } from "@/lib/types";
+import type { ApiBook, ReadingStatus, TrackingMode } from "@/lib/types";
 
 export type PaginatedBooksResponse = {
   page: number;
@@ -25,6 +25,8 @@ export type BookRecord = {
   "Progress (%)"?: number | null;
   "Pages Read"?: number | null;
   "Total Pages"?: number | null;
+  "Tracking Mode"?: string | null;
+  tracking_mode?: string | null;
   Description?: string | null;
   Subjects?: string[] | string | null;
   Genres?: string[] | string | null;
@@ -72,6 +74,14 @@ function statusNorm(s: string | null | undefined): string {
     .toLowerCase();
 }
 
+function trackingModeValue(book: BookRecord): TrackingMode {
+  const raw = String(book.tracking_mode ?? book["Tracking Mode"] ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "percentage" || raw === "pages") return raw;
+  return toNumber(book["Total Pages"]) !== null ? "pages" : "percentage";
+}
+
 export function recordToApiBook(book: BookRecord): ApiBook {
   const progress = progressPct(book);
   const pagesRead = toNumber(book["Pages Read"]) ?? 0;
@@ -90,6 +100,7 @@ export function recordToApiBook(book: BookRecord): ApiBook {
     total_pages: totalPages,
     pages_read: pagesRead,
     progress_pct: progress,
+    tracking_mode: trackingModeValue(book),
     rating: starRating(book),
     read_status: String(book["Read Status"] ?? ""),
     start_date: startDateValue(book),
@@ -103,7 +114,9 @@ export type BookPatchPayload = {
   isbn_uid: string;
   total_pages: number | null;
   status: ReadingStatus;
-  pages_read: number;
+  tracking_mode?: TrackingMode;
+  pages_read?: number;
+  progress_percent?: number;
   start_date?: string | null;
   end_date?: string | null;
 };

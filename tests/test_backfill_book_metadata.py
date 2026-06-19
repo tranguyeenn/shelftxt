@@ -118,6 +118,40 @@ def test_backfill_manual_fallback_genres_apply_when_api_metadata_fails(
 @patch("backend.scripts.backfill_book_metadata.time.sleep", return_value=None)
 @patch("backend.scripts.backfill_book_metadata.get_session_local", return_value=TestingSessionLocal)
 @patch("backend.scripts.backfill_book_metadata.lookup_book_metadata")
+def test_backfill_preserves_existing_end_date_when_total_pages_added(
+    mock_lookup,
+    _mock_session,
+    _mock_sleep,
+):
+    _seed_book(
+        title="Completed Missing Pages",
+        authors="A",
+        isbn_uid="completed-missing-pages",
+        read_status="read",
+        progress_percent=100,
+        end_date="2025-02-03",
+    )
+    mock_lookup.return_value = BookMetadata(
+        total_pages=320,
+        genres=["fiction"],
+        metadata_source="open_library",
+    )
+
+    updated = backfill_book_metadata(limit=10, batch_size=1, sleep_seconds=0)
+
+    assert updated == 1
+    db = TestingSessionLocal()
+    try:
+        book = db.query(Book).filter(Book.isbn_uid == "completed-missing-pages").one()
+        assert book.total_pages == 320
+        assert book.end_date.isoformat() == "2025-02-03"
+    finally:
+        db.close()
+
+
+@patch("backend.scripts.backfill_book_metadata.time.sleep", return_value=None)
+@patch("backend.scripts.backfill_book_metadata.get_session_local", return_value=TestingSessionLocal)
+@patch("backend.scripts.backfill_book_metadata.lookup_book_metadata")
 def test_backfill_replaces_overinflated_genres(mock_lookup, _mock_session, _mock_sleep):
     _seed_book(
         title="Night",
