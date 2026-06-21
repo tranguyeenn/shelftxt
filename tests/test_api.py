@@ -2,10 +2,11 @@ import unittest
 from contextlib import ExitStack
 from unittest.mock import patch
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -169,6 +170,47 @@ class ApiTests(unittest.TestCase):
                 )
             )
         return stack
+
+    def test_health_is_static_and_does_not_require_db_or_auth(self):
+        def broken_dependency():
+            raise AssertionError("health should not resolve dependencies")
+
+        original_overrides = dict(api.app.dependency_overrides)
+        api.app.dependency_overrides[get_db] = broken_dependency
+        api.app.dependency_overrides[get_current_user] = broken_dependency
+        try:
+            response = self.client.get("/health")
+        finally:
+            api.app.dependency_overrides.clear()
+            api.app.dependency_overrides.update(original_overrides)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "healthy")
+
+    def test_ready_returns_success_when_database_responds(self):
+        response = self.client.get("/ready")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+
+    def test_ready_returns_503_when_database_check_fails(self):
+        class BrokenSession:
+            def execute(self, _statement):
+                raise SQLAlchemyError("database unavailable")
+
+        def broken_db():
+            yield BrokenSession()
+
+        original_overrides = dict(api.app.dependency_overrides)
+        api.app.dependency_overrides[get_db] = broken_db
+        try:
+            response = self.client.get("/ready")
+        finally:
+            api.app.dependency_overrides.clear()
+            api.app.dependency_overrides.update(original_overrides)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "Database unavailable")
 
     def test_get_books_default_pagination(self):
         for i in range(25):
@@ -2063,6 +2105,39 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["job"]["processed_count"], 0)
         self.assertEqual(payload["job"]["total_count"], 1)
         mock_process_metadata_job.assert_called_once()
+
+    def test_metadata_status_marks_stuck_processing_job_failed(self):
+        _seed_book(title="Needs Genre", authors="A", isbn_uid="needs-genre")
+        stale_time = datetime.now(timezone.utc) - timedelta(hours=2)
+
+        db = TestingSessionLocal()
+        try:
+            job = MetadataJob(
+                user_id=TEST_USER_ID,
+                status="processing",
+                processed_count=0,
+                total_count=1,
+                updated_at=stale_time,
+            )
+            db.add(job)
+            db.commit()
+            job_id = job.id
+        finally:
+            db.close()
+
+        response = self.client.get("/metadata/status")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["job"]["status"], "failed")
+
+        db = TestingSessionLocal()
+        try:
+            job = db.get(MetadataJob, job_id)
+            self.assertEqual(job.status, "failed")
+            self.assertIn("stale", job.error_message)
+        finally:
+            db.close()
 
     @patch("backend.services.metadata_jobs.get_session_local", return_value=TestingSessionLocal)
     @patch("backend.services.metadata_jobs.page_lookup.lookup_book_metadata")

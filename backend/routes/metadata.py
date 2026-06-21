@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/metadata/status", response_model=MetadataStatusResponse)
-async def metadata_status(
+def metadata_status(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
@@ -23,7 +23,7 @@ async def metadata_status(
 
 
 @router.post("/metadata/generate", response_model=MetadataStatusResponse)
-async def generate_metadata(
+def generate_metadata(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),

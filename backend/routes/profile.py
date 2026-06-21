@@ -11,12 +11,12 @@ router = APIRouter()
 
 
 @router.get("/profile/me", response_model=ProfileResponse)
-async def get_my_profile(current_user: Profile = Depends(get_current_user)):
+def get_my_profile(current_user: Profile = Depends(get_current_user)):
     return current_user
 
 
 @router.patch("/profile/me", response_model=ProfileResponse)
-async def update_my_profile(
+def update_my_profile(
     body: ProfilePatch,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),

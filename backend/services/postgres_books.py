@@ -18,7 +18,10 @@ from backend.repository.postgres_books_repository import (
     delete_books_for_user,
     get_existing_import_keys,
     get_all_books,
+    get_book_by_title,
+    get_book_by_title_excluding_id,
     get_book_by_isbn_uid,
+    get_book_by_isbn_uid_excluding_id,
     get_books_page,
     update_book,
 )
@@ -514,20 +517,18 @@ def delete_book_by_id_service(db: Session, book_id: str, user_id: UUID):
 
 
 def delete_book_by_title_service(db: Session, title: str, user_id: UUID):
-    books = get_all_books(db, user_id)
+    book = get_book_by_title(db, title, user_id)
 
-    for book in books:
-        if book.title == title:
-            delete_book(db, book.id, user_id)
-            reset_metadata_progress_if_library_empty(db, user_id)
-            return {"message": "Book deleted"}
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
 
-    raise HTTPException(status_code=404, detail="Book not found")
+    delete_book(db, book.id, user_id)
+    reset_metadata_progress_if_library_empty(db, user_id)
+    return {"message": "Book deleted"}
 
 
 def patch_book_service(db: Session, p, user_id: UUID):
-    books = get_all_books(db, user_id)
-    book = next((b for b in books if b.title == p.title), None)
+    book = get_book_by_title(db, p.title, user_id)
 
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -535,7 +536,7 @@ def patch_book_service(db: Session, p, user_id: UUID):
     update_data = {}
 
     if p.new_title and p.new_title != p.title:
-        duplicate = next((b for b in books if b.title == p.new_title), None)
+        duplicate = get_book_by_title(db, p.new_title, user_id)
 
         if duplicate is not None:
             raise HTTPException(status_code=400, detail="Title already exists")
@@ -547,7 +548,7 @@ def patch_book_service(db: Session, p, user_id: UUID):
 
     if getattr(p, "isbn_uid", None) is not None:
         next_isbn = p.isbn_uid.strip()
-        duplicate = next((b for b in books if b.isbn_uid == next_isbn and b.id != book.id), None)
+        duplicate = get_book_by_isbn_uid_excluding_id(db, next_isbn, book.id, user_id)
         if duplicate is not None:
             raise HTTPException(status_code=400, detail="ISBN/UID already exists")
         update_data["isbn_uid"] = next_isbn
@@ -675,7 +676,6 @@ def patch_book_service(db: Session, p, user_id: UUID):
 
 
 def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
-    books = get_all_books(db, user_id)
     book = get_book_by_isbn_uid(db, book_id, user_id)
 
     if book is None:
@@ -688,7 +688,7 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
         title = body.title.strip()
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
-        duplicate = next((b for b in books if b.title == title and b.id != book.id), None)
+        duplicate = get_book_by_title_excluding_id(db, title, book.id, user_id)
         if duplicate is not None:
             raise HTTPException(status_code=400, detail="Title already exists")
         update_data["title"] = title
@@ -698,7 +698,7 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
 
     if "isbn_uid" in fields_set and body.isbn_uid is not None:
         isbn_uid = body.isbn_uid.strip()
-        duplicate = next((b for b in books if b.isbn_uid == isbn_uid and b.id != book.id), None)
+        duplicate = get_book_by_isbn_uid_excluding_id(db, isbn_uid, book.id, user_id)
         if duplicate is not None:
             raise HTTPException(status_code=400, detail="ISBN/UID already exists")
         update_data["isbn_uid"] = isbn_uid

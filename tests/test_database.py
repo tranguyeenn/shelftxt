@@ -9,8 +9,11 @@ def test_psycopg_postgres_disables_prepared_statements():
     assert kwargs["pool_timeout"] == 10
     assert kwargs["pool_size"] == 2
     assert kwargs["max_overflow"] == 1
+    assert kwargs["pool_use_lifo"] is True
     assert kwargs["connect_args"]["prepare_threshold"] is None
     assert kwargs["connect_args"]["connect_timeout"] == 10
+    assert "statement_timeout=8000" in kwargs["connect_args"]["options"]
+    assert "idle_in_transaction_session_timeout=15000" in kwargs["connect_args"]["options"]
 
 
 def test_postgres_urls_use_bounded_pool_and_connect_timeout():
@@ -21,7 +24,10 @@ def test_postgres_urls_use_bounded_pool_and_connect_timeout():
     assert kwargs["pool_timeout"] == 10
     assert kwargs["pool_size"] == 2
     assert kwargs["max_overflow"] == 1
-    assert kwargs["connect_args"] == {"connect_timeout": 10}
+    assert kwargs["pool_use_lifo"] is True
+    assert kwargs["connect_args"]["connect_timeout"] == 10
+    assert "statement_timeout=8000" in kwargs["connect_args"]["options"]
+    assert "idle_in_transaction_session_timeout=15000" in kwargs["connect_args"]["options"]
 
 
 def test_non_psycopg_urls_do_not_receive_psycopg_connect_args():

@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/books", response_model=BooksPage)
-async def get_books(
+def get_books(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -64,7 +64,7 @@ async def get_books(
 
 
 @router.get("/books/export")
-async def export_books(
+def export_books(
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
@@ -80,7 +80,7 @@ async def export_books(
 
 
 @router.post("/books/clear")
-async def clear_books(
+def clear_books(
     body: ClearLibraryRequest,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
@@ -89,7 +89,7 @@ async def clear_books(
 
 
 @router.post("/books")
-async def add_book(
+def add_book(
     book: AddBook,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
@@ -98,7 +98,7 @@ async def add_book(
 
 
 @router.delete("/books")
-async def delete_book(
+def delete_book(
     title: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
@@ -107,7 +107,7 @@ async def delete_book(
 
 
 @router.patch("/books")
-async def patch_book(
+def patch_book(
     p: PatchBook,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
@@ -116,7 +116,7 @@ async def patch_book(
 
 
 @router.post("/books/import", response_model=ImportResult)
-async def import_books(
+def import_books(
     data: ImportBooks,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
@@ -125,7 +125,7 @@ async def import_books(
 
 
 @router.get("/books/{book_id}")
-async def get_book_by_id_route(
+def get_book_by_id_route(
     book_id: str,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
@@ -134,7 +134,7 @@ async def get_book_by_id_route(
 
 
 @router.patch("/books/{book_id}")
-async def patch_book_by_id_route(
+def patch_book_by_id_route(
     book_id: str,
     body: PatchBookById,
     db: Session = Depends(get_db),
@@ -144,7 +144,7 @@ async def patch_book_by_id_route(
 
 
 @router.patch("/books/{book_id}/progress")
-async def update_book_progress(
+def update_book_progress(
     book_id: str,
     body: BookProgressPatch,
     db: Session = Depends(get_db),
@@ -154,7 +154,7 @@ async def update_book_progress(
 
 
 @router.delete("/books/{book_id}")
-async def delete_book_by_id_route(
+def delete_book_by_id_route(
     book_id: str,
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),

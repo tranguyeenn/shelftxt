@@ -59,6 +59,33 @@ def get_book_by_isbn_uid(db: Session, isbn_uid: str, user_id: UUID):
     )
 
 
+def get_book_by_title(db: Session, title: str, user_id: UUID):
+    return (
+        db.query(Book)
+        .filter(Book.title == title, Book.user_id == user_id)
+        .order_by(Book.id.asc())
+        .first()
+    )
+
+
+def get_book_by_title_excluding_id(db: Session, title: str, book_id: int, user_id: UUID):
+    return (
+        db.query(Book)
+        .filter(Book.title == title, Book.user_id == user_id, Book.id != book_id)
+        .order_by(Book.id.asc())
+        .first()
+    )
+
+
+def get_book_by_isbn_uid_excluding_id(db: Session, isbn_uid: str, book_id: int, user_id: UUID):
+    return (
+        db.query(Book)
+        .filter(Book.isbn_uid == isbn_uid, Book.user_id == user_id, Book.id != book_id)
+        .order_by(Book.id.asc())
+        .first()
+    )
+
+
 def create_book(db: Session, book_data: dict, user_id: UUID):
     book = Book(**book_data, user_id=user_id)
 

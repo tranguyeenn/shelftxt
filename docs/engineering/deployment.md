@@ -20,7 +20,7 @@ Production split: **API on Render**, **UI on Vercel**, **Auth on Supabase**. All
 | **Root Directory** | *(empty — repo root)* |
 | **Runtime** | Python 3.14 |
 | **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `uvicorn backend.api:app --host 0.0.0.0 --port $PORT` |
+| **Start Command** | `uvicorn backend.api:app --host 0.0.0.0 --port $PORT --workers ${WEB_CONCURRENCY:-2}` |
 
 Alternative: leave Start Command empty and use root [`Procfile`](../../Procfile).
 
@@ -29,6 +29,10 @@ Legacy start command `uvicorn api:app` works via root [`api.py`](../../backend/a
 Production entrypoint is always **`backend.api:app`** — not `backend.api_draft`.
 
 Optional Blueprint: [`render.yaml`](../../render.yaml).
+
+Set `WEB_CONCURRENCY=2` in Render for production. The blueprint and Procfile use
+`${WEB_CONCURRENCY:-2}` as a shell fallback; if Render ever rejects that syntax,
+replace it with `--workers $WEB_CONCURRENCY` and keep the environment variable set.
 
 ### Common Render mistakes
 
@@ -42,6 +46,23 @@ Optional Blueprint: [`render.yaml`](../../render.yaml).
 ### Health check
 
 Render should use `/health`. Keep-warm job in `backend/api.py` pings the same path every 14 minutes.
+Use `/ready` only for dependency readiness checks; it verifies the database and may
+return 503 when PostgreSQL is unavailable. UptimeRobot should monitor `/health`,
+not `/ready`.
+
+### Outage diagnosis checklist
+
+When `/health` hangs or UptimeRobot reports downtime:
+
+1. Check Render Events for deploys, restarts, OOM kills, or platform incidents.
+2. Check the last `process_heartbeat` log and its `event_loop_lag_ms`.
+3. Check the last `request_start`, `request_end`, or `request_exception` log.
+4. Confirm whether `/health` requests reached app logs. No `/health` start log
+   means the request likely did not reach the FastAPI process.
+5. Check for `slow_request`, `db_pool_timeout`, and metadata job logs around the
+   first failed health check.
+6. If the process restarted, compare Render restart time with the last heartbeat
+   to distinguish event-loop blockage from OOM/process death.
 
 ### Supabase schema migrations
 
