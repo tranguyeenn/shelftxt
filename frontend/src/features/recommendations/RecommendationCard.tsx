@@ -97,7 +97,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
                   ))}
                 </dl>
               ) : (
-                <p className="mt-2 text-sm text-text-muted">Detailed breakdown unavailable for this recommendation.</p>
+                <p className="mt-2 text-sm text-text-muted">ShelfTxt has a pick here, but not enough visible signals to explain it well yet.</p>
               )}
               {relatedBooks.length > 0 ? (
                 <div className="mt-4 border-t border-border-subtle pt-4">
@@ -120,7 +120,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
 
       {showExplanation && similar_books.length > 0 ? (
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-text-dim">Similar to</p>
+          <p className="text-xs font-medium uppercase text-text-dim">Similar to</p>
           <ul className="mt-2 grid gap-1 text-sm text-text-muted">
             {similar_books.map((similar) => (
               <li key={similar.id || `${similar.title}-${similar.author}`}>

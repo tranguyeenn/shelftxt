@@ -57,23 +57,23 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
 
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-6">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Pages</dt>
+          <dt className="text-xs uppercase text-text-dim">Pages</dt>
           <dd className="mt-1 font-mono text-text">{pagesLabel(book)}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Progress</dt>
+          <dt className="text-xs uppercase text-text-dim">Progress</dt>
           <dd className="mt-1 font-mono text-text">{progressLabel(book)}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Status</dt>
+          <dt className="text-xs uppercase text-text-dim">Status</dt>
           <dd className="mt-1 text-text">{statusLabel(book.status)}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Started</dt>
+          <dt className="text-xs uppercase text-text-dim">Started</dt>
           <dd className="mt-1 text-text">{formatDisplayDate(book.start_date)}</dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-text-dim">Finished</dt>
+          <dt className="text-xs uppercase text-text-dim">Finished</dt>
           <dd className="mt-1 text-text">{formatDisplayDate(book.end_date)}</dd>
         </div>
       </dl>

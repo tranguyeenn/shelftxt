@@ -156,7 +156,7 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
               type="button"
               onClick={() => setTrackingMode("percentage")}
               className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                trackingMode === "percentage" ? "bg-accent text-bg" : "text-text-muted hover:text-text"
+                trackingMode === "percentage" ? "bg-accent text-text" : "text-text-muted hover:text-text"
               }`}
             >
               Track by percentage
@@ -165,7 +165,7 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
               type="button"
               onClick={() => setTrackingMode("pages")}
               className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                trackingMode === "pages" ? "bg-accent text-bg" : "text-text-muted hover:text-text"
+                trackingMode === "pages" ? "bg-accent text-text" : "text-text-muted hover:text-text"
               }`}
             >
               Track by pages

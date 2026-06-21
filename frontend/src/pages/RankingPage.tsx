@@ -71,8 +71,8 @@ export function RankingPage() {
 
       {!loading && !error && items.length === 0 ? (
         <EmptyState
-          title="Add more books to get recommendations."
-          description="Add more rated books to improve recommendations."
+          title="No clear recommendation yet."
+          description="Add more books from your TBR or rate a few finished reads so ShelfTxt can explain the next pick."
         />
       ) : null}
 

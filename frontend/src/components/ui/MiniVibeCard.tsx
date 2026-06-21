@@ -22,7 +22,7 @@ export function MiniVibeCard({
     <aside className="rounded-lg border border-border bg-bg-elevated p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium lowercase tracking-wide text-text-dim">{title}</p>
+          <p className="text-xs font-medium lowercase text-text-dim">{title}</p>
           <p className="mt-2 text-sm font-semibold text-text">{mood}</p>
           {genre ? <p className="mt-0.5 text-xs text-text-muted">{genre}</p> : null}
           {song ? <p className="mt-3 text-xs text-text-muted">song: {song}</p> : null}

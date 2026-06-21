@@ -213,7 +213,7 @@ export function CsvImportSection() {
 
       {rows.length > 0 ? (
         <div className="rounded-lg border border-border-subtle bg-bg-elevated p-3">
-          <p className="text-xs uppercase tracking-wide text-text-dim">
+          <p className="text-xs uppercase text-text-dim">
             Preview ({rows.length} rows)
           </p>
           <ul className="mt-2 grid gap-1 text-sm text-text-muted">

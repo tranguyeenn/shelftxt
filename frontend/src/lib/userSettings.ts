@@ -27,10 +27,10 @@ export const ACCENT_PRESETS: Record<
   { label: string; accent: string; accentDim: string; accentMuted: string }
 > = {
   teal: {
-    label: "Moss",
-    accent: "#8FAF7A",
-    accentDim: "#A3C68B",
-    accentMuted: "rgba(143, 175, 122, 0.14)"
+    label: "Shelf green",
+    accent: "#2E5A3A",
+    accentDim: "#3C6F49",
+    accentMuted: "rgba(46, 90, 58, 0.28)"
   },
   blue: {
     label: "Sage",

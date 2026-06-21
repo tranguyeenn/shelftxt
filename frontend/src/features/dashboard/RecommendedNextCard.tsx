@@ -33,12 +33,12 @@ export function RecommendedNextCard({ item }: RecommendedNextCardProps) {
       <div className="grid gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="mb-2 text-xs font-medium lowercase tracking-wide text-text-dim">read next</p>
+            <p className="mb-2 text-xs font-medium lowercase text-text-dim">read next</p>
             <h2 className="text-xl font-semibold text-text">{book.title}</h2>
             <p className="mt-1 text-sm text-text-muted">{book.author}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs lowercase tracking-wide text-text-dim">match</p>
+            <p className="text-xs lowercase text-text-dim">match</p>
             <p className="text-3xl font-semibold text-accent">{match}%</p>
             <Badge tone="success">Top pick</Badge>
           </div>
@@ -64,7 +64,7 @@ export function RecommendedNextCard({ item }: RecommendedNextCardProps) {
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
               to={`/book/${encodeURIComponent(book.id)}`}
-              className="inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg hover:bg-accent-dim"
+              className="inline-flex items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text hover:bg-accent-dim"
             >
               start reading
             </Link>
@@ -90,7 +90,7 @@ export function RecommendedNextCard({ item }: RecommendedNextCardProps) {
                   ))}
                 </dl>
               ) : (
-                <p className="mt-2 text-sm text-text-muted">Detailed breakdown unavailable for this recommendation.</p>
+                <p className="mt-2 text-sm text-text-muted">ShelfTxt has a top pick, but not enough visible signals to explain it well yet.</p>
               )}
               {relatedBooks.length > 0 ? (
                 <div className="mt-4 border-t border-border-subtle pt-4">

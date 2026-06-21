@@ -103,12 +103,12 @@ export function DashboardPage() {
 
       {!loading && !topPick && !error ? (
         <EmptyState
-          title="Add more books to get recommendations."
-          description="Rate completed books and keep your TBR up to date so ShelfTxt can suggest what to read next."
+          title="Your next pick needs a little more shelf context."
+          description="Add a few books you want to read and rate finished books so ShelfTxt can make a clear, useful recommendation."
           action={
             <Link
               to="/app/add"
-              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg hover:bg-accent-dim"
+              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text hover:bg-accent-dim"
             >
               Add your first book
             </Link>
@@ -135,7 +135,7 @@ export function DashboardPage() {
               </div>
             ) : (
               <p className="rounded-lg border border-border bg-surface p-4 text-sm text-text-muted">
-                No books are marked currently reading.
+                No current reads yet. Mark a book as reading when you pick it up.
               </p>
             )}
           </section>

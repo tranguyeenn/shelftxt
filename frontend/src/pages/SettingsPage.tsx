@@ -24,10 +24,10 @@ export function SettingsPage() {
     <div className="mx-auto grid max-w-3xl gap-6">
       <PageHeader
         title="Settings"
-        subtitle="Manage your library, reading preferences, and how ShelfTxt looks."
+        subtitle="Tune the reading app around your shelf and habits."
       />
 
-      <SettingsSection title="Account" description="Manage the signed-in ShelfTxt account.">
+      <SettingsSection title="Account" description="Manage the signed-in account for your reading workspace.">
         <SettingRow label="Email">
           <p className="truncate text-sm text-text">{user?.email ?? "Unknown"}</p>
         </SettingRow>
@@ -43,7 +43,7 @@ export function SettingsPage() {
 
       <SettingsSection
         title="Preferences"
-        description="These settings shape how recommendations are ranked."
+        description="These settings shape how your library is ranked into practical picks."
       >
         <SettingRow
           label="Recommendation style"
@@ -64,7 +64,7 @@ export function SettingsPage() {
 
         <SettingRow
           label="Recommendation explanations"
-          hint="Show why a book was recommended when browsing picks."
+          hint="Show the shelf signals behind each recommendation."
         >
           <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-text">
             <input
@@ -154,7 +154,7 @@ export function SettingsPage() {
         <CsvImportSection />
 
         <div className="border-t border-border-subtle pt-4">
-          <p className="mb-3 text-xs font-medium lowercase tracking-wide text-text-dim">
+          <p className="mb-3 text-xs font-medium lowercase text-text-dim">
             more actions
           </p>
           <LibraryActions />
@@ -177,19 +177,18 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection title="Privacy" description="Control local account and library data.">
-        <p className="text-sm text-text-muted">Your library data stays tied to your ShelfTxt account.</p>
+        <p className="text-sm text-text-muted">Your library data stays tied to your account.</p>
       </SettingsSection>
 
       <SettingsSection title="About ShelfTxt">
         <div className="grid gap-2 text-sm text-text-muted">
           <p className="text-base font-semibold text-text">ShelfTxt</p>
           <p>
-            ShelfTxt helps organize your reading and generate transparent recommendations from
-            your own library patterns.
+            ShelfTxt helps you pick what to read next with transparent recommendations from your
+            own library patterns.
           </p>
           <p>
-            Add books, track progress, and discover what to read next based on authors and ratings
-            you already enjoy.
+            No fake summaries, no engagement feed, and no black-box book slop.
           </p>
         </div>
       </SettingsSection>

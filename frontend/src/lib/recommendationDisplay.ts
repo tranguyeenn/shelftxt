@@ -110,7 +110,7 @@ export function recommendationFallbackExplanation(item: RecommendationItem): str
   if (text?.trim() && text.trim() !== genericBackendFallback) {
     return text.trim();
   }
-  return "This is the strongest available match from your current library, but detailed genre and theme signals are not available yet.";
+  return "This is the strongest available match from your current library. Add ratings or related books for a clearer explanation.";
 }
 
 export function readerFacingExplanation(item: RecommendationItem): string {

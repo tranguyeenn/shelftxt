@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { Wordmark } from "@/components/ui/Wordmark";
 
 const navItems = [
   { to: "/app", label: "Home", icon: DashboardIcon },
@@ -26,8 +27,8 @@ export function Sidebar() {
   return (
     <aside className="md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col md:border-r md:border-border md:bg-bg-elevated">
       <div className="hidden border-b border-border-subtle px-4 py-5 md:block">
-        <p className="text-base font-semibold tracking-tight text-text">ShelfTxt</p>
-        <p className="mt-1 text-sm text-text-muted">read this next</p>
+        <Wordmark className="text-base" />
+        <p className="mt-2 text-sm text-text-muted">stop choosing. start reading.</p>
       </div>
       <nav
         className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-bg-elevated/95 px-1 py-2 backdrop-blur md:static md:flex md:flex-1 md:grid-cols-none md:flex-col md:gap-1 md:border-t-0 md:bg-transparent md:p-3"

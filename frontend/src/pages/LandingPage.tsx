@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 
+import { Wordmark } from "@/components/ui/Wordmark";
+
 const coverUrls = {
   anna: "https://covers.openlibrary.org/b/isbn/9780143035008-L.jpg",
   ivan: "https://covers.openlibrary.org/b/isbn/9780553210354-L.jpg",
@@ -12,36 +14,24 @@ const coverUrls = {
 
 const features = [
   {
-    title: "Explainable Recommendations",
-    body: "Not just \"because the algorithm said so.\" See exactly why a book was recommended and which books influenced the suggestion."
+    title: "Transparent picks",
+    body: "See why each book is recommended."
   },
   {
-    title: "Library Management",
-    body: "Track Want to Read, Reading, Completed, and DNF without turning your shelf into busywork."
+    title: "TBR-first",
+    body: "Choose from the books you already meant to read."
   },
   {
-    title: "Reading Statistics",
-    body: "Visualize books per month, pages read, ratings, and reading trends from your own library."
-  },
-  {
-    title: "Reader Profiles",
-    body: "Customize reading goals, favorite genres, and the library signals that shape your next pick."
-  },
-  {
-    title: "Open Source",
-    body: "Built publicly and continuously improved with reader feedback."
-  },
-  {
-    title: "Privacy First",
-    body: "Your reading data belongs to you. ShelfTxt is built around personal libraries, not ad targeting."
+    title: "No AI summaries",
+    body: "No fake summaries, no black-box book slop."
   }
 ];
 
 const steps = [
   "Import or add books.",
   "Rate and track what you read.",
-  "ShelfTxt learns your preferences.",
-  "Get recommendations with real explanations."
+  "ShelfTxt reads your shelf signals.",
+  "Pick one book with a clear reason."
 ];
 
 function Cover({ src, title }: { src: string; title: string }) {
@@ -57,14 +47,14 @@ function Cover({ src, title }: { src: string; title: string }) {
 
 function DashboardVisual() {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4 shadow-2xl shadow-black/40 sm:p-5">
+    <div className="rounded-lg border border-border bg-surface p-4 shadow-card sm:p-5">
       <div className="mb-4 flex items-center justify-between border-b border-border-subtle pb-4">
         <div>
-          <p className="text-xs lowercase tracking-wide text-text-dim">recommended next read</p>
-          <h2 className="mt-1 text-lg font-semibold text-text">Anna Karenina</h2>
+          <p className="text-xs lowercase text-text-dim">recommended next read</p>
+          <h2 className="mt-1 font-serif text-xl font-semibold text-text">Anna Karenina</h2>
         </div>
         <div className="rounded-lg bg-accent-muted px-3 py-2 text-right">
-          <p className="text-2xl font-semibold text-accent">95%</p>
+          <p className="text-2xl font-semibold text-text">95%</p>
           <p className="text-xs text-text-muted">match</p>
         </div>
       </div>
@@ -75,9 +65,8 @@ function DashboardVisual() {
           <div>
             <p className="text-sm font-medium text-text">Why this book</p>
             <p className="mt-2 text-sm leading-6 text-text-muted">
-              Because you enjoyed The Death of Ivan Ilyich and The Great Gatsby, you may enjoy
-              another character-driven literary classic exploring relationships, society, and
-              personal growth.
+              A strong fit because it connects to books already on your shelf: character-driven,
+              reflective, and substantial without guessing from trends.
             </p>
           </div>
           <div>
@@ -109,7 +98,7 @@ function DashboardVisual() {
 
 function FocusVisual() {
   return (
-    <div className="grid gap-4 rounded-lg border border-border bg-surface p-5 shadow-xl shadow-black/30">
+    <div className="grid gap-4 rounded-lg border border-border bg-surface p-5 shadow-card">
       <div>
         <p className="text-xs font-medium text-text-dim">before</p>
         <div className="mt-3 grid gap-2">
@@ -125,9 +114,10 @@ function FocusVisual() {
         <p className="text-xs font-medium text-text-dim">after</p>
         <div className="mt-3 rounded-lg border border-accent/30 bg-accent-muted p-4">
           <p className="text-sm font-semibold text-text">Read this next</p>
-          <p className="mt-1 text-lg font-semibold text-accent">The Nightingale</p>
+          <p className="mt-1 font-serif text-lg font-semibold text-text">The Nightingale</p>
           <p className="mt-2 text-sm leading-6 text-text-muted">
-            Strong historical fiction match based on books you finished and rated highly.
+            A practical pick from the books you already meant to read, based on what you finished
+            and rated highly.
           </p>
         </div>
       </div>
@@ -137,25 +127,25 @@ function FocusVisual() {
 
 function ExampleRecommendation() {
   return (
-    <div className="rounded-lg border border-border bg-surface p-5 shadow-2xl shadow-black/30 md:p-6">
+    <div className="rounded-lg border border-border bg-surface p-5 shadow-card md:p-6">
       <div className="grid gap-6 md:grid-cols-[160px_1fr]">
         <Cover src={coverUrls.nightingale} title="The Nightingale" />
         <div>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs lowercase tracking-wide text-text-dim">example recommendation</p>
-              <h3 className="mt-2 text-2xl font-semibold text-text">The Nightingale</h3>
+              <p className="text-xs lowercase text-text-dim">example recommendation</p>
+              <h3 className="mt-2 font-serif text-3xl font-semibold text-text">The Nightingale</h3>
             </div>
             <div className="rounded-lg bg-accent-muted px-4 py-3 text-right">
-              <p className="text-3xl font-semibold text-accent">92%</p>
+              <p className="text-3xl font-semibold text-text">92%</p>
               <p className="text-xs text-text-muted">match score</p>
             </div>
           </div>
           <div className="mt-5">
             <p className="text-sm font-medium text-text">Why this book</p>
             <p className="mt-2 text-sm leading-6 text-text-muted">
-              Because you rated The Book Thief highly and frequently enjoy historical fiction with
-              strong emotional character arcs.
+              Recommended from your own shelf signals: historical fiction you rated highly,
+              emotionally direct character arcs, and related books already in your library.
             </p>
           </div>
           <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_1fr]">
@@ -191,23 +181,21 @@ function ExampleRecommendation() {
 
 export function LandingPage() {
   return (
-    <main className="min-h-screen bg-[#111111] text-text">
-      <header className="sticky top-0 z-30 border-b border-border bg-[#111111]/95 backdrop-blur">
+    <main className="min-h-screen bg-bg text-text">
+      <header className="sticky top-0 z-30 border-b border-border bg-bg/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
-          <Link to="/" className="text-lg font-semibold tracking-tight text-text">
-            ShelfTxt
-          </Link>
+          <Wordmark to="/" className="text-base sm:text-lg" />
           <nav className="hidden items-center gap-6 text-sm text-text-muted md:flex" aria-label="Landing">
             <a href="#features" className="hover:text-text">Features</a>
             <a href="#how" className="hover:text-text">How It Works</a>
             <a href="#stats" className="hover:text-text">Stats</a>
             <a href="#beta" className="hover:text-text">Open Beta</a>
             <Link to="/login" className="hover:text-text">Sign In</Link>
-            <Link to="/register" className="rounded-lg bg-accent px-4 py-2 font-medium text-bg hover:bg-accent-dim">
+            <Link to="/register" className="rounded-lg bg-accent px-4 py-2 font-medium text-text shadow-soft hover:bg-accent-dim">
               Get Started
             </Link>
           </nav>
-          <Link to="/register" className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-bg hover:bg-accent-dim md:hidden">
+          <Link to="/register" className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-text shadow-soft hover:bg-accent-dim md:hidden">
             Get Started
           </Link>
         </div>
@@ -215,19 +203,18 @@ export function LandingPage() {
 
       <section className="mx-auto grid max-w-7xl gap-10 px-5 pb-20 pt-16 lg:grid-cols-[0.9fr_1.1fr] lg:px-8 lg:pb-28 lg:pt-24">
         <div className="flex flex-col justify-center">
-          <p className="text-sm font-medium text-accent">You have too many books.</p>
-          <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1.04] tracking-tight text-text md:text-7xl">
-            Stop wondering what to read next.
+          <p className="text-sm font-medium text-accent-dim">Indie reading tools for your actual shelf.</p>
+          <h1 className="mt-5 max-w-3xl font-serif text-5xl font-semibold leading-[1.04] text-text md:text-7xl">
+            Stop choosing. Start reading.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-text-muted">
-            ShelfTxt analyzes your library, reading habits, ratings, and preferences to recommend
-            the next book you'll actually want to pick up.
+            ShelfTxt helps you pick your next read with transparent recommendations built around your library.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link to="/register" className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-bg hover:bg-accent-dim">
+            <Link to="/register" className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-text shadow-soft hover:bg-accent-dim">
               Get Started Free
             </Link>
-            <a href="#example" className="rounded-lg border border-border px-5 py-3 text-sm font-semibold text-text hover:border-accent">
+            <a href="#example" className="rounded-lg border border-accent/70 px-5 py-3 text-sm font-semibold text-text hover:bg-accent-muted">
               See Recommendations
             </a>
           </div>
@@ -238,8 +225,8 @@ export function LandingPage() {
       <section className="border-y border-border bg-bg-elevated/60">
         <div className="mx-auto grid max-w-7xl gap-10 px-5 py-20 lg:grid-cols-2 lg:px-8">
           <div className="flex flex-col justify-center">
-            <p className="text-sm font-medium text-accent">Problem to solution</p>
-            <h2 className="mt-4 text-4xl font-semibold tracking-tight text-text md:text-5xl">
+            <p className="text-sm font-medium text-accent-dim">Problem to solution</p>
+            <h2 className="mt-4 font-serif text-4xl font-semibold text-text md:text-5xl">
               You have 137 books on your TBR. Now what?
             </h2>
             <p className="mt-5 max-w-xl text-lg leading-8 text-text-muted">
@@ -252,13 +239,13 @@ export function LandingPage() {
 
       <section id="features" className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-accent">Features</p>
-          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-text">Built around the next decision.</h2>
+          <p className="text-sm font-medium text-accent-dim">Features</p>
+          <h2 className="mt-4 font-serif text-4xl font-semibold text-text">Built around the next decision.</h2>
         </div>
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <section key={feature.title} className="rounded-lg border border-border bg-surface p-5">
-              <h3 className="text-lg font-semibold text-text">{feature.title}</h3>
+              <h3 className="font-serif text-xl font-semibold text-text">{feature.title}</h3>
               <p className="mt-3 text-sm leading-6 text-text-muted">{feature.body}</p>
             </section>
           ))}
@@ -267,12 +254,12 @@ export function LandingPage() {
 
       <section id="how" className="border-y border-border bg-bg-elevated/60">
         <div className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-          <p className="text-sm font-medium text-accent">How It Works</p>
-          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-text">From shelf noise to one clear pick.</h2>
+          <p className="text-sm font-medium text-accent-dim">How It Works</p>
+          <h2 className="mt-4 font-serif text-4xl font-semibold text-text">From shelf noise to one clear pick.</h2>
           <div className="mt-10 grid gap-4 md:grid-cols-4">
             {steps.map((step, index) => (
               <div key={step} className="relative rounded-lg border border-border bg-surface p-5">
-                <p className="text-sm font-semibold text-accent">Step {index + 1}</p>
+                <p className="text-sm font-semibold text-accent-dim">Step {index + 1}</p>
                 <p className="mt-4 text-lg font-medium text-text">{step}</p>
               </div>
             ))}
@@ -282,9 +269,9 @@ export function LandingPage() {
 
       <section id="example" className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
         <div className="mb-10 max-w-2xl">
-          <p className="text-sm font-medium text-accent">Example Recommendation</p>
-          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-text">
-            Explanations that sound like a reader, not a formula.
+          <p className="text-sm font-medium text-accent-dim">Example Recommendation</p>
+          <h2 className="mt-4 font-serif text-4xl font-semibold text-text">
+            Clear reasons, not black-box guesses.
           </h2>
         </div>
         <ExampleRecommendation />
@@ -292,7 +279,7 @@ export function LandingPage() {
 
       <section id="stats" className="border-y border-border bg-bg-elevated/60">
         <div className="mx-auto grid max-w-7xl gap-4 px-5 py-16 md:grid-cols-3 lg:px-8">
-          {["Thousands of books tracked", "Hundreds of recommendations generated", "Open Beta Available"].map((metric) => (
+          {["Personal libraries first", "Transparent recommendations", "Open beta available"].map((metric) => (
             <div key={metric} className="rounded-lg border border-border bg-surface p-6 text-center">
               <p className="text-xl font-semibold text-text">{metric}</p>
             </div>
@@ -302,8 +289,8 @@ export function LandingPage() {
 
       <section id="beta" className="mx-auto grid max-w-7xl gap-10 px-5 py-20 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
         <div>
-          <p className="text-sm font-medium text-accent">Built by Readers</p>
-          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-text">Not another Goodreads clone.</h2>
+          <p className="text-sm font-medium text-accent-dim">Built by Readers</p>
+          <h2 className="mt-4 font-serif text-4xl font-semibold text-text">Not another feed to maintain.</h2>
         </div>
         <div className="text-lg leading-8 text-text-muted">
           <p>
@@ -311,19 +298,19 @@ export function LandingPage() {
             read next.
           </p>
           <p className="mt-5">
-            The goal is not to build another social shelf. The goal is to help readers spend less
-            time choosing and more time reading.
+            The goal is not to generate summaries, farm engagement, or make your reading feel like
+            content. It is to help readers spend less time choosing and more time reading.
           </p>
         </div>
       </section>
 
       <section className="border-t border-border">
         <div className="mx-auto flex max-w-4xl flex-col items-center px-5 py-20 text-center">
-          <h2 className="text-4xl font-semibold tracking-tight text-text md:text-5xl">
-            Ready to find your next favorite book?
+          <h2 className="font-serif text-4xl font-semibold text-text md:text-5xl">
+            Ready to pick the next book?
           </h2>
-          <p className="mt-5 text-text-muted">No credit card required.</p>
-          <Link to="/register" className="mt-8 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-bg hover:bg-accent-dim">
+          <p className="mt-5 text-text-muted">Bring the shelf you already have.</p>
+          <Link to="/register" className="mt-8 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-text shadow-soft hover:bg-accent-dim">
             Get Started Free
           </Link>
         </div>
@@ -331,7 +318,7 @@ export function LandingPage() {
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-text-muted md:flex-row md:items-center md:justify-between lg:px-8">
-          <p>ShelfTxt</p>
+          <Wordmark className="text-sm" />
           <div className="flex flex-wrap gap-4">
             <a href="https://github.com/tranguyeenn/shelftxt" className="hover:text-text">GitHub</a>
             <a href="https://github.com/tranguyeenn/shelftxt/tree/main/docs" className="hover:text-text">Documentation</a>

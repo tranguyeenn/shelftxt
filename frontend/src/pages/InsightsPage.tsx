@@ -40,7 +40,7 @@ function PatternCard({
 }) {
   return (
     <Card className="grid gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-text-dim">{label}</h3>
+      <h3 className="text-xs font-semibold uppercase text-text-dim">{label}</h3>
       {children}
     </Card>
   );
@@ -137,12 +137,12 @@ export function InsightsPage() {
 
       {!loading && !error && library.length === 0 ? (
         <EmptyState
-          title="No reading data yet"
-          description="Add books to your library to see summaries, patterns, and recommendation insights."
+          title="No shelf data yet."
+          description="Add a few books to see reading patterns and practical next-read signals."
           action={
             <Link
               to="/app/add"
-              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-bg hover:bg-accent-dim"
+              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text hover:bg-accent-dim"
             >
               Add a book
             </Link>

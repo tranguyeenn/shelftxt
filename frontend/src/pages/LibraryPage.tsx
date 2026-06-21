@@ -125,8 +125,8 @@ export function LibraryPage() {
 
       {!loading && !error && filtered.length === 0 ? (
         <EmptyState
-          title="No books in this view"
-          description="Add books or change the filter to see your shelf."
+          title="Nothing matches this shelf view."
+          description="Try a different filter or add a book you already meant to read."
         />
       ) : null}
 

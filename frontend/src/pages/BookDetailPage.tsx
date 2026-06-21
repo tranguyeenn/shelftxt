@@ -100,7 +100,7 @@ export function BookDetailPage() {
             <BookCoverPlaceholder title={book.title} className="w-full max-w-[156px]" />
             <div className="grid gap-5">
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight text-text">{book.title}</h2>
+                <h2 className="font-serif text-2xl font-semibold text-text">{book.title}</h2>
                 <p className="mt-1 text-sm text-text-muted">{book.author}</p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -156,19 +156,19 @@ export function BookDetailPage() {
               />
               <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <div>
-                  <dt className="text-xs lowercase tracking-wide text-text-dim">started</dt>
+                  <dt className="text-xs lowercase text-text-dim">started</dt>
                   <dd className="mt-1 text-text">{formatDisplayDate(book.start_date)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs lowercase tracking-wide text-text-dim">finished</dt>
+                  <dt className="text-xs lowercase text-text-dim">finished</dt>
                   <dd className="mt-1 text-text">{formatDisplayDate(book.end_date)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs lowercase tracking-wide text-text-dim">pages</dt>
+                  <dt className="text-xs lowercase text-text-dim">pages</dt>
                   <dd className="mt-1 text-text">{pagesLabel(book)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs lowercase tracking-wide text-text-dim">rating</dt>
+                  <dt className="text-xs lowercase text-text-dim">rating</dt>
                   <dd className="mt-1 text-score-rating">{ratingLabel}</dd>
                 </div>
               </dl>
@@ -235,7 +235,7 @@ export function BookDetailPage() {
               </p>
               {(recommendation.related_books ?? recommendation.recommendation_breakdown?.inspired_by ?? recommendation.matched_liked_books ?? []).length > 0 ? (
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-text-dim">Related books</p>
+                  <p className="text-xs font-medium uppercase text-text-dim">Related books</p>
                   <ul className="mt-2 text-sm text-text-muted">
                     {(recommendation.related_books ?? recommendation.recommendation_breakdown?.inspired_by ?? recommendation.matched_liked_books ?? []).slice(0, 3).map((similar) => (
                       <li key={similar.id || `${similar.title}-${similar.author}`}>
