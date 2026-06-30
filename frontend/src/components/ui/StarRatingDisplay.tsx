@@ -1,15 +1,20 @@
+import { useId } from "react";
+
+import { StarIcon } from "@/components/ui/StarIcon";
+import {
+  STAR_SIZES,
+  clampRating,
+  formatRatingValue,
+  getStarFillLevel,
+  ratingAriaLabel
+} from "@/components/ui/starRating";
+
 type StarRatingDisplayProps = {
   value: number | null;
   max?: number;
   size?: "sm" | "md" | "lg";
   showValue?: boolean;
   className?: string;
-};
-
-const sizeClass = {
-  sm: "text-sm",
-  md: "text-lg",
-  lg: "text-2xl"
 };
 
 export function StarRatingDisplay({
@@ -19,51 +24,55 @@ export function StarRatingDisplay({
   showValue = false,
   className = ""
 }: StarRatingDisplayProps) {
+  const baseId = useId();
   const rating = clampRating(value, max);
+  const starSize = STAR_SIZES[size];
 
   if (rating === null) {
     return (
-      <span className={`inline-flex items-center gap-2 text-text-muted ${className}`}>
+      <span className={`inline-flex min-w-0 max-w-full items-center gap-2 text-text-muted ${className}`}>
         <span className="text-sm">Unrated</span>
       </span>
     );
   }
 
-  return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      <span
-        className={`inline-flex leading-none text-text-dim ${sizeClass[size]}`}
-        aria-label={`${formatRating(rating)} out of ${max} stars`}
-      >
-        {Array.from({ length: max }, (_, index) => (
-          <span key={index} className="relative inline-block">
-            <span aria-hidden>☆</span>
-            <span
-              aria-hidden
-              className="absolute inset-y-0 left-0 overflow-hidden text-accent"
-              style={{ width: `${starFillPercent(rating, index)}%` }}
-            >
-              ★
-            </span>
-          </span>
-        ))}
-      </span>
-      {showValue ? (
-        <span className="text-xs text-text-muted">{formatRating(rating)}</span>
-      ) : null}
+  const stars = (
+    <span
+      className="flex min-w-0 max-w-full items-center gap-0.5"
+      role="img"
+      aria-label={ratingAriaLabel(rating, max)}
+    >
+      {Array.from({ length: max }, (_, index) => (
+        <span
+          key={index}
+          className="min-w-0 flex-1"
+          style={{ maxWidth: starSize }}
+        >
+          <StarIcon
+            fillLevel={getStarFillLevel(rating, index)}
+            size={starSize}
+            gradientId={`${baseId}-star-${index}`}
+            fluid
+          />
+        </span>
+      ))}
     </span>
   );
-}
 
-function starFillPercent(value: number, index: number): number {
-  return Math.min(100, Math.max(0, (value - index) * 100));
-}
+  if (!showValue) {
+    return (
+      <span className={`inline-flex min-w-0 max-w-full ${className}`}>
+        {stars}
+      </span>
+    );
+  }
 
-function clampRating(value: number | null, max: number): number | null {
-  if (value == null || !Number.isFinite(value)) return null;
-  return Math.min(max, Math.max(0, value));
-}
-
-function formatRating(value: number): string {
-  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return (
+    <span className={`grid min-w-0 max-w-full gap-1 ${className}`}>
+      {stars}
+      <span className="text-xs tabular-nums text-text-muted">
+        {formatRatingValue(rating)} / {max}
+      </span>
+    </span>
+  );
 }

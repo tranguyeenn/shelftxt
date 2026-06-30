@@ -187,7 +187,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
               min={1}
             />
 
-            <div className="grid gap-1.5 text-sm">
+            <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
               <span className="text-text-muted">Rating</span>
               <StarRatingInput
                 value={rating}

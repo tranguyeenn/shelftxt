@@ -69,9 +69,9 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
             <Metadata label="Pages" value={pagesLabel(book)} />
             <Metadata label="Started" value={formatDisplayDate(book.start_date)} />
             <Metadata label="Finished" value={formatDisplayDate(book.end_date)} />
-            <div>
+            <div className="min-w-0">
               <dt className="text-[11px] uppercase tracking-[0.08em] text-[#7B756D]">Rating</dt>
-              <dd className="mt-1 whitespace-nowrap text-[12px] text-[#A9A39A]">
+              <dd className="mt-1 min-w-0 text-[12px] text-[#A9A39A]">
                 <StarRatingDisplay value={book.rating ?? null} size="sm" showValue />
               </dd>
             </div>
