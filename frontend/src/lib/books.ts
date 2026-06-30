@@ -34,8 +34,11 @@ export type BookRecord = {
   Subjects?: string[] | string | null;
   Genres?: string[] | string | null;
   "First Publish Year"?: number | null;
+  Language?: string | null;
   metadata_source?: string | null;
   metadata_enriched_at?: string | null;
+  page_count_checked?: boolean;
+  page_count_source?: string | null;
   score?: number | null;
   author_score?: number | null;
   rating_norm?: number | null;
@@ -108,8 +111,20 @@ export function recordToApiBook(book: BookRecord): ApiBook {
     rating: starRating(book),
     read_status: String(book["Read Status"] ?? ""),
     start_date: startDateValue(book),
-    end_date: endDateValue(book)
+    end_date: endDateValue(book),
+    description: book.Description ?? null,
+    genres: normalizeStringList(book.Genres),
+    subjects: normalizeStringList(book.Subjects),
+    first_publish_year: toNumber(book["First Publish Year"]),
+    language: book.Language ?? null,
+    page_count_checked: book.page_count_checked ?? false,
+    page_count_source: book.page_count_source ?? null
   };
+}
+
+function normalizeStringList(value: string[] | string | null | undefined): string[] {
+  const values = Array.isArray(value) ? value : String(value ?? "").split(/[,;|]/);
+  return values.map((item) => String(item).trim()).filter(Boolean);
 }
 
 export type BookPatchPayload = {

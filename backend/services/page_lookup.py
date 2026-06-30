@@ -4,9 +4,12 @@ from dataclasses import dataclass
 
 import httpx
 
+from backend.services.goodreads_metadata import lookup_goodreads_metadata
 from backend.services.metadata_normalization import (
+    MAX_GENRES_PER_BOOK,
     normalize_language,
     normalize_values,
+    clean_reader_tags,
     filter_specific_genres,
     filter_specific_subjects,
     normalize_genre_list,
@@ -220,6 +223,38 @@ def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> B
         work_key=base.work_key or next_metadata.work_key,
         edition_key=base.edition_key or next_metadata.edition_key,
         cover_url=base.cover_url or next_metadata.cover_url,
+    )
+
+
+def _genres_need_fallback(genres: list[str] | None) -> bool:
+    if not genres:
+        return True
+    if filter_specific_genres(genres):
+        return False
+    return len(clean_reader_tags(genres, max_tags=MAX_GENRES_PER_BOOK)) == 0
+
+
+def _merge_goodreads_fallback(base: BookMetadata, goodreads: BookMetadata | None) -> BookMetadata:
+    if goodreads is None:
+        return base
+    description = base.description or goodreads.description
+    if _genres_need_fallback(base.genres) and goodreads.genres:
+        genres = goodreads.genres[:MAX_GENRES_PER_BOOK]
+    else:
+        genres = base.genres or goodreads.genres
+    return BookMetadata(
+        title=base.title or goodreads.title,
+        authors=base.authors or goodreads.authors,
+        total_pages=base.total_pages or goodreads.total_pages,
+        description=description,
+        subjects=base.subjects or goodreads.subjects,
+        genres=genres,
+        first_publish_year=base.first_publish_year or goodreads.first_publish_year,
+        metadata_source=base.metadata_source or goodreads.metadata_source,
+        language=base.language or goodreads.language,
+        work_key=base.work_key or goodreads.work_key,
+        edition_key=base.edition_key or goodreads.edition_key,
+        cover_url=base.cover_url or goodreads.cover_url,
     )
 
 
@@ -538,8 +573,8 @@ def lookup_book_cover(
             cover_url = _open_library_cover_url(payload) if isinstance(payload, dict) else None
             if cover_url:
                 return BookMetadata(cover_url=cover_url, metadata_source="open_library")
-        except (httpx.HTTPError, ValueError):
-            pass
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("Open Library cover ISBN lookup failed for %r: %s", isbn, exc)
 
     clean_title = (title or "").strip()
     if clean_title:
@@ -560,8 +595,8 @@ def lookup_book_cover(
                 cover_url = _open_library_cover_url(doc) if isinstance(doc, dict) else None
                 if cover_url:
                     return BookMetadata(cover_url=cover_url, metadata_source="open_library")
-        except (httpx.HTTPError, ValueError):
-            pass
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("Open Library cover title lookup failed for %r: %s", clean_title, exc)
 
     if isbn:
         try:
@@ -571,8 +606,8 @@ def lookup_book_cover(
                     cover_url=google_metadata.cover_url,
                     metadata_source="google_books",
                 )
-        except GoogleBooksRateLimited:
-            pass
+        except GoogleBooksRateLimited as exc:
+            logger.warning("Google Books cover lookup rate limited for %r: %s", isbn, exc)
     return None
 
 
@@ -613,6 +648,17 @@ def lookup_book_metadata(
             metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title))
         except OpenLibraryTimeout:
             pass
+
+    goodreads = lookup_goodreads_metadata(clean_title, author)
+    if goodreads is not None and (goodreads.description or goodreads.genres):
+        metadata = _merge_goodreads_fallback(
+            metadata,
+            BookMetadata(
+                description=goodreads.description,
+                genres=goodreads.genres[:MAX_GENRES_PER_BOOK] if goodreads.genres else None,
+                metadata_source="goodreads_kaggle",
+            ),
+        )
 
     metadata = _merge_manual_override(metadata, manual_override)
 

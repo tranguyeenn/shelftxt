@@ -5,7 +5,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { BookCard } from "@/components/books/BookCard";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { MiniVibeCard } from "@/components/ui/MiniVibeCard";
 import { ReadingStats } from "@/features/dashboard/ReadingStats";
 import { ReadingMomentum } from "@/features/dashboard/ReadingMomentum";
 import { RecommendedNextCard } from "@/features/dashboard/RecommendedNextCard";
@@ -80,8 +79,9 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="grid gap-8">
+    <div className="grid min-h-[calc(100vh-5rem)] gap-8 bg-bg font-sans text-text shadow-[0_0_0_100vmax_#0B0B0D] [clip-path:inset(0_-100vmax)] lg:gap-10">
       <PageHeader
+        eyebrow="Reading desk"
         title={`${greeting}, ${greetingName}.`}
         subtitle={`you have ${tbrCount} books on your TBR.`}
         actions={
@@ -125,9 +125,9 @@ export function DashboardPage() {
 
           <section className="grid gap-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-text">continue reading</h2>
-              <Link to="/app/library" className="text-sm text-accent hover:underline">
-                library
+              <h2 className="font-serif text-2xl font-semibold text-text">Continue reading</h2>
+              <Link to="/app/library" className="text-sm font-medium text-accent hover:text-accent-dim">
+                Library
               </Link>
             </div>
             {reading.length > 0 ? (
@@ -137,23 +137,17 @@ export function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <p className="rounded-lg border border-border bg-surface p-4 text-sm text-text-muted">
+              <p className="rounded-[20px] border border-border bg-surface p-4 text-sm text-text-muted shadow-card">
                 No current reads yet. Mark a book as reading when you pick it up.
               </p>
             )}
           </section>
         </div>
         <div className="grid content-start gap-4">
-          <MiniVibeCard
-            mood="late night reads"
-            genre="indie folk"
-            song="august - Taylor Swift"
-            spotifyUrl="https://open.spotify.com/search/august%20Taylor%20Swift"
-          />
           {recommendations.length > 1 ? (
             <Link
               to="/app/ranking"
-              className="rounded-lg border border-border bg-bg-elevated p-4 text-sm text-text-muted transition-colors hover:border-accent hover:text-text"
+              className="rounded-[20px] border border-border bg-bg-elevated p-4 text-sm text-text-muted shadow-card transition-colors hover:border-accent/50 hover:text-text"
             >
               View all recommendations
             </Link>
@@ -164,7 +158,7 @@ export function DashboardPage() {
       <ReadingStats library={library} />
 
       <section className="grid gap-4">
-        <h2 className="text-sm font-medium text-text-dim">Reading activity</h2>
+        <h2 className="font-serif text-2xl font-semibold text-text">Reading activity</h2>
         <div className="grid gap-4 lg:grid-cols-2">
           <ReadingMomentum library={library} />
           <RecentlyFinished library={library} />

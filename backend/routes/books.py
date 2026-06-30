@@ -16,6 +16,8 @@ from backend.schemas.books import (
     ClearLibraryRequest,
     ImportBooks,
     ImportResult,
+    PageCountBackfillResponse,
+    PageCountLookupResponse,
     PatchBook,
     PatchBookById,
 )
@@ -25,6 +27,8 @@ from backend.services.postgres_books import (
     delete_book_by_id_service,
     delete_book_by_title_service,
     export_library_csv,
+    backfill_page_counts_for_user_service,
+    find_page_count_for_book_service,
     get_book_by_id_service,
     get_books_service,
     import_books_service,
@@ -122,6 +126,24 @@ def import_books(
     current_user: Profile = Depends(get_current_user),
 ):
     return import_books_service(db, data, current_user.id)
+
+
+@router.post("/books/pages/backfill", response_model=PageCountBackfillResponse)
+def backfill_book_pages(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return backfill_page_counts_for_user_service(db, current_user.id, limit)
+
+
+@router.post("/books/{book_id}/pages/lookup", response_model=PageCountLookupResponse)
+def find_book_pages(
+    book_id: str,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return find_page_count_for_book_service(db, book_id, current_user.id)
 
 
 @router.get("/books/{book_id}")

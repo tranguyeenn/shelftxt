@@ -16,6 +16,7 @@ LOOKUP_TIMEOUT_SECONDS = 2.0
 MAX_BACKFILL_BOOKS = 50
 MIN_REASONABLE_PAGES = 50
 MAX_REASONABLE_PAGES = 2000
+MIN_RELIABLE_TITLE_COUNTS = 3
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,31 @@ def fetch_openlibrary_pages_by_isbn(isbn: str) -> int | None:
     return _reasonable_page_count(payload.get("number_of_pages"))
 
 
+def fetch_google_pages_by_isbn(isbn: str) -> int | None:
+    normalized = normalize_isbn(isbn)
+    if not normalized:
+        return None
+    try:
+        response = httpx.get(
+            "https://www.googleapis.com/books/v1/volumes",
+            params={"q": f"isbn:{normalized}", "maxResults": 5},
+            timeout=LOOKUP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Google Books page count ISBN lookup failed for %r: %s", isbn, exc)
+        return None
+
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    for item in items if isinstance(items, list) else []:
+        info = item.get("volumeInfo") if isinstance(item, dict) else None
+        pages = _reasonable_page_count(info.get("pageCount")) if isinstance(info, dict) else None
+        if pages is not None:
+            return pages
+    return None
+
+
 def fetch_openlibrary_pages_by_edition(edition_key: str) -> int | None:
     key = edition_key.strip().removeprefix("/books/")
     if not key:
@@ -166,15 +192,41 @@ def fetch_openlibrary_pages_by_title(title: str, author: str | None = None) -> i
     return lookup_page_count_by_title(title, author).pages
 
 
-def lookup_page_count_by_title(title: str, author: str | None = None) -> PageCountResult:
-    clean_title = (title or "").strip()
-    if not clean_title:
-        return PageCountResult(None, "unavailable")
+def _normalized_text(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
 
-    params = {"title": clean_title, "limit": 5, "fields": "key,edition_key,title,author_name"}
-    if author and author.strip() and author.strip().lower() != "unknown":
-        params["author"] = author.strip()
 
+def _matches_title(candidate: str | None, expected: str) -> bool:
+    candidate_norm = _normalized_text(candidate)
+    expected_norm = _normalized_text(expected)
+    return bool(candidate_norm and expected_norm and (
+        candidate_norm == expected_norm
+        or candidate_norm.startswith(f"{expected_norm} ")
+        or expected_norm.startswith(f"{candidate_norm} ")
+    ))
+
+
+def _matches_author(candidate: object, expected: str | None) -> bool:
+    expected_norm = _normalized_text(expected)
+    if not expected_norm or expected_norm == "unknown":
+        return True
+    values = candidate if isinstance(candidate, list) else [candidate]
+    return any(
+        expected_norm in _normalized_text(str(value))
+        or _normalized_text(str(value)) in expected_norm
+        for value in values
+        if value
+    )
+
+
+def fetch_openlibrary_title_page_candidates(title: str, author: str | None = None) -> list[int]:
+    params = {
+        "title": title,
+        "limit": 10,
+        "fields": "title,author_name,number_of_pages_median,edition_key",
+    }
+    if author and _normalized_text(author) != "unknown":
+        params["author"] = author
     try:
         response = httpx.get(
             "https://openlibrary.org/search.json",
@@ -185,41 +237,78 @@ def lookup_page_count_by_title(title: str, author: str | None = None) -> PageCou
         payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("Open Library page count title lookup failed for %r: %s", title, exc)
-        return PageCountResult(None, "unavailable")
+        return []
 
     docs = payload.get("docs", []) if isinstance(payload, dict) else []
-    if not isinstance(docs, list):
-        logger.warning("Open Library page count title lookup returned malformed docs for %r", title)
+    counts: list[int] = []
+    for doc in docs if isinstance(docs, list) else []:
+        if not isinstance(doc, dict) or not _matches_title(doc.get("title"), title):
+            continue
+        if not _matches_author(doc.get("author_name"), author):
+            continue
+        direct = _reasonable_page_count(doc.get("number_of_pages_median"))
+        if direct is not None:
+            counts.append(direct)
+        edition_keys = doc.get("edition_key")
+        for edition_key in edition_keys[:3] if isinstance(edition_keys, list) else []:
+            if not isinstance(edition_key, str):
+                continue
+            pages = fetch_openlibrary_pages_by_edition(edition_key)
+            if pages is not None:
+                counts.append(pages)
+    return counts
+
+
+def fetch_google_title_page_candidates(title: str, author: str | None = None) -> list[int]:
+    query = f'intitle:"{title}"'
+    if author and _normalized_text(author) != "unknown":
+        query += f' inauthor:"{author}"'
+    try:
+        response = httpx.get(
+            "https://www.googleapis.com/books/v1/volumes",
+            params={"q": query, "maxResults": 10},
+            timeout=LOOKUP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Google Books page count title lookup failed for %r: %s", title, exc)
+        return []
+
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    counts: list[int] = []
+    for item in items if isinstance(items, list) else []:
+        info = item.get("volumeInfo") if isinstance(item, dict) else None
+        if not isinstance(info, dict) or not _matches_title(info.get("title"), title):
+            continue
+        if not _matches_author(info.get("authors"), author):
+            continue
+        pages = _reasonable_page_count(info.get("pageCount"))
+        if pages is not None:
+            counts.append(pages)
+    return counts
+
+
+def lookup_page_count_by_title(title: str, author: str | None = None) -> PageCountResult:
+    clean_title = (title or "").strip()
+    if not clean_title:
         return PageCountResult(None, "unavailable")
 
-    for doc in docs:
-        if not isinstance(doc, dict):
-            continue
-        page_counts: list[int] = []
-        work_key = doc.get("key")
-        if isinstance(work_key, str) and work_key.strip():
-            page_counts.extend(_fetch_work_edition_pages(work_key))
-
-        edition_keys = doc.get("edition_key")
-        if isinstance(edition_keys, list):
-            for edition_key in edition_keys:
-                if not isinstance(edition_key, str):
-                    continue
-                pages = fetch_openlibrary_pages_by_edition(edition_key)
-                if pages:
-                    page_counts.append(pages)
-
-        estimate = median_page_count(page_counts)
-        if estimate is not None:
-            filtered_count = len(filter_page_count_outliers(page_counts))
-            logger.info(
-                'Estimated page count for "%s" using %s editions (median=%s)',
-                clean_title,
-                filtered_count,
-                estimate,
-            )
-            return PageCountResult(estimate, "median_editions", filtered_count)
-    return PageCountResult(None, "unavailable")
+    candidates = [
+        *fetch_openlibrary_title_page_candidates(clean_title, author),
+        *fetch_google_title_page_candidates(clean_title, author),
+    ]
+    filtered = filter_page_count_outliers(candidates)
+    if len(filtered) < MIN_RELIABLE_TITLE_COUNTS:
+        return PageCountResult(None, "unavailable", len(filtered))
+    estimate = int(median(filtered))
+    logger.info(
+        'Estimated page count for "%s" using %s matching results (median=%s)',
+        clean_title,
+        len(filtered),
+        estimate,
+    )
+    return PageCountResult(estimate, "median_title_author", len(filtered))
 
 
 def lookup_page_count_result(
@@ -232,11 +321,14 @@ def lookup_page_count_result(
     if normalized:
         pages = fetch_openlibrary_pages_by_isbn(normalized)
         if pages:
-            return PageCountResult(pages, "exact_isbn", 1)
+            return PageCountResult(pages, "open_library_isbn", 1)
+        pages = fetch_google_pages_by_isbn(normalized)
+        if pages:
+            return PageCountResult(pages, "google_books_isbn", 1)
     if edition_key:
         pages = fetch_openlibrary_pages_by_edition(edition_key)
         if pages:
-            return PageCountResult(pages, "exact_edition", 1)
+            return PageCountResult(pages, "open_library_edition", 1)
     return lookup_page_count_by_title(title, author)
 
 
@@ -244,7 +336,11 @@ def lookup_page_count(title: str, author: str | None = None, isbn: str | None = 
     return lookup_page_count_result(title, author, isbn).pages
 
 
-def backfill_missing_page_counts(db: Session | None = None, limit: int = MAX_BACKFILL_BOOKS) -> int:
+def backfill_missing_page_counts(
+    db: Session | None = None,
+    limit: int = MAX_BACKFILL_BOOKS,
+    user_id=None,
+) -> int:
     owns_session = db is None
     session = db
     if session is None:
@@ -257,13 +353,10 @@ def backfill_missing_page_counts(db: Session | None = None, limit: int = MAX_BAC
     updated = 0
     try:
         try:
-            books = (
-                session.query(Book)
-                .filter(Book.total_pages.is_(None), Book.page_count_checked.is_(False))
-                .order_by(Book.id.asc())
-                .limit(limit)
-                .all()
-            )
+            query = session.query(Book).filter(Book.total_pages.is_(None))
+            if user_id is not None:
+                query = query.filter(Book.user_id == user_id)
+            books = query.order_by(Book.id.asc()).limit(limit).all()
         except SQLAlchemyError as exc:
             logger.warning("Page count backfill skipped because database query failed: %s", exc)
             return 0

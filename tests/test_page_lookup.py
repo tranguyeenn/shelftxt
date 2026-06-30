@@ -1,8 +1,10 @@
+import os
 import unittest
 from unittest.mock import patch
 
 import httpx
 
+from backend.services.goodreads_metadata import reset_goodreads_cache
 from backend.services.page_lookup import (
     BookMetadata,
     lookup_book_metadata,
@@ -26,6 +28,20 @@ class FakeResponse:
 
 
 class PageLookupTests(unittest.TestCase):
+    def setUp(self):
+        reset_goodreads_cache()
+        self._goodreads_csv = os.environ.get("GOODREADS_METADATA_CSV")
+        os.environ["GOODREADS_METADATA_CSV"] = "/nonexistent/goodreads-metadata.csv"
+        reset_goodreads_cache()
+
+    def tearDown(self):
+        reset_goodreads_cache()
+        if self._goodreads_csv is None:
+            os.environ.pop("GOODREADS_METADATA_CSV", None)
+        else:
+            os.environ["GOODREADS_METADATA_CSV"] = self._goodreads_csv
+        reset_goodreads_cache()
+
     @patch("backend.services.page_lookup.httpx.get")
     def test_google_books_isbn_page_count_success(self, mock_get):
         mock_get.return_value = FakeResponse(

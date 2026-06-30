@@ -11,6 +11,7 @@ import {
   validateTotalPages
 } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
+import { findBookPages } from "@/lib/pageCounts";
 import type { ApiBook, ReadingStatus, TrackingMode } from "@/lib/types";
 
 type BookProgressEditorProps = {
@@ -28,6 +29,8 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
   const [startDate, setStartDate] = useState(book.start_date ?? "");
   const [endDate, setEndDate] = useState(book.end_date ?? "");
   const [saving, setSaving] = useState(false);
+  const [findingPages, setFindingPages] = useState(false);
+  const [pageLookupMessage, setPageLookupMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -132,6 +135,26 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
     }
   }
 
+  async function handleFindPages() {
+    setFindingPages(true);
+    setError("");
+    setPageLookupMessage("");
+    try {
+      const result = await findBookPages(book.id);
+      onUpdated(result.book);
+      if (result.found && result.book.total_pages != null) {
+        setTotalPagesInput(String(result.book.total_pages));
+        setPageLookupMessage(`Found ${result.book.total_pages.toLocaleString()} pages.`);
+      } else {
+        setPageLookupMessage("No reliable page count found. Total pages remains blank.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Page lookup failed");
+    } finally {
+      setFindingPages(false);
+    }
+  }
+
   return (
     <div className={compact ? "grid gap-3" : "grid gap-4 rounded-lg border border-border-subtle bg-bg-elevated p-4"}>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -151,28 +174,45 @@ export function BookProgressEditor({ book, onUpdated, compact = false }: BookPro
 
         <div className="grid gap-1.5 text-sm">
           <span className="text-text-dim">Progress mode</span>
-          <div className="grid gap-1 rounded-lg border border-border bg-surface p-1 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface p-1">
             <button
               type="button"
               onClick={() => setTrackingMode("percentage")}
-              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+              className={`min-w-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm transition-colors ${
                 trackingMode === "percentage" ? "bg-accent text-text" : "text-text-muted hover:text-text"
               }`}
             >
-              Track by percentage
+              Percent
             </button>
             <button
               type="button"
               onClick={() => setTrackingMode("pages")}
-              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+              className={`min-w-0 whitespace-nowrap rounded-md px-2 py-1.5 text-sm transition-colors ${
                 trackingMode === "pages" ? "bg-accent text-text" : "text-text-muted hover:text-text"
               }`}
             >
-              Track by pages
+              Pages
             </button>
           </div>
         </div>
       </div>
+
+      {book.total_pages == null ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="secondary"
+            onClick={() => void handleFindPages()}
+            disabled={findingPages}
+          >
+            {findingPages ? "Finding pages…" : "Find pages"}
+          </Button>
+          {pageLookupMessage ? (
+            <p className="text-xs text-text-muted" role="status">
+              {pageLookupMessage}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {trackingMode === "pages" ? (
         <label className="grid gap-1.5 text-sm">

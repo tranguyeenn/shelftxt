@@ -10,6 +10,8 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from backend.db.models import Book
+
 from backend.repository.postgres_books_repository import (
     count_books,
     create_book,
@@ -31,6 +33,11 @@ from backend.services.page_lookup import (
 from backend.env import is_local_env
 from backend.services.metadata_normalization import normalize_language
 from backend.services.metadata_jobs import reset_metadata_progress_if_library_empty
+from backend.services.page_count_lookup import (
+    MAX_BACKFILL_BOOKS,
+    backfill_missing_page_counts,
+    lookup_page_count_result,
+)
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
@@ -191,6 +198,56 @@ def get_book_by_id_service(db: Session, book_id: str, user_id: UUID):
         raise HTTPException(status_code=404, detail="Book not found")
 
     return book_to_dict(book)
+
+
+def find_page_count_for_book_service(db: Session, book_id: str, user_id: UUID):
+    book = get_book_by_isbn_uid(db, book_id, user_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    if book.total_pages is not None:
+        return {
+            "found": True,
+            "source": book.page_count_source or "existing",
+            "book": book_to_dict(book),
+        }
+
+    result = lookup_page_count_result(
+        book.title,
+        book.authors,
+        book.isbn_uid,
+        book.edition_key,
+    )
+    update_data = {
+        "page_count_checked": True,
+        "page_count_source": result.source,
+    }
+    if result.pages is not None:
+        update_data["total_pages"] = result.pages
+    updated = update_book(db, book.id, update_data, user_id)
+    return {
+        "found": result.pages is not None,
+        "source": result.source,
+        "book": book_to_dict(updated),
+    }
+
+
+def backfill_page_counts_for_user_service(
+    db: Session,
+    user_id: UUID,
+    limit: int = MAX_BACKFILL_BOOKS,
+):
+    missing_before = (
+        db.query(Book)
+        .filter(Book.user_id == user_id, Book.total_pages.is_(None))
+        .count()
+    )
+    processed = min(missing_before, limit)
+    updated = backfill_missing_page_counts(db, limit=limit, user_id=user_id)
+    return {
+        "processed": processed,
+        "updated": updated,
+        "unresolved": processed - updated,
+    }
 
 
 def export_library_csv(db: Session, user_id: UUID) -> str:
@@ -716,6 +773,9 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
             update_data.get("total_pages", book.total_pages),
         )
 
+    if "star_rating" in fields_set:
+        update_data["star_rating"] = body.star_rating
+
     next_start_date = book.start_date
     next_end_date = book.end_date
     if "start_date" in fields_set:
@@ -741,7 +801,7 @@ def patch_book_by_id_service(db: Session, book_id: str, body, user_id: UUID):
         current_start_date=next_start_date,
         current_end_date=next_end_date,
         current_last_date_read=book.last_date_read,
-        current_rating=book.star_rating,
+        current_rating=update_data.get("star_rating", book.star_rating),
     )
     if "start_date" in fields_set:
         update_data["start_date"] = next_start_date

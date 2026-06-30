@@ -1,6 +1,6 @@
 import unittest
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from uuid import UUID
 from datetime import date, datetime, timedelta, timezone
 
@@ -16,6 +16,7 @@ from backend.auth.dependencies import get_current_user
 from backend.db.database import Base, get_db
 from backend.db.models import Book, MetadataJob, Profile
 from backend.services.page_lookup import BookMetadata, GoogleBooksRateLimited, OpenLibraryTimeout
+from backend.services.page_count_lookup import PageCountResult
 from backend.services.recommendation import get_recommendation
 
 
@@ -535,6 +536,30 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["Total Pages"], 120)
         self.assertEqual(payload["Pages Read"], 120)
         self.assertEqual(payload["Read Status"], "read")
+
+    def test_patch_book_by_id_updates_and_clears_star_rating(self):
+        _seed_book(
+            title="Rated",
+            authors="A",
+            isbn_uid="rated-id",
+            star_rating=4,
+        )
+
+        response = self.client.patch(
+            "/books/rated-id",
+            json={"star_rating": 4.75},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["Star Rating"], 4.75)
+
+        response = self.client.patch(
+            "/books/rated-id",
+            json={"star_rating": None},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["Star Rating"])
 
     def test_patch_pages_read_at_total_auto_completes(self):
         _seed_book(
@@ -2091,9 +2116,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["job"]["status"], "completed")
 
     @patch("backend.routes.metadata.process_metadata_job")
-    def test_metadata_generate_creates_user_job_without_blocking(self, mock_process_metadata_job):
+    def test_metadata_generate_processes_job_before_returning(self, mock_process_metadata_job):
         _seed_book(title="Needs Genre", authors="A", isbn_uid="needs-genre")
         _seed_book(title="Has Genre", authors="A", isbn_uid="has-genre", genres=["fiction"])
+
+        def complete_job(job_id):
+            db = TestingSessionLocal()
+            try:
+                job = db.get(MetadataJob, job_id)
+                job.status = "completed"
+                job.processed_count = job.total_count
+                job.completed_at = datetime.now(timezone.utc)
+                db.commit()
+            finally:
+                db.close()
+
+        mock_process_metadata_job.side_effect = complete_job
 
         response = self.client.post("/metadata/generate")
 
@@ -2101,8 +2139,8 @@ class ApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["books_with_genres"], 1)
         self.assertEqual(payload["total_books"], 2)
-        self.assertEqual(payload["job"]["status"], "pending")
-        self.assertEqual(payload["job"]["processed_count"], 0)
+        self.assertEqual(payload["job"]["status"], "completed")
+        self.assertEqual(payload["job"]["processed_count"], 1)
         self.assertEqual(payload["job"]["total_count"], 1)
         mock_process_metadata_job.assert_called_once()
 
@@ -2474,6 +2512,59 @@ class ApiTests(unittest.TestCase):
         mock_backfill.assert_not_called()
         mock_page_count_http.assert_not_called()
         mock_metadata_http.assert_not_called()
+
+    @patch("backend.services.postgres_books.lookup_page_count_result")
+    def test_find_pages_updates_missing_total_without_overwriting(self, mock_lookup):
+        _seed_book(title="Missing Pages", authors="A", isbn_uid="missing-pages")
+        mock_lookup.return_value = PageCountResult(321, "median_title_author", 3)
+
+        response = self.client.post("/books/missing-pages/pages/lookup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["found"])
+        self.assertEqual(response.json()["book"]["Total Pages"], 321)
+        self.assertEqual(response.json()["source"], "median_title_author")
+
+        db = TestingSessionLocal()
+        try:
+            book = db.query(Book).filter(Book.isbn_uid == "missing-pages").one()
+            self.assertEqual(book.total_pages, 321)
+            self.assertEqual(book.page_count_source, "median_title_author")
+        finally:
+            db.close()
+
+    @patch("backend.services.postgres_books.lookup_page_count_result")
+    def test_find_pages_preserves_existing_total(self, mock_lookup):
+        _seed_book(
+            title="User Pages",
+            authors="A",
+            isbn_uid="user-pages",
+            total_pages=444,
+        )
+
+        response = self.client.post("/books/user-pages/pages/lookup")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["book"]["Total Pages"], 444)
+        mock_lookup.assert_not_called()
+
+    @patch("backend.services.postgres_books.backfill_missing_page_counts", return_value=1)
+    def test_bulk_page_backfill_reports_results(self, mock_backfill):
+        _seed_book(title="Missing One", authors="A", isbn_uid="missing-one")
+        _seed_book(title="Missing Two", authors="A", isbn_uid="missing-two")
+
+        response = self.client.post("/books/pages/backfill?limit=50")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"processed": 2, "updated": 1, "unresolved": 1},
+        )
+        mock_backfill.assert_called_once_with(
+            ANY,
+            limit=50,
+            user_id=TEST_USER_ID,
+        )
 
 
 if __name__ == "__main__":

@@ -60,6 +60,7 @@ class PatchBookById(ReadingDateRangeMixin):
     tracking_mode: TrackingMode | None = None
     read_status: Literal["not_started", "reading", "completed", "dnf"] | None = None
     status: Literal["not_started", "reading", "completed", "dnf"] | None = None
+    star_rating: float | None = Field(default=None, ge=0, le=5)
 
 
 class ImportRow(ReadingDateRangeMixin):
@@ -198,6 +199,18 @@ class ClearLibraryRequest(BaseModel):
     confirm: bool
 
 
+class PageCountLookupResponse(BaseModel):
+    found: bool
+    source: str
+    book: dict[str, Any]
+
+
+class PageCountBackfillResponse(BaseModel):
+    processed: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    unresolved: int = Field(ge=0)
+
+
 class BookResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -220,6 +233,8 @@ class BookResponse(BaseModel):
     first_publish_year: int | None = None
     metadata_source: str | None = None
     metadata_enriched_at: str | None = None
+    page_count_checked: bool = False
+    page_count_source: str | None = None
 
 
 class BooksPage(BaseModel):

@@ -16,8 +16,8 @@ function linkClass({ isActive }: { isActive: boolean }) {
   return [
     "flex items-center justify-center rounded-lg px-3 py-2.5 text-sm transition-colors md:w-full md:justify-start md:gap-3",
     isActive
-      ? "bg-accent-muted text-accent"
-      : "text-text-muted hover:bg-surface-hover hover:text-text"
+      ? "border border-accent/25 bg-accent-muted text-accent"
+      : "text-text-muted hover:bg-white/[0.05] hover:text-text"
   ].join(" ");
 }
 

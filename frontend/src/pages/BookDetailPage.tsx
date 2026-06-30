@@ -4,13 +4,13 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
 import { BookEditModal } from "@/components/books/BookEditModal";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { Badge } from "@/components/ui/Badge";
 import { BookCover } from "@/components/ui/BookCover";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { StarRatingDisplay } from "@/components/ui/StarRatingDisplay";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
@@ -18,6 +18,7 @@ import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, formatDisplayDate, recordToApiBook, type BookRecord } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { readerFacingExplanation } from "@/lib/recommendationDisplay";
+import { cleanDisplaySubjects, displayLanguageName } from "@/lib/metadataDisplay";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
 export function BookDetailPage() {
@@ -28,7 +29,6 @@ export function BookDetailPage() {
   const [recommendation, setRecommendation] = useState<RecommendationItem | null>(null);
   const [book, setBook] = useState<ApiBook | null>(null);
   const [editing, setEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "details" | "reviews" | "quotes">("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -63,19 +63,31 @@ export function BookDetailPage() {
 
   const ratingLabel = useMemo(() => {
     if (book?.rating == null) return "—";
-    return Number(book.rating).toFixed(1);
+    return Number(book.rating).toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
   }, [book?.rating]);
+  const description = book?.description?.trim() ?? "";
+
+  const relatedBooks = useMemo(
+    () =>
+      recommendation
+        ? (recommendation.related_books ??
+            recommendation.recommendation_breakdown?.inspired_by ??
+            recommendation.matched_liked_books ??
+            [])
+        : [],
+    [recommendation]
+  );
+  const displaySubjects = useMemo(
+    () => cleanDisplaySubjects(book?.subjects, book?.genres),
+    [book?.subjects, book?.genres]
+  );
+  const displayLanguage = useMemo(() => displayLanguageName(book?.language), [book?.language]);
 
   return (
     <div className="grid gap-6">
       <Link to="/app/library" className="text-sm text-accent hover:underline">
         ← Back to library
       </Link>
-      <PageHeader
-        title={book ? book.title : "Book detail"}
-        subtitle={book ? book.author : `ID: ${decodeURIComponent(id ?? "")}`}
-      />
-
       {error ? (
         <div
           className="rounded-lg border border-danger/30 bg-danger-muted px-4 py-3 text-sm text-danger"
@@ -96,135 +108,128 @@ export function BookDetailPage() {
 
       {book ? (
         <>
-          <Card padding="lg" className="grid gap-6 md:grid-cols-[156px_1fr]">
-            <BookCover title={book.title} coverUrl={book.cover_url} className="w-full max-w-[156px]" />
-            <div className="grid gap-5">
-              <div>
-                <h2 className="font-serif text-2xl font-semibold text-text">{book.title}</h2>
-                <p className="mt-1 text-sm text-text-muted">{book.author}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge tone="accent">{statusLabel(book.status)}</Badge>
-                <Badge tone="warning">{ratingLabel === "—" ? "unrated" : `${ratingLabel} rating`}</Badge>
-                <Badge tone="neutral">literary fiction</Badge>
-                <Badge tone="neutral">contemporary</Badge>
+          <Card padding="lg" className="grid gap-6 md:grid-cols-[180px_1fr]">
+            <BookCover
+              title={book.title}
+              coverUrl={book.cover_url}
+              className="mx-auto w-full max-w-[180px] shadow-card md:mx-0"
+            />
+            <div className="flex min-w-0 flex-col justify-between gap-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone={book.status === "completed" ? "success" : "accent"}>
+                      {statusLabel(book.status)}
+                    </Badge>
+                    <Badge tone={book.rating == null ? "neutral" : "warning"}>
+                      {book.rating == null ? "Unrated" : `${ratingLabel} stars`}
+                    </Badge>
+                  </div>
+                  <h2 className="mt-4 font-serif text-3xl font-semibold leading-tight text-text sm:text-4xl">
+                    {book.title}
+                  </h2>
+                  <p className="mt-2 text-base text-text-muted">by {book.author}</p>
+                </div>
+                {!isReadOnlyDemo ? (
+                  <Button variant="secondary" onClick={() => setEditing(true)}>
+                    Edit book
+                  </Button>
+                ) : null}
               </div>
               <div className="grid gap-2">
-                <ProgressBar
-                  value={book.progress_pct}
-                  label={pagesLabel(book)}
-                />
-                <p className="text-sm text-text-muted">{progressLabel(book)}</p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-4">
-                {(["overview", "details", "reviews", "quotes"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setActiveTab(tab)}
-                    className={[
-                      "cursor-pointer rounded-lg px-3 py-2 text-sm transition-colors",
-                      activeTab === tab
-                        ? "bg-accent-muted text-accent"
-                        : "text-text-muted hover:bg-surface-hover hover:text-text"
-                    ].join(" ")}
-                  >
-                    {tab}
-                  </button>
-                ))}
+                <ProgressBar value={book.progress_pct} label={pagesLabel(book)} />
+                <div className="flex flex-wrap justify-between gap-2 text-sm text-text-muted">
+                  <span>{progressLabel(book)}</span>
+                  <span>{Math.round(book.progress_pct)}% complete</span>
+                </div>
               </div>
             </div>
           </Card>
 
-          {!isReadOnlyDemo ? (
-            <div>
-              <Button variant="secondary" onClick={() => setEditing(true)}>
-                Edit book
-              </Button>
-            </div>
-          ) : null}
+          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid content-start gap-4">
+              {description ? (
+                <Card className="grid gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-accent">
+                      About the book
+                    </p>
+                    <h3 className="mt-1 font-serif text-2xl font-semibold text-text">Description</h3>
+                  </div>
+                  <p className="text-sm leading-7 text-text-muted">{description}</p>
+                </Card>
+              ) : null}
 
-          <section className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <Card className="grid gap-4">
-              <h3 className="text-sm font-medium text-text">reading progress</h3>
-              <BookProgressEditor
-                book={book}
-                onUpdated={(updated) => {
-                  setBook(updated);
-                  void load();
-                }}
-              />
-              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <Card className="grid gap-5">
                 <div>
-                  <dt className="text-xs lowercase text-text-dim">started</dt>
-                  <dd className="mt-1 text-text">{formatDisplayDate(book.start_date)}</dd>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-text-dim">
+                    Edition data
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-text">Book details</h3>
                 </div>
-                <div>
-                  <dt className="text-xs lowercase text-text-dim">finished</dt>
-                  <dd className="mt-1 text-text">{formatDisplayDate(book.end_date)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs lowercase text-text-dim">pages</dt>
-                  <dd className="mt-1 text-text">{pagesLabel(book)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs lowercase text-text-dim">rating</dt>
-                  <dd className="mt-1 text-score-rating">{ratingLabel}</dd>
-                </div>
-              </dl>
-            </Card>
-
-          <Card className="grid gap-3">
-            {activeTab === "overview" ? (
-              <>
-                <h3 className="text-sm font-medium text-text">overview</h3>
-                <p className="text-sm text-text-muted">
-                  Track status, pages, dates, and recommendation context for this book.
-                </p>
-              </>
-            ) : null}
-            {activeTab === "details" ? (
-              <>
-                <h3 className="text-sm font-medium text-text">details</h3>
-                <dl className="grid gap-3 text-sm sm:grid-cols-3">
-                  <div>
-                    <dt className="text-text-dim">status</dt>
-                    <dd className="mt-1 text-text">{statusLabel(book.status)}</dd>
+                {(book.genres?.length ?? 0) > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {book.genres?.map((genre) => (
+                      <Badge key={genre} tone="neutral">
+                        {genre}
+                      </Badge>
+                    ))}
                   </div>
-                  <div>
-                    <dt className="text-text-dim">total pages</dt>
-                    <dd className="mt-1 text-text">{book.total_pages ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-text-dim">rating</dt>
-                    <dd className="mt-1 text-text">{ratingLabel}</dd>
-                  </div>
+                ) : null}
+                <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
+                  <MetadataItem label="ISBN / UID" value={book.id} />
+                  <MetadataItem label="Pages" value={book.total_pages?.toLocaleString() ?? "—"} />
+                  <MetadataItem
+                    label="First published"
+                    value={book.first_publish_year?.toString() ?? "—"}
+                  />
+                  <MetadataItem label="Language" value={displayLanguage} />
+                  <MetadataItem label="Started" value={formatDisplayDate(book.start_date)} />
+                  <MetadataItem label="Finished" value={formatDisplayDate(book.end_date)} />
                 </dl>
-              </>
-            ) : null}
-            {activeTab === "reviews" ? (
-              <EmptyState title="No reviews saved yet." description="Reviews will appear here when review support is available." />
-            ) : null}
-            {activeTab === "quotes" ? (
-              <EmptyState title="No quotes saved yet." description="Quotes will appear here when quote support is available." />
-            ) : null}
-          </Card>
-            <div className="grid gap-4 content-start">
-              <Card className="grid gap-3">
-                <h3 className="text-sm font-medium text-text">mood</h3>
-                <EmptyState
-                  title="No mood tags yet."
-                  description="Mood tags will appear when this book has mood metadata."
-                />
-              </Card>
-              <Card className="grid gap-3">
-                <h3 className="text-sm font-medium text-text">readers often listen to</h3>
-                <EmptyState
-                  title="No listening suggestions available."
-                  description="Vibe suggestions will appear here when recommendation metadata includes music links."
-                />
+                {displaySubjects.length > 0 ? (
+                  <div className="border-t border-border-subtle pt-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-text-dim">
+                      Subjects
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-text-muted">
+                      {displaySubjects.join(" · ")}
+                    </p>
+                  </div>
+                ) : null}
               </Card>
             </div>
+
+            <aside className="grid content-start gap-4">
+              <Card className="grid gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-text-dim">
+                    Reading log
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-text">Status and progress</h3>
+                </div>
+                <BookProgressEditor
+                  book={book}
+                  onUpdated={(updated) => {
+                    setBook(updated);
+                    void load();
+                  }}
+                />
+              </Card>
+              <Card>
+                <dl className="grid grid-cols-2 gap-4 text-sm">
+                  <MetadataItem label="Status" value={statusLabel(book.status)} />
+                  <div className="min-w-0">
+                    <dt className="text-xs uppercase tracking-wide text-text-dim">Rating</dt>
+                    <dd className="mt-1">
+                      <StarRatingDisplay value={book.rating ?? null} size="sm" showValue />
+                    </dd>
+                  </div>
+                  <MetadataItem label="Progress" value={progressLabel(book)} />
+                  <MetadataItem label="Pages" value={pagesLabel(book)} />
+                </dl>
+              </Card>
+            </aside>
           </section>
 
           {recommendation && settings.showRecommendationExplanations ? (
@@ -233,11 +238,11 @@ export function BookDetailPage() {
               <p className="text-sm leading-relaxed text-text-muted">
                 {readerFacingExplanation(recommendation)}
               </p>
-              {(recommendation.related_books ?? recommendation.recommendation_breakdown?.inspired_by ?? recommendation.matched_liked_books ?? []).length > 0 ? (
+              {relatedBooks.length > 0 ? (
                 <div>
                   <p className="text-xs font-medium uppercase text-text-dim">Related books</p>
                   <ul className="mt-2 text-sm text-text-muted">
-                    {(recommendation.related_books ?? recommendation.recommendation_breakdown?.inspired_by ?? recommendation.matched_liked_books ?? []).slice(0, 3).map((similar) => (
+                    {relatedBooks.slice(0, 3).map((similar) => (
                       <li key={similar.id || `${similar.title}-${similar.author}`}>
                         {similar.title}
                       </li>
@@ -267,6 +272,23 @@ export function BookDetailPage() {
           ) : null}
         </>
       ) : null}
+    </div>
+  );
+}
+
+function MetadataItem({
+  label,
+  value,
+  accent = false
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs uppercase tracking-wide text-text-dim">{label}</dt>
+      <dd className={`mt-1 break-words ${accent ? "text-score-rating" : "text-text"}`}>{value}</dd>
     </div>
   );
 }

@@ -61,6 +61,9 @@ def series_to_api_book(row: pd.Series) -> dict:
         "tracking_mode": tracking_mode,
         "rating": _float_or_none(row.get("Star Rating")),
         "read_status": read_status,
+        "description": None
+        if pd.isna(row.get("Description"))
+        else str(row.get("Description") or "").strip() or None,
         "cover_url": None
         if pd.isna(row.get("Cover URL"))
         else str(row.get("Cover URL") or "").strip() or None,

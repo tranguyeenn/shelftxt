@@ -15,6 +15,13 @@ export type ApiBook = {
   read_status?: string;
   start_date?: string | null;
   end_date?: string | null;
+  description?: string | null;
+  genres?: string[];
+  subjects?: string[];
+  first_publish_year?: number | null;
+  language?: string | null;
+  page_count_checked?: boolean;
+  page_count_source?: string | null;
 };
 
 export type SimilarBook = {
@@ -28,8 +35,8 @@ export type MatchedLikedBook = SimilarBook & {
 };
 
 export type RecommendationItem = {
-  recommended_book?: Pick<ApiBook, "id" | "title" | "author" | "cover_url">;
-  book: Pick<ApiBook, "id" | "title" | "author" | "cover_url">;
+  recommended_book?: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description">;
+  book: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description">;
   score: number;
   reason?: string;
   explanation: string;

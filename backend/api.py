@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
     heartbeat_task.cancel()
     with suppress(asyncio.CancelledError):
         await heartbeat_task
-    scheduler.shutdown()
+    scheduler.shutdown(wait=False)
 
 
 # -----------------------------

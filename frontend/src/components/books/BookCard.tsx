@@ -12,12 +12,12 @@ type BookCardProps = {
 
 export function BookCard({ book }: BookCardProps) {
   return (
-    <Card padding="sm" className="grid min-w-44 gap-3">
-      <BookCover title={book.title} coverUrl={book.cover_url} className="mx-auto w-20" />
+    <Card padding="sm" className="grid min-w-44 gap-3 border-white/[0.08] bg-[#171719]">
+      <BookCover title={book.title} coverUrl={book.cover_url} className="mx-auto w-20 rounded-xl" />
       <div className="min-w-0">
         <Link
-          to={`/book/${encodeURIComponent(book.id)}`}
-          className="line-clamp-2 text-sm font-semibold text-text hover:text-accent"
+          to={`/app/book/${encodeURIComponent(book.id)}`}
+          className="line-clamp-2 font-serif text-lg font-semibold leading-tight text-text hover:text-accent-dim"
         >
           {book.title}
         </Link>

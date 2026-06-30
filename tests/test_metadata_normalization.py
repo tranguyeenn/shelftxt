@@ -28,6 +28,23 @@ def test_broad_subjects_are_filtered():
     assert result == ["witch trials"]
 
 
+def test_machine_subjects_and_identifiers_are_filtered():
+    result = filter_specific_subjects(
+        [
+            "Censorship",
+            "censorship",
+            "123456",
+            "OCLC:12345",
+            "list:OL123L",
+            "Internet Archive",
+            "Grade level 7",
+            "Political fiction",
+        ]
+    )
+
+    assert result == ["censorship", "political fiction"]
+
+
 def test_title_keywords_ignore_stopwords_and_generic_words():
     result = normalize_title_keywords("The Complete Book of Love Stories")
 

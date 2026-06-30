@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { StarRatingInput } from "@/components/ui/StarRatingInput";
 import { patchBook } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { statusLabel } from "@/lib/bookProgress";
@@ -17,7 +18,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
   const [author, setAuthor] = useState(book.author);
   const [isbnUid, setIsbnUid] = useState(book.id);
   const [totalPages, setTotalPages] = useState(book.total_pages?.toString() ?? "");
-  const [rating, setRating] = useState(book.rating?.toString() ?? "");
+  const [rating, setRating] = useState<number | null>(book.rating ?? null);
   const [status, setStatus] = useState<ReadingStatus>(book.status);
   const [trackingMode, setTrackingMode] = useState<TrackingMode>(book.tracking_mode);
   const [pagesRead, setPagesRead] = useState(book.pages_read.toString());
@@ -32,7 +33,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
     setAuthor(book.author);
     setIsbnUid(book.id);
     setTotalPages(book.total_pages?.toString() ?? "");
-    setRating(book.rating?.toString() ?? "");
+    setRating(book.rating ?? null);
     setStatus(book.status);
     setTrackingMode(book.tracking_mode);
     setPagesRead(book.pages_read.toString());
@@ -71,7 +72,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
     const cleanAuthor = author.trim() || "Unknown";
     const cleanIsbn = isbnUid.trim();
     const parsedTotal = parsePositiveInt(totalPages);
-    const parsedRating = parseRating(rating);
+    const parsedRating = rating;
     const parsedPages = parseNonNegativeInt(pagesRead);
     const parsedProgress = parseProgressPercent(progressPercent);
 
@@ -90,7 +91,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
       return;
     }
 
-    if (rating.trim() && parsedRating === null) {
+    if (parsedRating !== null && (parsedRating < 0 || parsedRating > 5)) {
       setError("Rating must be between 0 and 5.");
       return;
     }
@@ -186,15 +187,14 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
               min={1}
             />
 
-            <TextField
-              label="Rating"
-              value={rating}
-              onChange={setRating}
-              type="number"
-              min={0}
-              max={5}
-              step={0.25}
-            />
+            <div className="grid gap-1.5 text-sm">
+              <span className="text-text-muted">Rating</span>
+              <StarRatingInput
+                value={rating}
+                onChange={setRating}
+                ariaLabel={`Rating for ${book.title}`}
+              />
+            </div>
 
             <label className="grid gap-1.5 text-sm">
               <span className="text-text-muted">Status</span>
@@ -347,12 +347,5 @@ function parseNonNegativeInt(value: string): number | null {
 function parseProgressPercent(value: string): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null;
-  return parsed;
-}
-
-function parseRating(value: string): number | null {
-  if (!value.trim()) return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 5) return null;
   return parsed;
 }

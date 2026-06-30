@@ -6,6 +6,11 @@ from collections.abc import Iterable
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _SPACE_RE = re.compile(r"\s+")
+_SUBJECT_IDENTIFIER_RE = re.compile(
+    r"^(?:\d+|(?:isbn|oclc|lccn|ddc|lcsh|openlibrary|goodreads|list)[\s:#/_-]*[a-z0-9-]+)$",
+    re.IGNORECASE,
+)
+_SUBJECT_NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9_-]{1,24}:[^\s]+$", re.IGNORECASE)
 
 TITLE_STOPWORDS = {
     "a",
@@ -81,6 +86,12 @@ READER_TAG_JUNK_PATTERNS = (
     "examinations",
     "textbooks",
     "protected daisy",
+    "open library list",
+    "library catalog",
+    "subject headings",
+    "catalog record",
+    "machine generated",
+    "imported from",
 )
 
 READER_TAG_GENERIC = {
@@ -256,6 +267,10 @@ def filter_specific_subjects(values: object) -> list[str]:
         value
         for value in normalize_values(values, normalize_subject)
         if value not in BROAD_SUBJECTS
+        and not _SUBJECT_IDENTIFIER_RE.fullmatch(value)
+        and not _SUBJECT_NAMESPACE_RE.fullmatch(value)
+        and not any(pattern in value for pattern in READER_TAG_JUNK_PATTERNS)
+        and 1 < len(value) <= 80
     ]
 
 

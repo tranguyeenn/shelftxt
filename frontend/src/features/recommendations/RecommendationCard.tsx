@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { MoodTags } from "@/components/ui/MoodTags";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import {
+  buildRecommendationReasons,
   recommendationMatchPercent,
   recommendationSignals,
   readerFacingExplanation
@@ -34,8 +35,10 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
   const tags = [...matched_genres, ...matched_subjects].slice(0, 5);
   const match = recommendationMatchPercent(score);
   const signals = recommendationSignals(item);
+  const reasons = buildRecommendationReasons(item).slice(0, 3);
   const relatedBooks = (item.related_books ?? item.recommendation_breakdown?.inspired_by ?? matched_liked_books).slice(0, 3);
   const explanation = readerFacingExplanation(item);
+  const description = book.description?.trim();
 
   return (
     <Card className="grid gap-4 md:grid-cols-[72px_1fr]">
@@ -53,7 +56,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
           <div>
             <h3 className="text-lg font-semibold text-text">
               <Link
-                to={`/book/${encodeURIComponent(book.id)}`}
+                to={`/app/book/${encodeURIComponent(book.id)}`}
                 className="hover:text-accent hover:underline"
               >
                 {book.title}
@@ -69,7 +72,22 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
         <div className="grid gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-3">
           <div>
             <p className="text-sm font-medium text-text">Why this book</p>
-            <p className="mt-2 text-sm leading-relaxed text-text-muted">{explanation}</p>
+            {description ? (
+              <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-text-muted">
+                {description}
+              </p>
+            ) : null}
+            {reasons.length > 0 ? (
+              <ul className="mt-3 grid gap-1.5 text-sm leading-6 text-text-muted">
+                {reasons.map((reason) => (
+                  <li key={`${reason.label}-${reason.detail}`}>
+                    <span className="font-medium text-text">{reason.label}:</span> {reason.detail}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm leading-relaxed text-text-muted">{explanation}</p>
+            )}
             {relatedBooks.length > 0 ? (
               <div className="mt-3">
                 <p className="text-xs font-medium text-text-dim">Related books</p>

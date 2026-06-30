@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { clearLibrary, downloadLibraryCsv } from "@/lib/libraryExport";
 import { isReadOnlyDemo } from "@/lib/demoMode";
+import { backfillMissingPages } from "@/lib/pageCounts";
 
 type LibraryActionsProps = {
   onCleared?: () => void;
@@ -11,6 +12,7 @@ type LibraryActionsProps = {
 export function LibraryActions({ onCleared }: LibraryActionsProps) {
   const [exporting, setExporting] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [backfillingPages, setBackfillingPages] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -48,6 +50,23 @@ export function LibraryActions({ onCleared }: LibraryActionsProps) {
     }
   }
 
+  async function handleBackfillPages() {
+    setBackfillingPages(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await backfillMissingPages();
+      setMessage(
+        `Page lookup updated ${result.updated} of ${result.processed} processed book${result.processed === 1 ? "" : "s"}.` +
+          (result.unresolved > 0 ? ` ${result.unresolved} had no reliable match.` : "")
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Page backfill failed");
+    } finally {
+      setBackfillingPages(false);
+    }
+  }
+
   return (
     <div className="grid gap-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -55,9 +74,18 @@ export function LibraryActions({ onCleared }: LibraryActionsProps) {
           {exporting ? "Exporting…" : "Export library"}
         </Button>
         {!isReadOnlyDemo ? (
-          <Button variant="danger" onClick={() => void handleClear()} disabled={clearing}>
-            {clearing ? "Clearing…" : "Clear library"}
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => void handleBackfillPages()}
+              disabled={backfillingPages}
+            >
+              {backfillingPages ? "Finding pages…" : "Backfill missing pages"}
+            </Button>
+            <Button variant="danger" onClick={() => void handleClear()} disabled={clearing}>
+              {clearing ? "Clearing…" : "Clear library"}
+            </Button>
+          </>
         ) : null}
       </div>
 

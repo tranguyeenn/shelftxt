@@ -4,10 +4,10 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 const variantClass: Record<Variant, string> = {
   primary:
-    "bg-accent text-text font-medium shadow-soft hover:bg-accent-dim disabled:opacity-50",
+    "bg-accent text-bg font-semibold shadow-soft hover:bg-accent-dim disabled:opacity-50",
   secondary:
-    "border border-accent/70 bg-transparent text-text hover:bg-accent-muted disabled:opacity-50",
-  ghost: "text-text-muted hover:text-text hover:bg-surface-hover disabled:opacity-50",
+    "border border-border bg-bg-elevated text-text-muted hover:border-white/15 hover:text-text disabled:opacity-50",
+  ghost: "text-text-muted hover:text-text hover:bg-white/[0.05] disabled:opacity-50",
   danger:
     "bg-danger-muted text-danger border border-danger/30 hover:border-danger/60 disabled:opacity-50"
 };
@@ -20,7 +20,7 @@ export function Button({ variant = "secondary", className = "", ...props }: Butt
   return (
     <button
       type="button"
-      className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed ${variantClass[variant]} ${className}`}
+      className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-[14px] px-4 py-2 text-sm transition-colors disabled:cursor-not-allowed ${variantClass[variant]} ${className}`}
       {...props}
     />
   );
