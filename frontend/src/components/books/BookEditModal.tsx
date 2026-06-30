@@ -17,6 +17,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
   const [author, setAuthor] = useState(book.author);
   const [isbnUid, setIsbnUid] = useState(book.id);
   const [totalPages, setTotalPages] = useState(book.total_pages?.toString() ?? "");
+  const [rating, setRating] = useState(book.rating?.toString() ?? "");
   const [status, setStatus] = useState<ReadingStatus>(book.status);
   const [trackingMode, setTrackingMode] = useState<TrackingMode>(book.tracking_mode);
   const [pagesRead, setPagesRead] = useState(book.pages_read.toString());
@@ -31,6 +32,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
     setAuthor(book.author);
     setIsbnUid(book.id);
     setTotalPages(book.total_pages?.toString() ?? "");
+    setRating(book.rating?.toString() ?? "");
     setStatus(book.status);
     setTrackingMode(book.tracking_mode);
     setPagesRead(book.pages_read.toString());
@@ -47,12 +49,15 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
   function handleStatusChange(next: ReadingStatus) {
     setStatus(next);
     const parsedTotal = parsePositiveInt(totalPages);
+
     if (next === "completed" && parsedTotal !== null) {
       setPagesRead(String(parsedTotal));
     }
+
     if (next === "completed") {
       setProgressPercent("100");
     }
+
     if (next === "not_started") {
       setPagesRead("0");
       setProgressPercent("0");
@@ -66,6 +71,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
     const cleanAuthor = author.trim() || "Unknown";
     const cleanIsbn = isbnUid.trim();
     const parsedTotal = parsePositiveInt(totalPages);
+    const parsedRating = parseRating(rating);
     const parsedPages = parseNonNegativeInt(pagesRead);
     const parsedProgress = parseProgressPercent(progressPercent);
 
@@ -73,18 +79,27 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
       setError("Title is required.");
       return;
     }
+
     if (!cleanIsbn) {
       setError("ISBN/UID is required.");
       return;
     }
+
     if (totalPages.trim() && parsedTotal === null) {
       setError("Total pages must be positive or blank.");
       return;
     }
+
+    if (rating.trim() && parsedRating === null) {
+      setError("Rating must be between 0 and 5.");
+      return;
+    }
+
     if (trackingMode === "pages" && parsedPages === null) {
       setError("Pages read cannot be negative.");
       return;
     }
+
     if (trackingMode === "percentage" && parsedProgress === null) {
       setError("Progress must be between 0 and 100%.");
       return;
@@ -94,10 +109,16 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
       status === "completed" && parsedTotal !== null ? parsedTotal : parsedPages;
     const finalProgressPercent = status === "completed" ? 100 : parsedProgress;
 
-    if (trackingMode === "pages" && parsedTotal !== null && finalPagesRead !== null && finalPagesRead > parsedTotal) {
+    if (
+      trackingMode === "pages" &&
+      parsedTotal !== null &&
+      finalPagesRead !== null &&
+      finalPagesRead > parsedTotal
+    ) {
       setError("Pages read cannot exceed total pages.");
       return;
     }
+
     if (startDate && endDate && startDate > endDate) {
       setError("Start date cannot be after end date.");
       return;
@@ -105,6 +126,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
 
     setSaving(true);
     setError("");
+
     try {
       const updated = await patchBook(book.id, {
         title: cleanTitle,
@@ -117,8 +139,10 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
           ? { pages_read: finalPagesRead ?? 0 }
           : { progress_percent: finalProgressPercent ?? 0 }),
         start_date: startDate || null,
-        end_date: endDate || null
+        end_date: endDate || null,
+        star_rating: parsedRating
       });
+
       onUpdated(updated);
       onClose();
     } catch (err) {
@@ -153,6 +177,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
             <TextField label="Title" value={title} onChange={setTitle} required />
             <TextField label="Author" value={author} onChange={setAuthor} />
             <TextField label="ISBN/UID" value={isbnUid} onChange={setIsbnUid} required />
+
             <TextField
               label="Total pages"
               value={totalPages}
@@ -160,6 +185,17 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
               type="number"
               min={1}
             />
+
+            <TextField
+              label="Rating"
+              value={rating}
+              onChange={setRating}
+              type="number"
+              min={0}
+              max={5}
+              step={0.25}
+            />
+
             <label className="grid gap-1.5 text-sm">
               <span className="text-text-muted">Status</span>
               <select
@@ -173,6 +209,7 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
                 <option value="dnf">{statusLabel("dnf")}</option>
               </select>
             </label>
+
             <div className="grid gap-1.5 text-sm">
               <span className="text-text-muted">Progress mode</span>
               <div className="grid gap-1 rounded-lg border border-border bg-surface p-1 sm:grid-cols-2">
@@ -180,7 +217,9 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
                   type="button"
                   onClick={() => setTrackingMode("percentage")}
                   className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                    trackingMode === "percentage" ? "bg-accent text-text" : "text-text-muted hover:text-text"
+                    trackingMode === "percentage"
+                      ? "bg-accent text-text"
+                      : "text-text-muted hover:text-text"
                   }`}
                 >
                   Track by percentage
@@ -189,13 +228,16 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
                   type="button"
                   onClick={() => setTrackingMode("pages")}
                   className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                    trackingMode === "pages" ? "bg-accent text-text" : "text-text-muted hover:text-text"
+                    trackingMode === "pages"
+                      ? "bg-accent text-text"
+                      : "text-text-muted hover:text-text"
                   }`}
                 >
                   Track by pages
                 </button>
               </div>
             </div>
+
             {trackingMode === "pages" ? (
               <TextField
                 label="Pages read"
@@ -214,12 +256,14 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
                 max={100}
               />
             )}
+
             <TextField
               label="Start Date"
               value={startDate}
               onChange={setStartDate}
               type="date"
             />
+
             <TextField
               label="End Date"
               value={endDate}
@@ -229,7 +273,10 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
           </div>
 
           {error ? (
-            <p className="rounded-lg border border-danger/30 bg-danger-muted px-3 py-2 text-sm text-danger" role="alert">
+            <p
+              className="rounded-lg border border-danger/30 bg-danger-muted px-3 py-2 text-sm text-danger"
+              role="alert"
+            >
               {error}
             </p>
           ) : null}
@@ -255,6 +302,7 @@ function TextField({
   type = "text",
   min,
   max,
+  step,
   required = false
 }: {
   label: string;
@@ -263,6 +311,7 @@ function TextField({
   type?: string;
   min?: number;
   max?: number;
+  step?: number;
   required?: boolean;
 }) {
   return (
@@ -272,6 +321,7 @@ function TextField({
         type={type}
         min={min}
         max={max}
+        step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         required={required}
@@ -297,5 +347,12 @@ function parseNonNegativeInt(value: string): number | null {
 function parseProgressPercent(value: string): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null;
+  return parsed;
+}
+
+function parseRating(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 5) return null;
   return parsed;
 }

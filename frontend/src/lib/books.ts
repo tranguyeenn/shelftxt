@@ -119,6 +119,7 @@ export type BookPatchPayload = {
   progress_percent?: number;
   start_date?: string | null;
   end_date?: string | null;
+  star_rating?: number | null;
 };
 
 export async function patchBook(bookId: string, payload: BookPatchPayload): Promise<ApiBook> {
