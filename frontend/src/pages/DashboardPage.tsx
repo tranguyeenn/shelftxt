@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MiniVibeCard } from "@/components/ui/MiniVibeCard";
 import { ReadingStats } from "@/features/dashboard/ReadingStats";
+import { ReadingMomentum } from "@/features/dashboard/ReadingMomentum";
 import { RecommendedNextCard } from "@/features/dashboard/RecommendedNextCard";
+import { RecentlyFinished } from "@/features/dashboard/RecentlyFinished";
+import { TopRatedBooks } from "@/features/dashboard/TopRatedBooks";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
@@ -159,6 +162,17 @@ export function DashboardPage() {
       </div>
 
       <ReadingStats library={library} />
+
+      <section className="grid gap-4">
+        <h2 className="text-sm font-medium text-text-dim">Reading activity</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ReadingMomentum library={library} />
+          <RecentlyFinished library={library} />
+          <div className="lg:col-span-2">
+            <TopRatedBooks library={library} />
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
