@@ -171,6 +171,11 @@ class Book(Base):
         nullable=True,
     )
 
+    cover_url: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     page_count_checked: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

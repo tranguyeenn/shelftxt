@@ -6,6 +6,7 @@ import httpx
 from backend.services.page_lookup import (
     BookMetadata,
     lookup_book_metadata,
+    lookup_book_cover,
     lookup_google_books_by_isbn,
     lookup_open_library_by_isbn,
     lookup_open_library_by_title,
@@ -35,6 +36,7 @@ class PageLookupTests(unittest.TestCase):
                             "title": "Dune",
                             "authors": ["Frank Herbert"],
                             "pageCount": 592,
+                            "imageLinks": {"thumbnail": "http://books.google.com/dune.jpg"},
                         }
                     }
                 ]
@@ -45,22 +47,40 @@ class PageLookupTests(unittest.TestCase):
 
         self.assertEqual(
             metadata,
-            BookMetadata(title="Dune", authors="Frank Herbert", total_pages=592, metadata_source="google_books"),
+            BookMetadata(
+                title="Dune",
+                authors="Frank Herbert",
+                total_pages=592,
+                metadata_source="google_books",
+                cover_url="https://books.google.com/dune.jpg",
+            ),
         )
         mock_get.assert_called_once()
 
     @patch("backend.services.page_lookup.httpx.get")
-    def test_google_books_failure_falls_back_to_open_library(self, mock_get):
+    def test_open_library_failure_falls_back_to_google_books(self, mock_get):
         mock_get.side_effect = [
             httpx.TimeoutException("timeout"),
-            FakeResponse({"title": "Dune", "authors": [{"name": "Frank Herbert"}], "number_of_pages": 592}),
+            FakeResponse(
+                {
+                    "items": [
+                        {
+                            "volumeInfo": {
+                                "title": "Dune",
+                                "authors": ["Frank Herbert"],
+                                "pageCount": 592,
+                            }
+                        }
+                    ]
+                }
+            ),
         ]
 
         metadata = lookup_book_metadata("Dune", "Frank Herbert", "9780441172719")
 
         self.assertEqual(
             metadata,
-            BookMetadata(title="Dune", authors="Frank Herbert", total_pages=592, metadata_source="open_library"),
+            BookMetadata(title="Dune", authors="Frank Herbert", total_pages=592, metadata_source="google_books"),
         )
         self.assertEqual(mock_get.call_count, 2)
 
@@ -74,6 +94,7 @@ class PageLookupTests(unittest.TestCase):
                 "description": {"value": "A time travel novel."},
                 "subjects": ["Science fiction", "Time travel"],
                 "first_publish_year": 1979,
+                "covers": [12345],
             }
         )
 
@@ -90,9 +111,98 @@ class PageLookupTests(unittest.TestCase):
                 genres=["science fiction"],
                 first_publish_year=1979,
                 metadata_source="open_library",
+                cover_url="https://covers.openlibrary.org/b/id/12345-L.jpg?default=false",
             ),
         )
         self.assertTrue(mock_get.call_args.kwargs["follow_redirects"])
+
+    @patch("backend.services.page_lookup.httpx.get")
+    def test_open_library_cover_takes_priority_over_google_books(self, mock_get):
+        mock_get.return_value = FakeResponse(
+            {
+                "title": "Dune",
+                "authors": [{"name": "Frank Herbert"}],
+                "number_of_pages": 592,
+                "covers": [42],
+            }
+        )
+
+        metadata = lookup_book_metadata("Dune", "Frank Herbert", "9780441172719")
+
+        self.assertEqual(
+            metadata.cover_url,
+            "https://covers.openlibrary.org/b/id/42-L.jpg?default=false",
+        )
+        mock_get.assert_called_once()
+
+    @patch("backend.services.page_lookup.httpx.get")
+    def test_google_cover_fills_missing_open_library_cover(self, mock_get):
+        mock_get.side_effect = [
+            FakeResponse(
+                {
+                    "title": "Dune",
+                    "authors": [{"name": "Frank Herbert"}],
+                    "number_of_pages": 592,
+                }
+            ),
+            FakeResponse(
+                {
+                    "items": [
+                        {
+                            "volumeInfo": {
+                                "title": "Dune",
+                                "imageLinks": {"thumbnail": "http://books.google.com/dune.jpg"},
+                            }
+                        }
+                    ]
+                }
+            ),
+        ]
+
+        metadata = lookup_book_metadata("Dune", "Frank Herbert", "9780441172719")
+
+        self.assertEqual(metadata.metadata_source, "open_library")
+        self.assertEqual(metadata.cover_url, "https://books.google.com/dune.jpg")
+        self.assertEqual(mock_get.call_count, 2)
+
+    @patch("backend.services.page_lookup.httpx.get")
+    def test_cover_only_lookup_uses_open_library_without_work_lookup(self, mock_get):
+        mock_get.return_value = FakeResponse({"covers": [99]})
+
+        metadata = lookup_book_cover("Dune", "Frank Herbert", "9780441172719")
+
+        self.assertEqual(
+            metadata,
+            BookMetadata(
+                cover_url="https://covers.openlibrary.org/b/id/99-L.jpg?default=false",
+                metadata_source="open_library",
+            ),
+        )
+        mock_get.assert_called_once()
+
+    @patch("backend.services.page_lookup.httpx.get")
+    def test_cover_only_lookup_uses_google_after_open_library_misses(self, mock_get):
+        mock_get.side_effect = [
+            FakeResponse({"title": "Dune"}),
+            FakeResponse({"docs": []}),
+            FakeResponse(
+                {
+                    "items": [
+                        {
+                            "volumeInfo": {
+                                "imageLinks": {"thumbnail": "http://books.google.com/dune.jpg"}
+                            }
+                        }
+                    ]
+                }
+            ),
+        ]
+
+        metadata = lookup_book_cover("Dune", "Frank Herbert", "9780441172719")
+
+        self.assertEqual(metadata.cover_url, "https://books.google.com/dune.jpg")
+        self.assertEqual(metadata.metadata_source, "google_books")
+        self.assertEqual(mock_get.call_count, 3)
 
     @patch("backend.services.page_lookup.httpx.get")
     def test_open_library_isbn_redirects_are_followed(self, mock_get):

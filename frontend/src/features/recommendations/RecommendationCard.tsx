@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
+import { BookCover } from "@/components/ui/BookCover";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { MoodTags } from "@/components/ui/MoodTags";
@@ -12,6 +12,7 @@ import {
   readerFacingExplanation
 } from "@/lib/recommendationDisplay";
 import type { RecommendationItem } from "@/lib/types";
+import { openLibraryCoverUrl } from "@/lib/coverUrl";
 
 type RecommendationCardProps = {
   item: RecommendationItem;
@@ -38,7 +39,11 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
 
   return (
     <Card className="grid gap-4 md:grid-cols-[72px_1fr]">
-      <BookCoverPlaceholder title={book.title} className="w-[72px]" />
+      <BookCover
+        title={book.title}
+        coverUrl={book.cover_url ?? openLibraryCoverUrl(book.id, "S")}
+        className="w-[72px]"
+      />
       <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex gap-3">

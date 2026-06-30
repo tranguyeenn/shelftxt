@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { BookCover } from "@/components/ui/BookCover";
 import { statusLabel } from "@/lib/bookProgress";
 import { formatRating, getTopRatedBooks } from "@/lib/dashboardMetrics";
 import type { BookRecord } from "@/lib/books";
@@ -30,6 +31,7 @@ export function TopRatedBooks({ library }: TopRatedBooksProps) {
           {books.map((book, index) => (
             <li key={book.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
               <span className="w-5 shrink-0 font-mono text-xs text-text-dim">{index + 1}</span>
+              <BookCover title={book.title} coverUrl={book.coverUrl} className="w-9 shrink-0" />
               <div className="min-w-0 flex-1">
                 <Link
                   to={`/app/book/${encodeURIComponent(book.id)}`}

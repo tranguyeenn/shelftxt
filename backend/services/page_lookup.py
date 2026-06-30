@@ -39,6 +39,7 @@ class BookMetadata:
     language: str | None = None
     work_key: str | None = None
     edition_key: str | None = None
+    cover_url: str | None = None
 
 
 MANUAL_METADATA_OVERRIDES = {
@@ -198,6 +199,7 @@ def _metadata_has_value(metadata: BookMetadata | None) -> bool:
             or metadata.language
             or metadata.work_key
             or metadata.edition_key
+            or metadata.cover_url
         )
     )
 
@@ -217,6 +219,7 @@ def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> B
         language=base.language or next_metadata.language,
         work_key=base.work_key or next_metadata.work_key,
         edition_key=base.edition_key or next_metadata.edition_key,
+        cover_url=base.cover_url or next_metadata.cover_url,
     )
 
 
@@ -235,6 +238,7 @@ def _merge_manual_override(base: BookMetadata, override: BookMetadata | None) ->
         language=base.language or override.language,
         work_key=base.work_key or override.work_key,
         edition_key=base.edition_key or override.edition_key,
+        cover_url=base.cover_url or override.cover_url,
     )
 
 
@@ -295,6 +299,29 @@ def _first_publish_year(value: object) -> int | None:
     return None
 
 
+def _open_library_cover_url(payload: dict) -> str | None:
+    covers = payload.get("covers")
+    if isinstance(covers, list):
+        for cover_id in covers:
+            if isinstance(cover_id, int) and cover_id > 0:
+                return f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg?default=false"
+    cover_id = payload.get("cover_i")
+    if isinstance(cover_id, int) and cover_id > 0:
+        return f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg?default=false"
+    return None
+
+
+def _google_books_cover_url(image_links: object) -> str | None:
+    if not isinstance(image_links, dict):
+        return None
+    for key in ("thumbnail", "smallThumbnail"):
+        value = image_links.get(key)
+        if isinstance(value, str) and value.strip():
+            url = value.strip()
+            return f"https://{url[7:]}" if url.startswith("http://") else url
+    return None
+
+
 def _metadata_from_open_library_payload(payload: dict, *, edition_key: str | None = None) -> BookMetadata:
     subjects = filter_specific_subjects(payload.get("subjects") or payload.get("subject"))
     genres = normalize_genre_list(payload.get("genres")) or subjects_to_genres(subjects)
@@ -310,6 +337,7 @@ def _metadata_from_open_library_payload(payload: dict, *, edition_key: str | Non
         language=_language_from_open_library(payload.get("languages") or payload.get("language")),
         work_key=_first_key(payload.get("works") or payload.get("key")),
         edition_key=edition_key or _first_key(payload.get("edition_key") or payload.get("key")),
+        cover_url=_open_library_cover_url(payload),
     )
 
 
@@ -383,6 +411,7 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
             genres=normalize_genre_list(info.get("categories")) or None,
             language=normalize_language(info.get("language")) or None,
             metadata_source="google_books",
+            cover_url=_google_books_cover_url(info.get("imageLinks")),
         )
         if _metadata_has_value(metadata):
             return metadata
@@ -436,7 +465,7 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             params={
                 "q": query,
                 "limit": 5,
-                "fields": "title,author_name,edition_key,subject,language,key,number_of_pages_median,first_publish_year",
+                "fields": "title,author_name,edition_key,subject,language,key,cover_i,number_of_pages_median,first_publish_year",
             },
             timeout=LOOKUP_TIMEOUT_SECONDS,
         )
@@ -473,6 +502,7 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             edition_key=(doc.get("edition_key") or [None])[0]
             if isinstance(doc.get("edition_key"), list)
             else None,
+            cover_url=_open_library_cover_url(doc),
         )
         if metadata.work_key:
             try:
@@ -489,6 +519,63 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
     return None
 
 
+def lookup_book_cover(
+    title: str | None,
+    author: str | None = None,
+    isbn_uid: str | None = None,
+) -> BookMetadata | None:
+    """Resolve only cover metadata, avoiding work-detail calls used by full enrichment."""
+    isbn = normalize_isbn(isbn_uid)
+    if isbn:
+        try:
+            response = httpx.get(
+                f"https://openlibrary.org/isbn/{isbn}.json",
+                timeout=LOOKUP_TIMEOUT_SECONDS,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            cover_url = _open_library_cover_url(payload) if isinstance(payload, dict) else None
+            if cover_url:
+                return BookMetadata(cover_url=cover_url, metadata_source="open_library")
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    clean_title = (title or "").strip()
+    if clean_title:
+        try:
+            response = httpx.get(
+                "https://openlibrary.org/search.json",
+                params={
+                    "q": f"{clean_title} {author or ''}".strip(),
+                    "limit": 5,
+                    "fields": "cover_i",
+                },
+                timeout=LOOKUP_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            docs = payload.get("docs", []) if isinstance(payload, dict) else []
+            for doc in docs if isinstance(docs, list) else []:
+                cover_url = _open_library_cover_url(doc) if isinstance(doc, dict) else None
+                if cover_url:
+                    return BookMetadata(cover_url=cover_url, metadata_source="open_library")
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    if isbn:
+        try:
+            google_metadata = lookup_google_books_by_isbn(isbn)
+            if google_metadata and google_metadata.cover_url:
+                return BookMetadata(
+                    cover_url=google_metadata.cover_url,
+                    metadata_source="google_books",
+                )
+        except GoogleBooksRateLimited:
+            pass
+    return None
+
+
 def lookup_book_metadata(
     title: str | None,
     author: str | None = None,
@@ -500,15 +587,15 @@ def lookup_book_metadata(
     isbn = normalize_isbn(isbn_uid)
     if isbn:
         try:
-            metadata = _merge_metadata(metadata, lookup_google_books_by_isbn(isbn))
-        except GoogleBooksRateLimited:
+            metadata = _merge_metadata(metadata, lookup_open_library_by_isbn(isbn))
+        except OpenLibraryTimeout:
             pass
-        if _metadata_complete(metadata) and manual_override is None:
+        if _metadata_complete(metadata) and metadata.cover_url and manual_override is None:
             return metadata
 
         try:
-            metadata = _merge_metadata(metadata, lookup_open_library_by_isbn(isbn))
-        except OpenLibraryTimeout:
+            metadata = _merge_metadata(metadata, lookup_google_books_by_isbn(isbn))
+        except GoogleBooksRateLimited:
             pass
         if _metadata_complete(metadata) and manual_override is None:
             return metadata

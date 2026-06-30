@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { Card } from "@/components/ui/Card";
+import { BookCover } from "@/components/ui/BookCover";
 import { formatDisplayDate, type BookRecord } from "@/lib/books";
 import { formatRating, getRecentlyFinishedBooks } from "@/lib/dashboardMetrics";
 
@@ -31,7 +32,8 @@ export function RecentlyFinished({ library }: RecentlyFinishedProps) {
       ) : (
         <ul className="divide-y divide-border-subtle">
           {books.map((book) => (
-            <li key={book.id} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+            <li key={book.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+              <BookCover title={book.title} coverUrl={book.coverUrl} className="w-9 shrink-0" />
               <div className="min-w-0">
                 <Link
                   to={`/app/book/${encodeURIComponent(book.id)}`}
@@ -41,7 +43,7 @@ export function RecentlyFinished({ library }: RecentlyFinishedProps) {
                 </Link>
                 <p className="truncate text-xs text-text-muted">{book.author}</p>
               </div>
-              <div className="shrink-0 text-right">
+              <div className="ml-auto shrink-0 text-right">
                 <p className="text-xs text-text">{formatDisplayDate(book.finishDateValue)}</p>
                 {book.rating !== null ? (
                   <p className="mt-1 text-xs text-score-rating">★ {formatRating(book.rating)}</p>

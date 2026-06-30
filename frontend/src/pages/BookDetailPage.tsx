@@ -6,7 +6,7 @@ import { BookEditModal } from "@/components/books/BookEditModal";
 import { BookProgressEditor } from "@/components/books/BookProgressEditor";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
-import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
+import { BookCover } from "@/components/ui/BookCover";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -97,7 +97,7 @@ export function BookDetailPage() {
       {book ? (
         <>
           <Card padding="lg" className="grid gap-6 md:grid-cols-[156px_1fr]">
-            <BookCoverPlaceholder title={book.title} className="w-full max-w-[156px]" />
+            <BookCover title={book.title} coverUrl={book.cover_url} className="w-full max-w-[156px]" />
             <div className="grid gap-5">
               <div>
                 <h2 className="font-serif text-2xl font-semibold text-text">{book.title}</h2>

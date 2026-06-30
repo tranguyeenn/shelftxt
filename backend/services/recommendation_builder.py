@@ -385,6 +385,7 @@ def build_recommendations(
             "id": book_api["id"],
             "title": book_api["title"],
             "author": book_api["author"],
+            "cover_url": book_api.get("cover_url"),
         }
 
         results.append(

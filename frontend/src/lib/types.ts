@@ -5,6 +5,7 @@ export type ApiBook = {
   id: string;
   title: string;
   author: string;
+  cover_url?: string | null;
   status: ReadingStatus;
   total_pages: number | null;
   pages_read: number;
@@ -27,8 +28,8 @@ export type MatchedLikedBook = SimilarBook & {
 };
 
 export type RecommendationItem = {
-  recommended_book?: Pick<ApiBook, "id" | "title" | "author">;
-  book: Pick<ApiBook, "id" | "title" | "author">;
+  recommended_book?: Pick<ApiBook, "id" | "title" | "author" | "cover_url">;
+  book: Pick<ApiBook, "id" | "title" | "author" | "cover_url">;
   score: number;
   reason?: string;
   explanation: string;

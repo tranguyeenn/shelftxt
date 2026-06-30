@@ -7,7 +7,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.db.database import get_session_local
 from backend.db.models import Book
-from backend.services.page_lookup import lookup_book_metadata, manual_metadata_for_title
+from backend.services.page_lookup import (
+    lookup_book_cover,
+    lookup_book_metadata,
+    manual_metadata_for_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +25,11 @@ def _needs_metadata(book: Book) -> bool:
     return not (book.genres and book.subjects and book.description)
 
 
-def _needs_requested_metadata(book: Book, *, missing_genres: bool) -> bool:
+def _needs_requested_metadata(
+    book: Book, *, missing_genres: bool, missing_covers: bool = False
+) -> bool:
+    if missing_covers:
+        return not book.cover_url
     if missing_genres:
         return not book.genres
     return _needs_metadata(book)
@@ -52,6 +60,7 @@ def _apply_metadata(book: Book, metadata) -> bool:
         "language",
         "work_key",
         "edition_key",
+        "cover_url",
     ):
         value = getattr(metadata, attr, None)
         if attr == "genres" and _should_replace_genres(book, metadata):
@@ -87,6 +96,7 @@ def backfill_book_metadata(
     only_rated: bool = False,
     only_read: bool = False,
     missing_genres: bool = False,
+    missing_covers: bool = False,
 ) -> int:
     session_factory = get_session_local()
     updated = 0
@@ -105,16 +115,28 @@ def backfill_book_metadata(
         books = [
             book
             for book in query.order_by(*order_by).all()
-            if _needs_requested_metadata(book, missing_genres=missing_genres)
+            if _needs_requested_metadata(
+                book,
+                missing_genres=missing_genres,
+                missing_covers=missing_covers,
+            )
         ][:limit]
         logger.info("Metadata backfill starting: %s candidate books", len(books))
         for book in books:
             scanned += 1
-            if not _needs_requested_metadata(book, missing_genres=missing_genres):
+            if not _needs_requested_metadata(
+                book,
+                missing_genres=missing_genres,
+                missing_covers=missing_covers,
+            ):
                 logger.info("Skipping already enriched book id=%s title=%r", book.id, book.title)
                 continue
             try:
-                metadata = lookup_book_metadata(book.title, book.authors, book.isbn_uid)
+                metadata = (
+                    lookup_book_cover(book.title, book.authors, book.isbn_uid)
+                    if missing_covers
+                    else lookup_book_metadata(book.title, book.authors, book.isbn_uid)
+                )
                 if _apply_metadata(book, metadata):
                     updated += 1
                     logger.info("Enriched book id=%s title=%r", book.id, book.title)
@@ -153,6 +175,7 @@ def main() -> None:
     parser.add_argument("--only-rated", action="store_true", help="Only enrich books with star_rating set.")
     parser.add_argument("--only-read", action="store_true", help="Only enrich books with read_status='read'.")
     parser.add_argument("--missing-genres", action="store_true", help="Only enrich books with missing genres.")
+    parser.add_argument("--missing-covers", action="store_true", help="Only enrich books with missing cover URLs.")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     backfill_book_metadata(
@@ -162,6 +185,7 @@ def main() -> None:
         only_rated=args.only_rated,
         only_read=args.only_read,
         missing_genres=args.missing_genres,
+        missing_covers=args.missing_covers,
     )
 
 

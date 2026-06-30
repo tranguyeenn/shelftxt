@@ -214,6 +214,7 @@ class BookResponse(BaseModel):
     total_pages: int | None = None
     tracking_mode: str | None = None
     description: str | None = None
+    cover_url: str | None = None
     subjects: list[str] | None = None
     genres: list[str] | None = None
     first_publish_year: int | None = None

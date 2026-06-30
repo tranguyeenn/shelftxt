@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
+import { BookCover } from "@/components/ui/BookCover";
 import { Card } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { progressLabel } from "@/lib/bookProgress";
@@ -13,7 +13,7 @@ type BookCardProps = {
 export function BookCard({ book }: BookCardProps) {
   return (
     <Card padding="sm" className="grid min-w-44 gap-3">
-      <BookCoverPlaceholder title={book.title} className="mx-auto w-20" />
+      <BookCover title={book.title} coverUrl={book.cover_url} className="mx-auto w-20" />
       <div className="min-w-0">
         <Link
           to={`/book/${encodeURIComponent(book.id)}`}

@@ -40,6 +40,7 @@ def books_to_dataframe(books) -> pd.DataFrame:
                 "Pages Read": book.pages_read,
                 "Total Pages": book.total_pages,
                 "Description": book.description,
+                "Cover URL": book.cover_url,
                 "Subjects": book.subjects or [],
                 "Genres": book.genres or [],
                 "First Publish Year": book.first_publish_year,

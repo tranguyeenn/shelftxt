@@ -84,6 +84,8 @@ def book_to_dict(book):
         "Tracking Mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
         "tracking_mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
         "Description": book.description,
+        "Cover URL": book.cover_url,
+        "cover_url": book.cover_url,
         "Subjects": book.subjects,
         "Genres": book.genres,
         "First Publish Year": book.first_publish_year,
@@ -268,6 +270,8 @@ def _metadata_update_fields(metadata: BookMetadata | None) -> dict:
         data["genres"] = metadata.genres
     if metadata.description:
         data["description"] = metadata.description
+    if metadata.cover_url:
+        data["cover_url"] = metadata.cover_url
     if metadata.first_publish_year:
         data["first_publish_year"] = metadata.first_publish_year
     if metadata.metadata_source:

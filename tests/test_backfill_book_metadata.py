@@ -151,6 +151,41 @@ def test_backfill_preserves_existing_end_date_when_total_pages_added(
 
 @patch("backend.scripts.backfill_book_metadata.time.sleep", return_value=None)
 @patch("backend.scripts.backfill_book_metadata.get_session_local", return_value=TestingSessionLocal)
+@patch("backend.scripts.backfill_book_metadata.lookup_book_cover")
+def test_backfill_missing_covers_updates_existing_enriched_books(
+    mock_lookup, _mock_session, _mock_sleep
+):
+    _seed_book(
+        title="Already Enriched",
+        authors="A",
+        isbn_uid="9780441172719",
+        description="Existing description",
+        subjects=["science fiction"],
+        genres=["science fiction"],
+    )
+    mock_lookup.return_value = BookMetadata(
+        cover_url="https://covers.openlibrary.org/b/id/42-L.jpg?default=false",
+        metadata_source="open_library",
+    )
+
+    updated = backfill_book_metadata(
+        limit=10,
+        batch_size=1,
+        sleep_seconds=0,
+        missing_covers=True,
+    )
+
+    assert updated == 1
+    db = TestingSessionLocal()
+    try:
+        book = db.query(Book).filter(Book.isbn_uid == "9780441172719").one()
+        assert book.cover_url == "https://covers.openlibrary.org/b/id/42-L.jpg?default=false"
+    finally:
+        db.close()
+
+
+@patch("backend.scripts.backfill_book_metadata.time.sleep", return_value=None)
+@patch("backend.scripts.backfill_book_metadata.get_session_local", return_value=TestingSessionLocal)
 @patch("backend.scripts.backfill_book_metadata.lookup_book_metadata")
 def test_backfill_replaces_overinflated_genres(mock_lookup, _mock_session, _mock_sleep):
     _seed_book(

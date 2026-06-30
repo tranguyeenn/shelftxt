@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useState } from "react";
 
 import { BookEditModal } from "@/components/books/BookEditModal";
-import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
+import { BookCover } from "@/components/ui/BookCover";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -27,7 +27,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
 
   return (
     <Card className="grid gap-4 md:grid-cols-[64px_1fr]">
-      <BookCoverPlaceholder title={book.title} className="w-16" />
+      <BookCover title={book.title} coverUrl={book.cover_url} className="w-16" />
       <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">

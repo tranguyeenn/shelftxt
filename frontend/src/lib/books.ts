@@ -1,4 +1,5 @@
 import { fetchJson } from "@/lib/api";
+import { openLibraryCoverUrl } from "@/lib/coverUrl";
 import type { ApiBook, ReadingStatus, TrackingMode } from "@/lib/types";
 
 export type PaginatedBooksResponse = {
@@ -28,6 +29,8 @@ export type BookRecord = {
   "Tracking Mode"?: string | null;
   tracking_mode?: string | null;
   Description?: string | null;
+  "Cover URL"?: string | null;
+  cover_url?: string | null;
   Subjects?: string[] | string | null;
   Genres?: string[] | string | null;
   "First Publish Year"?: number | null;
@@ -96,6 +99,7 @@ export function recordToApiBook(book: BookRecord): ApiBook {
     id: bookId(book),
     title: bookTitle(book),
     author: bookAuthor(book),
+    cover_url: book.cover_url ?? book["Cover URL"] ?? openLibraryCoverUrl(bookId(book)),
     status,
     total_pages: totalPages,
     pages_read: pagesRead,

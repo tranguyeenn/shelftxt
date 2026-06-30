@@ -9,11 +9,13 @@ import {
   type BookRecord
 } from "@/lib/books";
 import type { ReadingStatus } from "@/lib/types";
+import { openLibraryCoverUrl } from "@/lib/coverUrl";
 
 export type DashboardBook = {
   id: string;
   title: string;
   author: string;
+  coverUrl: string | null;
   status: ReadingStatus;
   rating: number | null;
   finishDate: Date | null;
@@ -34,6 +36,7 @@ function dashboardBook(book: BookRecord): DashboardBook {
     id: bookId(book),
     title: bookTitle(book),
     author: bookAuthor(book),
+    coverUrl: book.cover_url ?? book["Cover URL"] ?? openLibraryCoverUrl(bookId(book), "S"),
     status: apiBook.status,
     rating: starRating(book),
     finishDate: parseDate(finishValue),
