@@ -13,6 +13,12 @@
 
 ---
 
+## Project state
+
+* [Project state (audit snapshot)](project-state.md) — what the codebase does today; start here before adding features
+
+---
+
 ## Engineering
 
 * [Architecture](engineering/architecture.md)
