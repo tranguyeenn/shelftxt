@@ -129,14 +129,34 @@ export function initUserSettings(): UserSettings {
 export function recommendQuery(
   settings: UserSettings,
   refresh = false,
-  excludeIds: string[] = []
+  excludeIds: string[] = [],
+  filters: RecommendationFilters = {}
 ): string {
-  const params = new URLSearchParams({ style: settings.recommendationStyle });
+  const params = new URLSearchParams({
+    style: settings.recommendationStyle,
+    top_n: "10"
+  });
   if (refresh) {
     params.set("refresh", "true");
   }
   if (excludeIds.length > 0) {
     params.set("exclude_ids", excludeIds.join(","));
   }
+  const genre = filters.genre?.trim();
+  if (genre) {
+    params.set("genre", genre);
+  }
+  if (filters.min_pages !== undefined) {
+    params.set("min_pages", String(filters.min_pages));
+  }
+  if (filters.max_pages !== undefined) {
+    params.set("max_pages", String(filters.max_pages));
+  }
   return `/recommend?${params.toString()}`;
 }
+
+export type RecommendationFilters = {
+  genre?: string;
+  min_pages?: number;
+  max_pages?: number;
+};

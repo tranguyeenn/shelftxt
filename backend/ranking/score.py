@@ -91,7 +91,7 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
     tbr_df["_source_index"] = tbr_df.index
     timings["candidate_selection"] = (time.perf_counter() - phase_started) * 1000
 
-    if read_df.empty or tbr_df.empty:
+    if tbr_df.empty:
         empty = tbr_df.iloc[0:0].copy()
         empty["score"] = pd.Series(dtype=float)
         return empty
@@ -100,6 +100,13 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
     tbr_df = tbr_df.drop_duplicates(
         subset=[title_col, author_col]
     )
+
+    if read_df.empty:
+        tbr_df["author_score"] = 0.5
+        tbr_df["score"] = 0.5
+        tbr_df["_similar_matches"] = [[] for _ in range(len(tbr_df))]
+        tbr_df["_signal_scores"] = [{} for _ in range(len(tbr_df))]
+        return tbr_df
 
     phase_started = time.perf_counter()
     author_pref = (
@@ -188,9 +195,6 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
             distance = abs(float(candidate_pages) - median_pages)
             length_score = max(0.0, 1.0 - (distance / max(median_pages, 1.0)))
 
-        if genre_score == 0 and subject_score == 0 and author_score == 0 and description_score == 0:
-            continue
-
         candidate_language = candidate_features.language
         if (
             primary_language
@@ -207,9 +211,6 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
             + description_score * 0.10
             + length_score * 0.10
         )
-
-        if score < 0.35:
-            continue
 
         position = len(scores_by_index)
         noise_value = noise[position] if position < len(noise) else 0.0
@@ -243,7 +244,9 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
         ]
         fallback = fallback.sort_values(by="score", ascending=False)
         if diverse_authors:
-            fallback = fallback.drop_duplicates(subset=[author_col])
+            diverse = fallback.drop_duplicates(subset=[author_col])
+            remaining = fallback.loc[~fallback.index.isin(diverse.index)]
+            fallback = pd.concat([diverse, remaining])
         return fallback
 
     tbr_df = tbr_df.loc[list(scores_by_index.keys())].copy()
@@ -265,9 +268,9 @@ def score_tbr_books(df, randomness_strength=0.05, diverse_authors=True):
 
     # Optional diversity: only 1 book per author
     if diverse_authors:
-        tbr_df = tbr_df.drop_duplicates(
-            subset=[author_col]
-        )
+        diverse = tbr_df.drop_duplicates(subset=[author_col])
+        remaining = tbr_df.loc[~tbr_df.index.isin(diverse.index)]
+        tbr_df = pd.concat([diverse, remaining])
 
     timings["sorting_ranking"] = (time.perf_counter() - ranking_started) * 1000
     timings["total"] = (time.perf_counter() - total_started) * 1000

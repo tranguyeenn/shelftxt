@@ -305,7 +305,7 @@ def _refresh_ranked_candidates(
         return ranked
 
     max_score = float(ranked["score"].max())
-    strong = ranked[ranked["score"] >= max(0.35, max_score - 0.15)].copy()
+    strong = ranked[ranked["score"] >= max(0.0, max_score - 0.15)].copy()
     if strong.empty:
         return ranked
 
@@ -323,7 +323,8 @@ def _refresh_ranked_candidates(
     random.shuffle(fallback_rows)
     ordered_index = fresh_rows + fallback_rows
 
-    return ranked.loc[ordered_index]
+    remaining_rows = [index for index in ranked.index if index not in strong.index]
+    return ranked.loc[ordered_index + remaining_rows]
 
 
 def build_recommendations(

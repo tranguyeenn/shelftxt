@@ -3,6 +3,7 @@ from backend.services.metadata_normalization import (
     filter_specific_subjects,
     genre_confidence_scores,
     normalize_genre,
+    normalize_genre_list,
     normalize_subject,
     normalize_title_keywords,
     normalize_values,
@@ -83,6 +84,63 @@ def test_genre_confidence_requires_strong_or_repeated_support():
 
     assert result["fantasy"] == 0.45
     assert subjects_to_genres(["Magic", "Imaginary places"]) == ["fantasy"]
+
+
+def test_noisy_single_word_subjects_are_not_genre_evidence():
+    assert subjects_to_genres(["romance"]) == []
+    assert subjects_to_genres(["romance fiction"]) == ["romance"]
+    assert subjects_to_genres(["love stories"]) == ["romance"]
+    assert subjects_to_genres(["detective and mystery stories"]) == ["mystery"]
+    assert subjects_to_genres(["mystery"]) == []
+    assert subjects_to_genres(["murder", "crime", "criminal"]) == []
+    assert subjects_to_genres(["drama"]) == []
+    assert subjects_to_genres(["plays"]) == ["drama"]
+    assert subjects_to_genres(["history"]) == []
+
+
+def test_explicit_reader_genre_still_accepts_romance():
+    assert normalize_genre_list(["romance"]) == ["Romance"]
+
+
+def test_heart_of_darkness_subject_noise_does_not_add_false_genres():
+    subjects = [
+        "form novella",
+        "genre historical fiction",
+        "romance",
+        "degeneration",
+        "description and travel",
+        "diaries",
+        "sailors",
+        "short stories",
+        "english literature",
+        "suffering",
+        "trading posts",
+        "classic literature",
+        "travel",
+        "discovery and exploration",
+        "mystery",
+        "open library staff picks",
+        "drama",
+        "fugitives from justice",
+        "english psychological fiction",
+        "imperialism",
+        "psychological fiction",
+        "detective and mystery stories",
+        "history",
+        "study guides",
+        "examinations",
+        "fiction historical general",
+        "literary criticism",
+        "good and evil",
+        "kolonialismus",
+    ]
+
+    result = subjects_to_genres(subjects)
+
+    assert "romance" not in result
+    assert "drama" not in result
+    assert "historical fiction" in result
+    assert "literary fiction" in result
 
 
 def test_reader_tag_cleaner_removes_open_library_cataloging_noise():

@@ -138,15 +138,21 @@ SUBJECT_GENRE_RULES: tuple[GenreRule, ...] = (
     GenreRule("science fiction", ("science fiction",), ("space", "time travel", "robots")),
     GenreRule("fantasy", ("fantasy fiction",), ("fantasy", "magic", "imaginary place", "imaginary places")),
     GenreRule("contemporary romance", ("contemporary romance",)),
-    GenreRule("romance", ("romance fiction", "love stories", "love story"), ("romance",)),
-    GenreRule("mystery", ("detective and mystery", "mystery fiction"), ("murder", "crime", "criminal")),
-    GenreRule("historical fiction", ("historical fiction",), ("history", "historical")),
-    GenreRule("historical", ("holocaust", "world war", "history")),
+    GenreRule("romance", ("romance fiction", "love stories", "love story")),
+    GenreRule(
+        "mystery",
+        ("detective and mystery", "detective and mystery stories", "mystery fiction"),
+    ),
+    GenreRule(
+        "historical fiction",
+        ("historical fiction", "fiction historical general", "genre historical fiction"),
+    ),
+    GenreRule("historical", ("holocaust", "world war")),
     GenreRule("young adult", ("young adult", "juvenile literature"), ("teenage", "coming of age")),
     GenreRule("horror", ("horror fiction",), ("horror", "ghost", "ghosts", "monster", "monsters")),
     GenreRule("literary fiction", ("literary fiction", "psychological fiction")),
     GenreRule("philosophy", ("philosophy", "philosophical fiction")),
-    GenreRule("drama", ("drama", "plays", "tragedy")),
+    GenreRule("drama", ("plays", "tragedy")),
     GenreRule("classic", ("classic", "classics")),
 )
 
@@ -289,9 +295,7 @@ def genre_confidence_scores(values: object) -> dict[str, float]:
     for subject in subjects:
         for rule in SUBJECT_GENRE_RULES:
             score = 0.0
-            if subject == rule.genre or subject == f"{rule.genre} fiction":
-                score = 1.0
-            elif any(needle == subject or f"{needle} fiction" == subject for needle in rule.strong):
+            if any(needle == subject or f"{needle} fiction" == subject for needle in rule.strong):
                 score = 0.95
             elif any(needle in subject for needle in rule.strong):
                 score = 0.8
@@ -326,5 +330,5 @@ def subjects_to_genres(values: object, *, max_genres: int = MAX_GENRES_PER_BOOK)
 def normalize_genre_list(values: object, *, max_genres: int = MAX_GENRES_PER_BOOK) -> list[str]:
     direct = filter_specific_genres(values)
     if direct:
-        return direct[:max_genres]
+        return clean_reader_tags(direct, max_tags=max_genres)
     return subjects_to_genres(values, max_genres=max_genres)

@@ -141,7 +141,37 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertTrue(refreshed)
         self.assertNotIn(refreshed[0]["recommended_book"]["id"], excluded)
 
-    def test_refresh_does_not_return_weak_unrelated_candidates(self):
+    def test_low_scoring_candidates_still_fill_top_ten(self):
+        df = pd.DataFrame(
+            [{"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["history"]}]
+            + [
+                {"Title": f"Candidate {i}", "Authors": f"Author {i}", "ISBN/UID": f"t{i}", "Read Status": "to-read", "Genres": ["romance"]}
+                for i in range(12)
+            ]
+        )
+
+        result = build_recommendations(df, top_n=10)
+
+        self.assertEqual(len(result), 10)
+
+    def test_candidates_fill_top_ten_without_reading_history(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Title": f"Candidate {i}",
+                    "Authors": f"Author {i}",
+                    "ISBN/UID": f"t{i}",
+                    "Read Status": "to-read",
+                }
+                for i in range(12)
+            ]
+        )
+
+        result = build_recommendations(df, top_n=10)
+
+        self.assertEqual(len(result), 10)
+
+    def test_refresh_keeps_weak_candidates_after_strong_candidates(self):
         df = pd.DataFrame(
             [
                 {"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Subjects": ["dystopian fiction", "political fiction"]},
@@ -152,7 +182,10 @@ class RecommendationBuilderTests(unittest.TestCase):
 
         refreshed = build_recommendations(df, top_n=10, refresh=True, exclude_ids={"t1"})
 
-        self.assertEqual([item["recommended_book"]["title"] for item in refreshed], ["Strong"])
+        self.assertEqual(
+            [item["recommended_book"]["title"] for item in refreshed],
+            ["Strong", "Weak"],
+        )
 
     def test_unrelated_book_uses_rating_recency_fallback_without_overlap(self):
         df = pd.DataFrame(
@@ -223,7 +256,10 @@ class RecommendationBuilderTests(unittest.TestCase):
 
         result = build_recommendations(df, top_n=2)
 
-        self.assertEqual([item["book"]["title"] for item in result], ["Matched"])
+        self.assertEqual(
+            [item["book"]["title"] for item in result],
+            ["Matched", "Unrelated"],
+        )
         self.assertIn("censorship", result[0]["explanation"].lower())
 
 
