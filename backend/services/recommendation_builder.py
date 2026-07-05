@@ -1,5 +1,6 @@
 import logging
 import random
+import re
 import time
 
 import pandas as pd
@@ -10,6 +11,71 @@ from backend.services.book_api import series_to_api_book
 from backend.services.recommendation_signals import meaningful_similar_books, read_dataframe
 
 logger = logging.getLogger(__name__)
+
+
+def _normalized_isbn(value: object) -> str | None:
+    cleaned = re.sub(r"[^0-9Xx]", "", str(value or "")).upper()
+    return cleaned if len(cleaned) in {10, 13} else None
+
+
+def _librarything_isbns(row: pd.Series) -> set[str]:
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        return set()
+    librarything_data = metadata.get("librarything")
+    if not isinstance(librarything_data, dict):
+        return set()
+    related = librarything_data.get("related_isbns")
+    if not isinstance(related, list):
+        return set()
+    return {isbn for value in related if (isbn := _normalized_isbn(value))}
+
+
+def _apply_librarything_signals(ranked: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
+    """Drop known duplicate editions and lightly boost related-work matches."""
+    if ranked.empty or "score" not in ranked.columns or "ISBN/UID" not in source.columns:
+        return ranked
+
+    read_isbns: set[str] = set()
+    read_related: set[str] = set()
+    primary_by_index: dict[object, str | None] = {}
+    position_by_index = {index: position for position, index in enumerate(source.index)}
+    status_col = "Read Status" if "Read Status" in source.columns else "read_status"
+    for index, row in source.iterrows():
+        primary = _normalized_isbn(row.get("ISBN/UID"))
+        primary_by_index[index] = primary
+        status = str(row.get(status_col, "")).strip().lower()
+        if status in {"read", "completed"}:
+            if primary:
+                read_isbns.add(primary)
+            read_related.update(_librarything_isbns(row))
+
+    keep: list[object] = []
+    boosts: dict[object, float] = {}
+    for index, row in ranked.iterrows():
+        source_index = row.get("_source_index", index)
+        primary = _normalized_isbn(row.get("ISBN/UID"))
+        related = _librarything_isbns(row)
+        candidate_editions = related | ({primary} if primary else set())
+        duplicate = False
+        for other_index, other_primary in primary_by_index.items():
+            if other_index == source_index or not other_primary or other_primary not in candidate_editions:
+                continue
+            other_status = str(source.loc[other_index].get(status_col, "")).strip().lower()
+            if other_status in {"read", "completed"} or position_by_index[other_index] < position_by_index.get(source_index, 0):
+                duplicate = True
+                break
+        if duplicate:
+            continue
+        keep.append(index)
+        if related and related.intersection(read_related | read_isbns):
+            boosts[index] = 0.03
+
+    result = ranked.loc[keep].copy()
+    if boosts:
+        result["score"] = [min(1.0, float(score) + boosts.get(index, 0.0)) for index, score in result["score"].items()]
+        result = result.sort_values("score", ascending=False)
+    return result
 
 
 def _unique_tags(tags: list[str]) -> list[str]:
@@ -305,7 +371,7 @@ def _refresh_ranked_candidates(
         return ranked
 
     max_score = float(ranked["score"].max())
-    strong = ranked[ranked["score"] >= max(0.35, max_score - 0.15)].copy()
+    strong = ranked[ranked["score"] >= max(0.0, max_score - 0.15)].copy()
     if strong.empty:
         return ranked
 
@@ -323,7 +389,8 @@ def _refresh_ranked_candidates(
     random.shuffle(fallback_rows)
     ordered_index = fresh_rows + fallback_rows
 
-    return ranked.loc[ordered_index]
+    remaining_rows = [index for index in ranked.index if index not in strong.index]
+    return ranked.loc[ordered_index + remaining_rows]
 
 
 def build_recommendations(
@@ -345,6 +412,7 @@ def build_recommendations(
 
     phase_started = time.perf_counter()
     tbr_ranked = _rank_tbr_for_style(df, style, refresh=refresh)
+    tbr_ranked = _apply_librarything_signals(tbr_ranked, df)
     if refresh:
         tbr_ranked = _refresh_ranked_candidates(
             tbr_ranked,

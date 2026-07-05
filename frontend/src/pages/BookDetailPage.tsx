@@ -14,11 +14,11 @@ import { StarRatingDisplay } from "@/components/ui/StarRatingDisplay";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
-import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
+import { readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, formatDisplayDate, recordToApiBook, type BookRecord } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { readerFacingExplanation } from "@/lib/recommendationDisplay";
-import { cleanDisplaySubjects, displayLanguageName } from "@/lib/metadataDisplay";
+import { cleanDisplaySubjects } from "@/lib/metadataDisplay";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
 export function BookDetailPage() {
@@ -81,7 +81,6 @@ export function BookDetailPage() {
     () => cleanDisplaySubjects(book?.subjects, book?.genres),
     [book?.subjects, book?.genres]
   );
-  const displayLanguage = useMemo(() => displayLanguageName(book?.language), [book?.language]);
 
   return (
     <div className="grid gap-6">
@@ -137,10 +136,10 @@ export function BookDetailPage() {
                 ) : null}
               </div>
               <div className="grid gap-2">
-                <ProgressBar value={book.progress_pct} label={pagesLabel(book)} />
+                <ProgressBar value={book.progress_pct} label={readingProgressLabel(book)} />
                 <div className="flex flex-wrap justify-between gap-2 text-sm text-text-muted">
-                  <span>{progressLabel(book)}</span>
-                  <span>{Math.round(book.progress_pct)}% complete</span>
+                  <span>{statusLabel(book.status)}</span>
+                  <span>{readingProgressLabel(book)}</span>
                 </div>
               </div>
             </div>
@@ -183,7 +182,6 @@ export function BookDetailPage() {
                     label="First published"
                     value={book.first_publish_year?.toString() ?? "—"}
                   />
-                  <MetadataItem label="Language" value={displayLanguage} />
                   <MetadataItem label="Started" value={formatDisplayDate(book.start_date)} />
                   <MetadataItem label="Finished" value={formatDisplayDate(book.end_date)} />
                 </dl>
@@ -225,8 +223,7 @@ export function BookDetailPage() {
                       <StarRatingDisplay value={book.rating ?? null} size="sm" showValue />
                     </dd>
                   </div>
-                  <MetadataItem label="Progress" value={progressLabel(book)} />
-                  <MetadataItem label="Pages" value={pagesLabel(book)} />
+                  <MetadataItem label="Progress" value={readingProgressLabel(book)} />
                 </dl>
               </Card>
             </aside>

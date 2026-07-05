@@ -163,7 +163,7 @@ class ScoreTests(unittest.TestCase):
 
         result = score_tbr_books(df)
 
-        self.assertEqual(len(result), 0)
+        self.assertEqual(len(result), 1)
 
     @patch("numpy.random.uniform")
     def test_score_tbr_books_diverse_authors(
@@ -193,7 +193,7 @@ class ScoreTests(unittest.TestCase):
 
         result = score_tbr_books(df, diverse_authors=True)
 
-        self.assertEqual(len(result), 0)
+        self.assertEqual(len(result), 2)
 
     def test_recommend_one_returns_none_for_empty(self):
         df = pd.DataFrame()

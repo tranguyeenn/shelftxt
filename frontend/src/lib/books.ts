@@ -25,6 +25,7 @@ export type BookRecord = {
   end_date?: string | null;
   "Progress (%)"?: number | null;
   "Pages Read"?: number | null;
+  estimated_pages_read?: number | null;
   "Total Pages"?: number | null;
   "Tracking Mode"?: string | null;
   tracking_mode?: string | null;
@@ -106,6 +107,7 @@ export function recordToApiBook(book: BookRecord): ApiBook {
     status,
     total_pages: totalPages,
     pages_read: pagesRead,
+    estimated_pages_read: toNumber(book.estimated_pages_read),
     progress_pct: progress,
     tracking_mode: trackingModeValue(book),
     rating: starRating(book),

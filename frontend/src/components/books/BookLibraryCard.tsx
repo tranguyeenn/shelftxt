@@ -7,18 +7,20 @@ import { BookCover } from "@/components/ui/BookCover";
 import { Button } from "@/components/ui/Button";
 import { StarRatingDisplay } from "@/components/ui/StarRatingDisplay";
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
-import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
+import { pagesLabel, readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { formatDisplayDate } from "@/lib/books";
+import { recommendationMatchPercent } from "@/lib/recommendationDisplay";
 import type { ApiBook } from "@/lib/types";
 
 type BookLibraryCardProps = {
   book: ApiBook;
   onUpdated: (book: ApiBook) => void;
   onDeleted?: (bookId: string) => void;
+  recommendationScore?: number;
 };
 
-export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardProps) {
+export function BookLibraryCard({ book, onUpdated, onDeleted, recommendationScore }: BookLibraryCardProps) {
   const [editing, setEditing] = useState(false);
   const [editingProgress, setEditingProgress] = useState(false);
   const statusClass = {
@@ -29,7 +31,12 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
   }[book.status];
 
   return (
-    <article className="group grid min-h-[280px] grid-cols-[104px_minmax(0,1fr)] gap-4 rounded-[20px] border border-white/[0.08] bg-[#171719] p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] transition-colors hover:border-white/[0.14]">
+    <article className="group relative grid min-h-[280px] grid-cols-[104px_minmax(0,1fr)] gap-4 rounded-[20px] border border-white/[0.08] bg-[#171719] p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] transition-colors hover:border-white/[0.14]">
+      {recommendationScore !== undefined ? (
+        <span className="absolute right-4 top-4 rounded-full border border-[#C77D92]/25 bg-[#C77D92]/12 px-2.5 py-1 text-[11px] font-medium text-[#D88FA4]">
+          {recommendationMatchPercent(recommendationScore)}% match
+        </span>
+      ) : null}
       <BookCover
         title={book.title}
         coverUrl={book.cover_url}
@@ -55,7 +62,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
           <div>
             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.08em] text-[#7B756D]">
               <span>Progress</span>
-              <span className="text-[#A9A39A]">{progressLabel(book)}</span>
+              <span className="text-right normal-case tracking-normal text-[#A9A39A]">{readingProgressLabel(book)}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
               <div
@@ -66,7 +73,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted }: BookLibraryCardP
           </div>
 
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[12px]">
-            <Metadata label="Pages" value={pagesLabel(book)} />
+            <Metadata label="Pages" value={book.tracking_mode === "pages" ? pagesLabel(book) : book.total_pages ? `${book.total_pages} total` : "—"} />
             <Metadata label="Started" value={formatDisplayDate(book.start_date)} />
             <Metadata label="Finished" value={formatDisplayDate(book.end_date)} />
             <div className="min-w-0">

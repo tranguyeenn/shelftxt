@@ -154,9 +154,9 @@ export function BookEditModal({ book, onClose, onUpdated }: BookEditModalProps) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-50 grid items-start justify-items-center overflow-y-auto bg-black/60 p-2 sm:place-items-center sm:p-4">
       <div
-        className="w-full max-w-2xl rounded-lg border border-border bg-bg-elevated p-5 shadow-xl"
+        className="my-1 max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-bg-elevated p-4 shadow-xl [-webkit-overflow-scrolling:touch] sm:my-0 sm:max-h-[calc(100dvh-2rem)] sm:p-5"
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-book-title"

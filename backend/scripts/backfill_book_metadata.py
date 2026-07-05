@@ -51,6 +51,13 @@ def _apply_metadata(book: Book, metadata) -> bool:
         return False
 
     changed = False
+    librarything_data = getattr(metadata, "librarything", None)
+    if librarything_data:
+        existing = dict(book.book_metadata or {})
+        if existing.get("librarything") != librarything_data:
+            existing["librarything"] = librarything_data
+            book.book_metadata = existing
+            changed = True
     for attr in (
         "description",
         "subjects",

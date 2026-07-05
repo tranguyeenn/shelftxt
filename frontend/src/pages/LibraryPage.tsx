@@ -1,11 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent
+} from "react";
 import { Link } from "react-router-dom";
 
 import { BookLibraryCard } from "@/components/books/BookLibraryCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { fetchAllLibraryBooks, parseDate, recordToApiBook } from "@/lib/books";
 import { isReadOnlyDemo } from "@/lib/demoMode";
-import type { ApiBook, ReadingStatus } from "@/lib/types";
+import { useUserSettings } from "@/contexts/UserSettingsContext";
+import { fetchJson } from "@/lib/api";
+import { recommendQuery, type RecommendationFilters } from "@/lib/userSettings";
+import type { ApiBook, ReadingStatus, RecommendationItem } from "@/lib/types";
 
 type StatusFilter = "all" | ReadingStatus;
 type SortOption = "title" | "author" | "rating" | "finished" | "progress";
@@ -19,29 +29,68 @@ const FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
 ];
 
 export function LibraryPage() {
+  const {
+    settings,
+    recommendationFilters: appliedFilters,
+    setRecommendationFilters: setAppliedFilters
+  } = useUserSettings();
   const [books, setBooks] = useState<ApiBook[]>([]);
+  const [recommendationScores, setRecommendationScores] = useState<Map<string, number>>(
+    () => new Map()
+  );
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("title");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [filterError, setFilterError] = useState("");
+  const [genre, setGenre] = useState(appliedFilters.genre ?? "");
+  const [minPages, setMinPages] = useState(
+    appliedFilters.min_pages === undefined ? "" : String(appliedFilters.min_pages)
+  );
+  const [maxPages, setMaxPages] = useState(
+    appliedFilters.max_pages === undefined ? "" : String(appliedFilters.max_pages)
+  );
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError("");
+    setRecommendationScores(new Map());
     try {
-      const rows = await fetchAllLibraryBooks();
+      const [rows, ranked] = await Promise.all([
+        fetchAllLibraryBooks(),
+        fetchJson<RecommendationItem[]>(
+          recommendQuery(settings, false, [], appliedFilters)
+        )
+      ]);
+      if (requestId !== requestIdRef.current) return;
+
       const mapped = rows.map(recordToApiBook);
+      const nextScores = new Map<string, number>();
+      for (const recommendation of (Array.isArray(ranked) ? ranked : []).slice(0, 10)) {
+        const id = (recommendation.recommended_book ?? recommendation.book).id;
+        if (id && Number.isFinite(recommendation.score) && recommendation.score > 0) {
+          nextScores.set(id, recommendation.score);
+        }
+      }
       setBooks(mapped);
+      setRecommendationScores(nextScores);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+
       setBooks([]);
+      setRecommendationScores(new Map());
       setError(err instanceof Error ? err.message : "Failed to load library");
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [settings.recommendationStyle, appliedFilters]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     void load();
   }, [load]);
 
@@ -72,6 +121,44 @@ export function LibraryPage() {
 
   function handleBookDeleted(bookId: string) {
     setBooks((prev) => prev.filter((b) => b.id !== bookId));
+  }
+
+  function applyFilters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const parsedMin = minPages === "" ? undefined : Number(minPages);
+    const parsedMax = maxPages === "" ? undefined : Number(maxPages);
+    if (
+      (parsedMin !== undefined && (!Number.isFinite(parsedMin) || parsedMin < 0)) ||
+      (parsedMax !== undefined && (!Number.isFinite(parsedMax) || parsedMax < 0))
+    ) {
+      setFilterError("Page values must be nonnegative numbers.");
+      return;
+    }
+    if (parsedMin !== undefined && parsedMax !== undefined && parsedMin > parsedMax) {
+      setFilterError("Minimum pages cannot be greater than maximum pages.");
+      return;
+    }
+
+    const filters: RecommendationFilters = {
+      ...(genre.trim() ? { genre: genre.trim() } : {}),
+      ...(parsedMin !== undefined ? { min_pages: parsedMin } : {}),
+      ...(parsedMax !== undefined ? { max_pages: parsedMax } : {})
+    };
+    setFilterError("");
+    requestIdRef.current += 1;
+    setRecommendationScores(new Map());
+    setAppliedFilters(filters);
+  }
+
+  function clearFilters() {
+    setGenre("");
+    setMinPages("");
+    setMaxPages("");
+    setFilterError("");
+    requestIdRef.current += 1;
+    setRecommendationScores(new Map());
+    setAppliedFilters({});
   }
 
   return (
@@ -173,6 +260,64 @@ export function LibraryPage() {
         ) : null}
       </div>
 
+      <form
+        className="grid gap-3 rounded-[20px] border border-white/[0.08] bg-[#121214] p-4 sm:grid-cols-3 lg:grid-cols-[minmax(180px,1fr)_160px_160px_auto_auto]"
+        onSubmit={applyFilters}
+        noValidate
+      >
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-[#A9A39A]">Genre</span>
+          <input
+            type="text"
+            value={genre}
+            onChange={(event) => setGenre(event.target.value)}
+            placeholder="e.g. romance"
+            className="rounded-[14px] border border-white/[0.08] bg-[#121214] px-3 py-2 text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-[#A9A39A]">Min pages</span>
+          <input
+            type="number"
+            min="0"
+            value={minPages}
+            onChange={(event) => setMinPages(event.target.value)}
+            placeholder="0"
+            className="rounded-[14px] border border-white/[0.08] bg-[#121214] px-3 py-2 text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm">
+          <span className="text-[#A9A39A]">Max pages</span>
+          <input
+            type="number"
+            min="0"
+            value={maxPages}
+            onChange={(event) => setMaxPages(event.target.value)}
+            placeholder="Any"
+            className="rounded-[14px] border border-white/[0.08] bg-[#121214] px-3 py-2 text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={loading}
+          className="self-end rounded-[14px] bg-[#C77D92] px-4 py-2 text-sm font-semibold text-[#0B0B0D] transition-colors hover:bg-[#D88FA4] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? "Applying…" : "Apply filters"}
+        </button>
+        <button
+          type="button"
+          onClick={clearFilters}
+          className="self-end rounded-[14px] border border-white/[0.08] bg-[#121214] px-4 py-2 text-sm font-medium text-[#A9A39A] transition-colors hover:border-white/15 hover:text-[#F5F1EA]"
+        >
+          Clear
+        </button>
+        {filterError ? (
+          <p className="text-xs text-[#C96A6A] sm:col-span-3 lg:col-span-5" role="alert">
+            {filterError}
+          </p>
+        ) : null}
+      </form>
+
       <nav className="flex gap-7 overflow-x-auto border-b border-white/[0.08]" aria-label="Library filters">
         {FILTERS.map(({ value, label }) => (
           <button
@@ -207,6 +352,7 @@ export function LibraryPage() {
             book={book}
             onUpdated={handleBookUpdated}
             onDeleted={handleBookDeleted}
+            recommendationScore={recommendationScores.get(book.id)}
           />
         ))}
       </div>

@@ -11,7 +11,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendQuery } from "@/lib/userSettings";
-import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
+import { readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { fetchAllLibraryBooks, type BookRecord } from "@/lib/books";
 import {
   RECOMMENDATION_SIGNALS,
@@ -229,7 +229,7 @@ export function InsightsPage() {
                       </Link>
                       <p className="mt-0.5 text-sm text-text-muted">{book.author}</p>
                       <p className="mt-2 font-mono text-sm text-text">
-                        {pagesLabel(book)} · {progressLabel(book)}
+                        {readingProgressLabel(book)}
                       </p>
                     </div>
                     <div className="flex items-start sm:justify-end">

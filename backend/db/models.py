@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.db.database import Base
 
 JSON_LIST = JSON().with_variant(JSONB, "postgresql")
+JSON_OBJECT = JSON().with_variant(JSONB, "postgresql")
 
 
 class Profile(Base):
@@ -225,6 +226,12 @@ class Book(Base):
 
     edition_key: Mapped[str | None] = mapped_column(
         String,
+        nullable=True,
+    )
+
+    book_metadata: Mapped[dict | None] = mapped_column(
+        "metadata",
+        JSON_OBJECT,
         nullable=True,
     )
 

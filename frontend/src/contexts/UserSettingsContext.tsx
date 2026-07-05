@@ -1,16 +1,24 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
-import { initUserSettings, saveUserSettings, type UserSettings } from "@/lib/userSettings";
+import {
+  initUserSettings,
+  saveUserSettings,
+  type RecommendationFilters,
+  type UserSettings
+} from "@/lib/userSettings";
 
 type UserSettingsContextValue = {
   settings: UserSettings;
   updateSettings: (patch: Partial<UserSettings>) => void;
+  recommendationFilters: RecommendationFilters;
+  setRecommendationFilters: (filters: RecommendationFilters) => void;
 };
 
 const UserSettingsContext = createContext<UserSettingsContextValue | null>(null);
 
 export function UserSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<UserSettings>(() => initUserSettings());
+  const [recommendationFilters, setRecommendationFilters] = useState<RecommendationFilters>({});
 
   const updateSettings = useCallback((patch: Partial<UserSettings>) => {
     setSettings((prev) => {
@@ -21,8 +29,8 @@ export function UserSettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ settings, updateSettings }),
-    [settings, updateSettings]
+    () => ({ settings, updateSettings, recommendationFilters, setRecommendationFilters }),
+    [settings, updateSettings, recommendationFilters]
   );
 
   return (

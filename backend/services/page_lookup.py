@@ -1,9 +1,11 @@
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import httpx
 
+from app.integrations import librarything
 from backend.services.goodreads_metadata import lookup_goodreads_metadata
 from backend.services.metadata_normalization import (
     MAX_GENRES_PER_BOOK,
@@ -15,10 +17,15 @@ from backend.services.metadata_normalization import (
     normalize_genre_list,
     subjects_to_genres,
 )
+from backend.services.metadata_merge import merge_metadata_records
+from backend.services.open_library_editions import edition_fields, select_best_open_library_edition
 
 logger = logging.getLogger(__name__)
 
-LOOKUP_TIMEOUT_SECONDS = 2.0
+OPEN_LIBRARY_TIMEOUT_SECONDS = 2.0
+GOOGLE_BOOKS_TIMEOUT_SECONDS = 2.0
+# Backward compatibility for callers/tests importing the old shared timeout.
+LOOKUP_TIMEOUT_SECONDS = OPEN_LIBRARY_TIMEOUT_SECONDS
 
 
 class GoogleBooksRateLimited(Exception):
@@ -43,6 +50,8 @@ class BookMetadata:
     work_key: str | None = None
     edition_key: str | None = None
     cover_url: str | None = None
+    librarything: dict | None = None
+    isbn_uid: str | None = None
 
 
 MANUAL_METADATA_OVERRIDES = {
@@ -203,27 +212,31 @@ def _metadata_has_value(metadata: BookMetadata | None) -> bool:
             or metadata.work_key
             or metadata.edition_key
             or metadata.cover_url
+            or metadata.isbn_uid
         )
     )
 
 
-def _merge_metadata(base: BookMetadata, next_metadata: BookMetadata | None) -> BookMetadata:
+def merge_book_metadata(
+    base: BookMetadata,
+    next_metadata: BookMetadata | None,
+    *,
+    prefer_incoming: frozenset[str] = frozenset(),
+) -> BookMetadata:
     if next_metadata is None:
         return base
     return BookMetadata(
-        title=base.title or next_metadata.title,
-        authors=base.authors or next_metadata.authors,
-        total_pages=base.total_pages or next_metadata.total_pages,
-        description=base.description or next_metadata.description,
-        subjects=base.subjects or next_metadata.subjects,
-        genres=base.genres or next_metadata.genres,
-        first_publish_year=base.first_publish_year or next_metadata.first_publish_year,
-        metadata_source=base.metadata_source or next_metadata.metadata_source,
-        language=base.language or next_metadata.language,
-        work_key=base.work_key or next_metadata.work_key,
-        edition_key=base.edition_key or next_metadata.edition_key,
-        cover_url=base.cover_url or next_metadata.cover_url,
+        **merge_metadata_records(
+            base.__dict__,
+            next_metadata.__dict__,
+            list_fields={"subjects", "genres"},
+            prefer_incoming=prefer_incoming,
+        )
     )
+
+
+# Compatibility for internal callers while merge logic lives in one utility.
+_merge_metadata = merge_book_metadata
 
 
 def _genres_need_fallback(genres: list[str] | None) -> bool:
@@ -255,6 +268,8 @@ def _merge_goodreads_fallback(base: BookMetadata, goodreads: BookMetadata | None
         work_key=base.work_key or goodreads.work_key,
         edition_key=base.edition_key or goodreads.edition_key,
         cover_url=base.cover_url or goodreads.cover_url,
+        librarything=base.librarything or goodreads.librarything,
+        isbn_uid=base.isbn_uid or goodreads.isbn_uid,
     )
 
 
@@ -274,6 +289,40 @@ def _merge_manual_override(base: BookMetadata, override: BookMetadata | None) ->
         work_key=base.work_key or override.work_key,
         edition_key=base.edition_key or override.edition_key,
         cover_url=base.cover_url or override.cover_url,
+        librarything=base.librarything or override.librarything,
+        isbn_uid=base.isbn_uid or override.isbn_uid,
+    )
+
+
+def _enrich_with_librarything(
+    metadata: BookMetadata,
+    *,
+    title: str,
+    isbn: str | None,
+) -> BookMetadata:
+    """Attach optional edition/work identifiers without changing primary metadata."""
+    try:
+        related_isbns = librarything.fetch_related_isbns(isbn) if isbn else []
+        work = librarything.fetch_work_by_title(title) if title else None
+    except Exception as exc:  # Third-party enrichment must never affect callers.
+        logger.warning("LibraryThing enrichment failed for %r: %s", title or isbn, exc)
+        return metadata
+
+    if work:
+        related_isbns.extend(work.get("related_isbns") or [])
+    unique_isbns = list(dict.fromkeys(value for value in related_isbns if value))
+    work_url = work.get("work_url") if work else None
+    if not unique_isbns and not work_url:
+        return metadata
+    return BookMetadata(
+        **{
+            **metadata.__dict__,
+            "librarything": {
+                "related_isbns": unique_isbns,
+                "work_url": work_url,
+                "enriched_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }
     )
 
 
@@ -376,6 +425,42 @@ def _metadata_from_open_library_payload(payload: dict, *, edition_key: str | Non
     )
 
 
+def _isbn_from_google_identifiers(value: object) -> str | None:
+    if not isinstance(value, list):
+        return None
+    normalized: list[tuple[str, str]] = []
+    for identifier in value:
+        if not isinstance(identifier, dict):
+            continue
+        isbn = normalize_isbn(identifier.get("identifier"))
+        if isbn:
+            normalized.append((str(identifier.get("type") or ""), isbn))
+    for preferred_type in ("ISBN_13", "ISBN_10"):
+        for identifier_type, isbn in normalized:
+            if identifier_type == preferred_type:
+                return isbn
+    return normalized[0][1] if normalized else None
+
+
+def _metadata_from_google_volume(info: dict) -> BookMetadata:
+    authors = info.get("authors")
+    return BookMetadata(
+        title=info.get("title") if isinstance(info.get("title"), str) else None,
+        authors=", ".join(a.strip() for a in authors if isinstance(a, str) and a.strip())
+        if isinstance(authors, list)
+        else None,
+        total_pages=_positive_int(info.get("pageCount")),
+        description=info.get("description") if isinstance(info.get("description"), str) else None,
+        subjects=filter_specific_subjects(info.get("categories")) or None,
+        genres=normalize_genre_list(info.get("categories")) or None,
+        first_publish_year=_first_publish_year(str(info.get("publishedDate") or "")[:4]),
+        language=normalize_language(info.get("language")) or None,
+        metadata_source="google_books",
+        cover_url=_google_books_cover_url(info.get("imageLinks")),
+        isbn_uid=_isbn_from_google_identifiers(info.get("industryIdentifiers")),
+    )
+
+
 def _lookup_open_library_work(work_key: str | None) -> BookMetadata | None:
     if not work_key:
         return None
@@ -385,7 +470,7 @@ def _lookup_open_library_work(work_key: str | None) -> BookMetadata | None:
     try:
         response = httpx.get(
             f"https://openlibrary.org/works/{key}.json",
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -409,7 +494,7 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
         response = httpx.get(
             "https://www.googleapis.com/books/v1/volumes",
             params={"q": f"isbn:{isbn}"},
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=GOOGLE_BOOKS_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()
@@ -434,20 +519,7 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
         info = item.get("volumeInfo")
         if not isinstance(info, dict):
             continue
-        authors = info.get("authors")
-        metadata = BookMetadata(
-            title=info.get("title") if isinstance(info.get("title"), str) else None,
-            authors=", ".join(a.strip() for a in authors if isinstance(a, str) and a.strip())
-            if isinstance(authors, list)
-            else None,
-            total_pages=_positive_int(info.get("pageCount")),
-            description=info.get("description") if isinstance(info.get("description"), str) else None,
-            subjects=filter_specific_subjects(info.get("categories")) or None,
-            genres=normalize_genre_list(info.get("categories")) or None,
-            language=normalize_language(info.get("language")) or None,
-            metadata_source="google_books",
-            cover_url=_google_books_cover_url(info.get("imageLinks")),
-        )
+        metadata = _metadata_from_google_volume(info)
         if _metadata_has_value(metadata):
             return metadata
 
@@ -455,11 +527,42 @@ def lookup_google_books_by_isbn(isbn: str) -> BookMetadata | None:
     return None
 
 
+def lookup_google_books_by_title(title: str, author: str | None = None) -> BookMetadata | None:
+    query = f'intitle:"{title}"'
+    if author:
+        query += f' inauthor:"{author}"'
+    try:
+        response = httpx.get(
+            "https://www.googleapis.com/books/v1/volumes",
+            params={"q": query, "maxResults": 5},
+            timeout=GOOGLE_BOOKS_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429:
+            raise GoogleBooksRateLimited(str(exc)) from exc
+        logger.warning("Google Books title lookup failed for %r: %s", title, exc)
+        return None
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Google Books title lookup failed for %r: %s", title, exc)
+        return None
+
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    for item in items if isinstance(items, list) else []:
+        info = item.get("volumeInfo") if isinstance(item, dict) else None
+        if isinstance(info, dict):
+            metadata = _metadata_from_google_volume(info)
+            if _metadata_has_value(metadata):
+                return metadata
+    return None
+
+
 def lookup_open_library_by_isbn(isbn: str) -> BookMetadata | None:
     try:
         response = httpx.get(
             f"https://openlibrary.org/isbn/{isbn}.json",
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -500,9 +603,9 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             params={
                 "q": query,
                 "limit": 5,
-                "fields": "title,author_name,edition_key,subject,language,key,cover_i,number_of_pages_median,first_publish_year",
+                "fields": "title,author_name,subject,language,key,first_publish_year",
             },
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()
@@ -522,10 +625,36 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
         if not isinstance(doc, dict):
             continue
         subjects = filter_specific_subjects(doc.get("subject"))
+        work_key = doc.get("key") if isinstance(doc.get("key"), str) else None
+        edition_entries: list[dict] = []
+        edition_lookup_failed = False
+        if work_key:
+            key = work_key.strip().removeprefix("/works/")
+            try:
+                editions_response = httpx.get(
+                    f"https://openlibrary.org/works/{key}/editions.json",
+                    params={"limit": 100},
+                    timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
+                    follow_redirects=True,
+                )
+                editions_response.raise_for_status()
+                editions_payload = editions_response.json()
+                entries = editions_payload.get("entries", []) if isinstance(editions_payload, dict) else []
+                edition_entries = [entry for entry in entries if isinstance(entry, dict)] if isinstance(entries, list) else []
+            except (httpx.HTTPError, ValueError) as exc:
+                edition_lookup_failed = True
+                logger.warning("Open Library edition selection lookup failed for %r: %s", title, exc)
+        selected_edition = select_best_open_library_edition(
+            edition_entries,
+            query=f"{title} {author or ''}".strip(),
+            displayed_title=str(doc.get("title") or title),
+            author_work_match=bool(_authors_from_open_library_doc(doc)),
+        )
+        selected_fields = edition_fields(selected_edition)
         metadata = BookMetadata(
             title=doc.get("title") if isinstance(doc.get("title"), str) else None,
             authors=_authors_from_open_library_doc(doc),
-            total_pages=_positive_int(doc.get("number_of_pages_median")),
+            total_pages=_positive_int(selected_fields["total_pages"]),
             subjects=subjects or None,
             genres=subjects_to_genres(subjects) or None,
             first_publish_year=_first_publish_year(doc.get("first_publish_year")),
@@ -533,15 +662,27 @@ def lookup_open_library_by_title(title: str, author: str | None = None) -> BookM
             language=normalize_values(doc.get("language"), normalize_language)[0]
             if normalize_values(doc.get("language"), normalize_language)
             else None,
-            work_key=doc.get("key") if isinstance(doc.get("key"), str) else None,
-            edition_key=(doc.get("edition_key") or [None])[0]
-            if isinstance(doc.get("edition_key"), list)
-            else None,
-            cover_url=_open_library_cover_url(doc),
+            work_key=work_key,
+            edition_key=selected_fields["edition_key"],
+            cover_url=selected_fields["cover_url"],
+            isbn_uid=normalize_isbn(selected_fields["isbn_uid"]),
         )
-        if metadata.work_key:
+        if metadata.work_key and not edition_lookup_failed:
             try:
-                metadata = _merge_metadata(metadata, _lookup_open_library_work(metadata.work_key))
+                work_metadata = _lookup_open_library_work(metadata.work_key)
+                if work_metadata:
+                    # Work descriptions/subjects may fill gaps, but edition-bound
+                    # values must remain exclusively from the selected edition.
+                    work_metadata = BookMetadata(
+                        **{
+                            **work_metadata.__dict__,
+                            "cover_url": None,
+                            "total_pages": None,
+                            "edition_key": None,
+                            "isbn_uid": None,
+                        }
+                    )
+                metadata = _merge_metadata(metadata, work_metadata)
             except OpenLibraryTimeout:
                 logger.warning(
                     "Persisting partial Open Library search metadata after work timeout for %r",
@@ -565,7 +706,7 @@ def lookup_book_cover(
         try:
             response = httpx.get(
                 f"https://openlibrary.org/isbn/{isbn}.json",
-                timeout=LOOKUP_TIMEOUT_SECONDS,
+                timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
                 follow_redirects=True,
             )
             response.raise_for_status()
@@ -586,7 +727,7 @@ def lookup_book_cover(
                     "limit": 5,
                     "fields": "cover_i",
                 },
-                timeout=LOOKUP_TIMEOUT_SECONDS,
+                timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
             payload = response.json()
@@ -620,34 +761,47 @@ def lookup_book_metadata(
     clean_title = (title or "").strip()
     manual_override = manual_metadata_for_title(clean_title)
     isbn = normalize_isbn(isbn_uid)
+
+    # Open Library owns bibliographic/work priority. Use its ISBN path when
+    # possible and its title path as a fallback within the same provider.
+    open_library_metadata = None
     if isbn:
         try:
-            metadata = _merge_metadata(metadata, lookup_open_library_by_isbn(isbn))
+            open_library_metadata = lookup_open_library_by_isbn(isbn)
         except OpenLibraryTimeout:
             pass
-        if _metadata_complete(metadata) and metadata.cover_url and manual_override is None:
-            return metadata
-
+    if not isbn and open_library_metadata is None and clean_title:
         try:
-            metadata = _merge_metadata(metadata, lookup_google_books_by_isbn(isbn))
+            open_library_metadata = lookup_open_library_by_title(clean_title, author)
+        except OpenLibraryTimeout:
+            pass
+    metadata = merge_book_metadata(metadata, open_library_metadata)
+
+    # Google is always queried after Open Library and is authoritative for
+    # descriptions/page counts when it returns non-empty values.
+    google_metadata = None
+    if isbn:
+        try:
+            google_metadata = lookup_google_books_by_isbn(isbn)
         except GoogleBooksRateLimited:
             pass
-        if _metadata_complete(metadata) and manual_override is None:
-            return metadata
-
-    if clean_title and author:
+    if not isbn and google_metadata is None and clean_title:
         try:
-            metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title, author))
-        except OpenLibraryTimeout:
+            google_metadata = lookup_google_books_by_title(clean_title, author)
+        except GoogleBooksRateLimited:
             pass
-        if _metadata_complete(metadata) and manual_override is None:
-            return metadata
+    metadata = merge_book_metadata(
+        metadata,
+        google_metadata,
+        prefer_incoming=frozenset({"description", "total_pages"}),
+    )
 
-    if clean_title:
-        try:
-            metadata = _merge_metadata(metadata, lookup_open_library_by_title(clean_title))
-        except OpenLibraryTimeout:
-            pass
+    if isbn and _metadata_has_value(metadata) and not metadata.isbn_uid:
+        metadata = BookMetadata(**{**metadata.__dict__, "isbn_uid": isbn})
+
+    # LibraryThing is the final remote provider. It contributes only work/edition
+    # identifiers; local datasets and manual overrides still fill content gaps.
+    metadata = _enrich_with_librarything(metadata, title=clean_title, isbn=isbn)
 
     goodreads = lookup_goodreads_metadata(clean_title, author)
     if goodreads is not None and (goodreads.description or goodreads.genres):
@@ -662,7 +816,7 @@ def lookup_book_metadata(
 
     metadata = _merge_manual_override(metadata, manual_override)
 
-    return metadata if _metadata_has_value(metadata) else None
+    return metadata if (_metadata_has_value(metadata) or metadata.librarything) else None
 
 
 def lookup_total_pages(title: str, author: str | None = None) -> int | None:
@@ -672,7 +826,7 @@ def lookup_total_pages(title: str, author: str | None = None) -> int | None:
         response = httpx.get(
             "https://openlibrary.org/search.json",
             params={"q": query, "limit": 5, "fields": "title,author_name,number_of_pages_median"},
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -706,7 +860,7 @@ def lookup_author_name(title: str) -> str | None:
         response = httpx.get(
             "https://openlibrary.org/search.json",
             params={"q": title, "limit": 5, "fields": "title,author_name"},
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:

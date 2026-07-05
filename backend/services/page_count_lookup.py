@@ -12,7 +12,9 @@ from backend.db.models import Book
 
 logger = logging.getLogger(__name__)
 
-LOOKUP_TIMEOUT_SECONDS = 2.0
+OPEN_LIBRARY_TIMEOUT_SECONDS = 2.0
+GOOGLE_BOOKS_TIMEOUT_SECONDS = 2.0
+LOOKUP_TIMEOUT_SECONDS = OPEN_LIBRARY_TIMEOUT_SECONDS
 MAX_BACKFILL_BOOKS = 50
 MIN_REASONABLE_PAGES = 50
 MAX_REASONABLE_PAGES = 2000
@@ -87,7 +89,7 @@ def fetch_openlibrary_pages_by_isbn(isbn: str) -> int | None:
     try:
         response = httpx.get(
             f"https://openlibrary.org/isbn/{normalized}.json",
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -110,7 +112,7 @@ def fetch_google_pages_by_isbn(isbn: str) -> int | None:
         response = httpx.get(
             "https://www.googleapis.com/books/v1/volumes",
             params={"q": f"isbn:{normalized}", "maxResults": 5},
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=GOOGLE_BOOKS_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()
@@ -134,7 +136,7 @@ def fetch_openlibrary_pages_by_edition(edition_key: str) -> int | None:
     try:
         response = httpx.get(
             f"https://openlibrary.org/books/{key}.json",
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
             follow_redirects=True,
         )
         response.raise_for_status()
@@ -161,7 +163,7 @@ def _fetch_work_edition_pages(work_key: str) -> list[int]:
             response = httpx.get(
                 f"https://openlibrary.org/works/{key}/editions.json",
                 params={"limit": limit, "offset": offset},
-                timeout=LOOKUP_TIMEOUT_SECONDS,
+                timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
                 follow_redirects=True,
             )
             response.raise_for_status()
@@ -231,7 +233,7 @@ def fetch_openlibrary_title_page_candidates(title: str, author: str | None = Non
         response = httpx.get(
             "https://openlibrary.org/search.json",
             params=params,
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=OPEN_LIBRARY_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()
@@ -267,7 +269,7 @@ def fetch_google_title_page_candidates(title: str, author: str | None = None) ->
         response = httpx.get(
             "https://www.googleapis.com/books/v1/volumes",
             params={"q": query, "maxResults": 10},
-            timeout=LOOKUP_TIMEOUT_SECONDS,
+            timeout=GOOGLE_BOOKS_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()

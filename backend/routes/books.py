@@ -11,6 +11,7 @@ from backend.db.models import Profile
 from backend.env import is_local_env
 from backend.schemas.books import (
     AddBook,
+    BookSearchResult,
     BookProgressPatch,
     BooksPage,
     ClearLibraryRequest,
@@ -21,6 +22,7 @@ from backend.schemas.books import (
     PatchBook,
     PatchBookById,
 )
+from backend.services.book_search import search_books
 from backend.services.postgres_books import (
     add_book_service,
     clear_library_service,
@@ -81,6 +83,19 @@ def export_books(
             "Content-Disposition": 'attachment; filename="shelftxt-library.csv"',
         },
     )
+
+
+@router.get("/books/search", response_model=list[BookSearchResult])
+def search_books_route(
+    q: str = Query(..., min_length=1, max_length=300),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    try:
+        return search_books(db, current_user.id, q)
+    except Exception:
+        logger.exception("GET /books/search failed user_id=%s", current_user.id)
+        return []
 
 
 @router.post("/books/clear")

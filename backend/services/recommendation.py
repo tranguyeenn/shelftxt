@@ -22,6 +22,58 @@ def _normalize_style(style: str) -> str:
     return normalized if normalized in VALID_STYLES else "balanced"
 
 
+def _normalize_tags(value) -> list[str]:
+    if not value:
+        return []
+
+    if isinstance(value, list):
+        return [str(item).strip().lower() for item in value if str(item).strip()]
+
+    if isinstance(value, str):
+        return [item.strip().lower() for item in value.split(",") if item.strip()]
+
+    return []
+
+
+def _apply_recommendation_filters(
+    df: pd.DataFrame,
+    *,
+    genre: str | None = None,
+    min_pages: int | None = None,
+    max_pages: int | None = None,
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    status_col = "Read Status" if "Read Status" in df.columns else "read_status"
+    if status_col not in df.columns:
+        return df
+
+    status = df[status_col].astype(str).str.strip().str.lower()
+    candidate_mask = status.isin(["to-read", "not_started"])
+    matching_candidates = candidate_mask.copy()
+
+    if genre:
+        wanted = genre.strip().lower()
+        if wanted and "Genres" in df.columns:
+            matching_candidates &= df["Genres"].apply(
+                lambda value: wanted in _normalize_tags(value)
+            )
+
+    page_col = "Total Pages" if "Total Pages" in df.columns else "total_pages"
+
+    if page_col in df.columns:
+        pages = pd.to_numeric(df[page_col], errors="coerce")
+
+        if min_pages is not None:
+            matching_candidates &= pages.fillna(0) >= min_pages
+
+        if max_pages is not None:
+            matching_candidates &= pages.fillna(float("inf")) <= max_pages
+
+    return df[~candidate_mask | matching_candidates]
+
+
 def books_to_dataframe(books) -> pd.DataFrame:
     rows = []
 
@@ -47,6 +99,7 @@ def books_to_dataframe(books) -> pd.DataFrame:
                 "Language": book.language,
                 "Work Key": book.work_key,
                 "Edition Key": book.edition_key,
+                "metadata": book.book_metadata or {},
             }
         )
 
@@ -73,6 +126,9 @@ def get_recommendation(
     style: str = "balanced",
     refresh: bool = False,
     exclude_ids: set[str] | None = None,
+    genre: str | None = None,
+    min_pages: int | None = None,
+    max_pages: int | None = None,
 ):
     total_started = time.perf_counter()
     phase_started = time.perf_counter()
@@ -101,6 +157,12 @@ def get_recommendation(
         return []
 
     phase_started = time.perf_counter()
+    df = _apply_recommendation_filters(
+        df,
+        genre=genre,
+        min_pages=min_pages,
+        max_pages=max_pages,
+    )
     recommendations = build_recommendations(
         df,
         top_n=top_n,
