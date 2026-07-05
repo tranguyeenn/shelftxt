@@ -7,7 +7,7 @@ import { BookCover } from "@/components/ui/BookCover";
 import { Button } from "@/components/ui/Button";
 import { StarRatingDisplay } from "@/components/ui/StarRatingDisplay";
 import { BookDeleteButton } from "@/components/books/BookDeleteButton";
-import { pagesLabel, progressLabel, statusLabel } from "@/lib/bookProgress";
+import { pagesLabel, readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { formatDisplayDate } from "@/lib/books";
 import { recommendationMatchPercent } from "@/lib/recommendationDisplay";
@@ -62,7 +62,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted, recommendationScor
           <div>
             <div className="mb-2 flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.08em] text-[#7B756D]">
               <span>Progress</span>
-              <span className="text-[#A9A39A]">{progressLabel(book)}</span>
+              <span className="text-right normal-case tracking-normal text-[#A9A39A]">{readingProgressLabel(book)}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
               <div
@@ -73,7 +73,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted, recommendationScor
           </div>
 
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-[12px]">
-            <Metadata label="Pages" value={pagesLabel(book)} />
+            <Metadata label="Pages" value={book.tracking_mode === "pages" ? pagesLabel(book) : book.total_pages ? `${book.total_pages} total` : "—"} />
             <Metadata label="Started" value={formatDisplayDate(book.start_date)} />
             <Metadata label="Finished" value={formatDisplayDate(book.end_date)} />
             <div className="min-w-0">

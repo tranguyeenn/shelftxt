@@ -25,6 +25,37 @@ class AddBook(ReadingDateRangeMixin):
         validation_alias=AliasChoices("total_pages", "Total Pages"),
     )
     tracking_mode: TrackingMode | None = None
+    isbn_uid: str | None = Field(default=None, min_length=1)
+    status: Literal["not_started", "reading", "completed", "dnf"] = "not_started"
+    star_rating: float | None = Field(default=None, ge=0, le=5)
+    description: str | None = None
+    cover_url: str | None = None
+    subjects: list[str] = Field(default_factory=list)
+    genres: list[str] = Field(default_factory=list)
+    first_publish_year: int | None = Field(default=None, gt=0)
+    metadata_source: str | None = None
+    work_key: str | None = None
+    edition_key: str | None = None
+    related_isbns: list[str] = Field(default_factory=list)
+
+
+class BookSearchResult(BaseModel):
+    title: str
+    authors: list[str]
+    isbn_uid: str | None = None
+    description: str | None = None
+    cover_url: str | None = None
+    total_pages: int | None = None
+    subjects: list[str]
+    genres: list[str]
+    first_publish_year: int | None = None
+    metadata_source: str
+    work_key: str | None = None
+    edition_key: str | None = None
+    publisher: str | None = None
+    publish_date: str | None = None
+    related_isbns: list[str]
+    already_in_library: bool
 
 
 class PatchBook(ReadingDateRangeMixin):

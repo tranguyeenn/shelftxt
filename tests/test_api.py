@@ -161,6 +161,12 @@ class ApiTests(unittest.TestCase):
             "backend.services.page_count_lookup.lookup_page_count_result",
             "backend.services.page_count_lookup.backfill_missing_page_counts",
             "backend.services.page_count_lookup.httpx.get",
+            "app.integrations.librarything.fetch_related_isbns",
+            "app.integrations.librarything.fetch_work_by_title",
+            "backend.services.book_search._open_library_results",
+            "backend.services.book_search._google_books_results",
+            "backend.services.book_resolver.resolve_book",
+            "backend.services.book_resolver.librarything.fetch_related_isbns",
         ):
             stack.enter_context(
                 patch(
@@ -343,6 +349,64 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["Authors"], "Author A")
         self.assertEqual(payload["ISBN/UID"], "book-1")
 
+    def test_get_book_by_id_does_not_trigger_metadata_providers(self):
+        _seed_book(title="Stored", authors="Author", isbn_uid="stored-1")
+
+        with self.external_work_guard():
+            response = self.client.get("/books/stored-1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["Title"], "Stored")
+
+    def test_export_does_not_trigger_metadata_providers(self):
+        _seed_book(title="Stored", authors="Author", isbn_uid="stored-1")
+
+        with self.external_work_guard():
+            response = self.client.get("/books/export")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Stored", response.text)
+
+    def test_profile_load_does_not_trigger_metadata_providers(self):
+        with self.external_work_guard():
+            response = self.client.get("/profile/me")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], "test")
+
+    @patch("backend.services.book_resolver.librarything.fetch_related_isbns")
+    @patch("backend.services.book_search._google_books_results", return_value=[])
+    @patch("backend.services.book_search._open_library_results", return_value=[])
+    def test_add_book_search_is_allowed_to_call_metadata_providers(
+        self,
+        mock_open_library,
+        mock_google_books,
+        mock_librarything,
+    ):
+        response = self.client.get("/books/search?q=space%20politics")
+
+        self.assertEqual(response.status_code, 200)
+        mock_open_library.assert_called_once_with("space politics")
+        mock_google_books.assert_called_once_with("space politics")
+        mock_librarything.assert_not_called()
+
+    def test_core_routes_work_while_metadata_providers_are_down(self):
+        _seed_book(
+            title="Stored",
+            authors="Author",
+            isbn_uid="stored-1",
+            read_status="to-read",
+        )
+
+        with self.external_work_guard():
+            books_response = self.client.get("/books")
+            book_response = self.client.get("/books/stored-1")
+            recommendation_response = self.client.get("/recommend")
+
+        self.assertEqual(books_response.status_code, 200)
+        self.assertEqual(book_response.status_code, 200)
+        self.assertEqual(recommendation_response.status_code, 200)
+
     def test_get_book_by_id_not_found(self):
         response = self.client.get("/books/missing-id")
 
@@ -386,6 +450,39 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(book["Progress (%)"], 0)
         self.assertEqual(book["Pages Read"], 0)
         self.assertTrue(book["ISBN/UID"].startswith("uid-"))
+
+    def test_add_searched_book_persists_metadata_and_completed_state(self):
+        response = self.client.post(
+            "/books",
+            json={
+                "title": "Kindred",
+                "author": "Octavia E. Butler",
+                "isbn_uid": "9780807083697",
+                "total_pages": 264,
+                "status": "completed",
+                "star_rating": 4.75,
+                "end_date": "2026-07-05",
+                "description": "A modern classic.",
+                "subjects": ["time travel"],
+                "genres": ["science fiction"],
+                "first_publish_year": 1979,
+                "metadata_source": "open_library",
+                "work_key": "/works/OL123W",
+                "edition_key": "OL123M",
+                "related_isbns": ["0807083690"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        book = self.client.get("/books").json()["results"][0]
+        self.assertEqual(book["ISBN/UID"], "9780807083697")
+        self.assertEqual(book["Read Status"], "read")
+        self.assertEqual(book["Star Rating"], 4.75)
+        self.assertEqual(book["Description"], "A modern classic.")
+        self.assertEqual(
+            book["metadata"]["librarything"]["related_isbns"],
+            ["0807083690"],
+        )
 
     def test_add_book_does_not_trigger_external_or_background_work(self):
         with self.external_work_guard():
@@ -2178,7 +2275,7 @@ class ApiTests(unittest.TestCase):
             db.close()
 
     @patch("backend.services.metadata_jobs.get_session_local", return_value=TestingSessionLocal)
-    @patch("backend.services.metadata_jobs.page_lookup.lookup_book_metadata")
+    @patch("backend.services.metadata_jobs.resolve_book")
     def test_metadata_job_processes_only_current_user_missing_genres(self, mock_lookup, _mock_session):
         _seed_profile(
             user_id=OTHER_USER_ID,
@@ -2193,7 +2290,13 @@ class ApiTests(unittest.TestCase):
             isbn_uid="other-missing",
             user_id=OTHER_USER_ID,
         )
-        mock_lookup.return_value = BookMetadata(genres=["science fiction"])
+        from backend.services.book_resolver import CanonicalBook
+
+        mock_lookup.return_value = CanonicalBook(
+            title="Needs Genre",
+            genres=("science fiction",),
+            source="open_library",
+        )
 
         db = TestingSessionLocal()
         try:

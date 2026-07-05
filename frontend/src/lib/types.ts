@@ -9,6 +9,7 @@ export type ApiBook = {
   status: ReadingStatus;
   total_pages: number | null;
   pages_read: number;
+  estimated_pages_read?: number | null;
   progress_pct: number;
   tracking_mode: TrackingMode;
   rating?: number | null;

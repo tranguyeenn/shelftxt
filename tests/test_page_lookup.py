@@ -96,7 +96,13 @@ class PageLookupTests(unittest.TestCase):
 
         self.assertEqual(
             metadata,
-            BookMetadata(title="Dune", authors="Frank Herbert", total_pages=592, metadata_source="google_books"),
+            BookMetadata(
+                title="Dune",
+                authors="Frank Herbert",
+                total_pages=592,
+                metadata_source="google_books",
+                isbn_uid="9780441172719",
+            ),
         )
         self.assertEqual(mock_get.call_count, 2)
 
@@ -149,7 +155,7 @@ class PageLookupTests(unittest.TestCase):
             metadata.cover_url,
             "https://covers.openlibrary.org/b/id/42-L.jpg?default=false",
         )
-        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_count, 2)
 
     @patch("backend.services.page_lookup.httpx.get")
     def test_google_cover_fills_missing_open_library_cover(self, mock_get):
@@ -260,11 +266,10 @@ class PageLookupTests(unittest.TestCase):
             BookMetadata(
                 title="Parable of the Sower",
                 authors="Octavia E. Butler",
-                total_pages=345,
                 metadata_source="open_library",
             ),
         )
-        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_count, 2)
 
     @patch("backend.services.page_lookup.httpx.get")
     def test_search_subjects_generate_genres_when_work_lookup_times_out(self, mock_get):

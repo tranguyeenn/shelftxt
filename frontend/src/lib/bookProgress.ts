@@ -59,6 +59,29 @@ export function progressLabel(book: Pick<ApiBook, "status" | "progress_pct">): s
   return "Progress not set";
 }
 
+export function estimatedPagesRead(
+  progressPercent: number,
+  totalPages: number | null
+): number | null {
+  if (totalPages === null || !Number.isFinite(totalPages) || totalPages <= 0) return null;
+  const clampedPercent = Math.min(100, Math.max(0, Number.isFinite(progressPercent) ? progressPercent : 0));
+  return Math.min(totalPages, Math.max(0, Math.round((clampedPercent / 100) * totalPages)));
+}
+
+export function readingProgressLabel(
+  book: Pick<ApiBook, "status" | "tracking_mode" | "progress_pct" | "pages_read" | "total_pages">
+): string {
+  if (book.tracking_mode === "pages") return pagesLabel(book);
+  const percent = Math.min(100, Math.max(0, Number.isFinite(book.progress_pct) ? book.progress_pct : 0));
+  const estimated = estimatedPagesRead(percent, book.total_pages);
+  const percentLabel = `${Math.round(percent)}%`;
+  if (estimated !== null && book.total_pages !== null) {
+    return `${percentLabel} • approx. page ${estimated} of ${book.total_pages}`;
+  }
+  if (book.status === "completed" || percent >= 100) return "100% complete";
+  return percent > 0 ? percentLabel : "Progress not set";
+}
+
 export function pagesLabel(book: Pick<ApiBook, "pages_read" | "total_pages">): string {
   if (book.total_pages !== null && book.total_pages > 0) {
     return `${book.pages_read ?? 0} / ${book.total_pages} pages`;

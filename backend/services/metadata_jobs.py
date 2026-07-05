@@ -10,6 +10,8 @@ from backend.db.database import get_session_local
 from backend.db.models import Book, MetadataJob
 from backend.scripts.backfill_book_metadata import _apply_metadata
 from backend.services import page_lookup
+from backend.services.book_resolver import resolve_book
+from backend.services.page_lookup import BookMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +245,33 @@ def process_metadata_job(job_id: int) -> None:
         metadata = None
         lookup_error: Exception | None = None
         try:
-            metadata = page_lookup.lookup_book_metadata(title, authors, isbn_uid)
+            canonical = resolve_book(isbn_uid if page_lookup.normalize_isbn(isbn_uid) else title, authors)
+            metadata = (
+                BookMetadata(
+                    title=canonical.title,
+                    authors=", ".join(canonical.authors) or None,
+                    total_pages=canonical.total_pages,
+                    description=canonical.description,
+                    subjects=list(canonical.subjects) or None,
+                    genres=list(canonical.genres) or None,
+                    first_publish_year=canonical.first_publish_year,
+                    metadata_source=canonical.source,
+                    language=canonical.language,
+                    work_key=canonical.work_key,
+                    edition_key=canonical.edition_key,
+                    cover_url=canonical.cover_url,
+                    isbn_uid=canonical.isbn,
+                    librarything={
+                        "related_isbns": list(canonical.related_isbns),
+                        "work_url": None,
+                        "enriched_at": _utcnow().isoformat(),
+                    }
+                    if canonical.related_isbns
+                    else None,
+                )
+                if canonical
+                else None
+            )
         except Exception as exc:
             lookup_error = exc
             logger.exception("metadata_job_book_lookup_failed job_id=%s book_id=%s", job_id, book_id)

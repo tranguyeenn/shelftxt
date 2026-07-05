@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 import { BookCoverPlaceholder } from "@/components/ui/BookCoverPlaceholder";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { progressLabel, statusLabel } from "@/lib/bookProgress";
+import { readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import type { ApiBook } from "@/lib/types";
 
 type BookRowProps = {
@@ -28,7 +28,7 @@ export function BookRow({ book, actions }: BookRowProps) {
       </div>
       <div className="flex flex-wrap items-center gap-3 text-sm text-text-muted sm:justify-end">
         <span>{statusLabel(book.status).toLowerCase()}</span>
-        <span>{progressLabel(book)}</span>
+        <span>{readingProgressLabel(book)}</span>
         {book.rating != null ? <span className="text-score-rating">{Number(book.rating).toFixed(1)}★</span> : null}
         {actions}
       </div>

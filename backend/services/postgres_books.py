@@ -38,6 +38,7 @@ from backend.services.page_count_lookup import (
     backfill_missing_page_counts,
     lookup_page_count_result,
 )
+from backend.services.progress import clamp_pages_read, clamp_progress_percent, estimated_pages_read
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
@@ -72,6 +73,9 @@ def _log_endpoint_timing(endpoint: str, user_id: UUID, started: float, rows: int
 
 
 def book_to_dict(book):
+    progress_percent = clamp_progress_percent(book.progress_percent)
+    pages_read = clamp_pages_read(book.pages_read, book.total_pages)
+    estimated_pages = estimated_pages_read(progress_percent, book.total_pages)
     return {
         "Title": book.title,
         "Authors": book.authors,
@@ -85,8 +89,9 @@ def book_to_dict(book):
         "End Date": book.end_date.isoformat() if book.end_date else None,
         "start_date": book.start_date.isoformat() if book.start_date else None,
         "end_date": book.end_date.isoformat() if book.end_date else None,
-        "Progress (%)": book.progress_percent,
-        "Pages Read": book.pages_read,
+        "Progress (%)": progress_percent,
+        "Pages Read": pages_read,
+        "estimated_pages_read": estimated_pages,
         "Total Pages": book.total_pages,
         "Tracking Mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
         "tracking_mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
@@ -103,6 +108,7 @@ def book_to_dict(book):
         "Language": book.language,
         "Work Key": book.work_key,
         "Edition Key": book.edition_key,
+        "metadata": book.book_metadata,
         "page_count_checked": book.page_count_checked,
         "page_count_source": book.page_count_source,
     }
@@ -284,25 +290,58 @@ def add_book_service(db: Session, book, user_id: UUID):
     start_date = parse_reading_date(getattr(book, "start_date", None), field_name="Start Date")
     end_date = parse_reading_date(getattr(book, "end_date", None), field_name="End Date")
     _validate_date_range(start_date, end_date)
+    status = getattr(book, "status", "not_started")
+    read_status = {
+        "not_started": "to-read",
+        "reading": "to-read",
+        "completed": "read",
+        "dnf": "dnf",
+    }.get(status, "to-read")
+    progress_percent = 100 if status == "completed" else (1 if status == "reading" else 0)
+    pages_read = book.total_pages if status == "completed" and book.total_pages else 0
+    related_isbns = list(getattr(book, "related_isbns", []) or [])
+    librarything_metadata = (
+        {
+            "librarything": {
+                "related_isbns": related_isbns,
+                "work_url": None,
+                "enriched_at": datetime.now(timezone.utc).isoformat(),
+            }
+        }
+        if related_isbns
+        else None
+    )
     create_book(
         db,
         {
             "title": book.title,
             "authors": book.author,
-            "isbn_uid": f"uid-{uuid.uuid4()}",
-            "read_status": "to-read",
-            "star_rating": None,
-            "last_date_read": None,
+            "isbn_uid": getattr(book, "isbn_uid", None) or f"uid-{uuid.uuid4()}",
+            "read_status": read_status,
+            "star_rating": getattr(book, "star_rating", None) if status == "completed" else None,
+            "last_date_read": end_date if status == "completed" else None,
             "start_date": start_date,
             "end_date": end_date,
-            "progress_percent": 0,
-            "pages_read": 0,
+            "progress_percent": progress_percent,
+            "pages_read": pages_read,
             "total_pages": book.total_pages,
             "tracking_mode": normalized_tracking_mode(
                 getattr(book, "tracking_mode", None),
                 book.total_pages,
             ),
             "page_count_checked": book.total_pages is not None,
+            "description": getattr(book, "description", None),
+            "cover_url": getattr(book, "cover_url", None),
+            "subjects": getattr(book, "subjects", None) or None,
+            "genres": getattr(book, "genres", None) or None,
+            "first_publish_year": getattr(book, "first_publish_year", None),
+            "metadata_source": getattr(book, "metadata_source", None),
+            "metadata_enriched_at": datetime.now(timezone.utc)
+            if getattr(book, "metadata_source", None)
+            else None,
+            "work_key": getattr(book, "work_key", None),
+            "edition_key": getattr(book, "edition_key", None),
+            "book_metadata": librarything_metadata,
         },
         user_id,
     )
@@ -321,6 +360,8 @@ def _metadata_update_fields(metadata: BookMetadata | None) -> dict:
     if metadata is None:
         return {}
     data = {}
+    if metadata.librarything:
+        data["book_metadata"] = {"librarything": metadata.librarything}
     if metadata.subjects:
         data["subjects"] = metadata.subjects
     if metadata.genres:

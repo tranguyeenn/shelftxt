@@ -99,6 +99,7 @@ def books_to_dataframe(books) -> pd.DataFrame:
                 "Language": book.language,
                 "Work Key": book.work_key,
                 "Edition Key": book.edition_key,
+                "metadata": book.book_metadata or {},
             }
         )
 
