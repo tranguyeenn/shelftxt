@@ -2488,11 +2488,33 @@ class ApiTests(unittest.TestCase):
         )
 
         _seed_book(
-            title="Other User Book",
+            title="Other User Read Anchor",
             authors="Other Author",
-            isbn_uid="other-book",
+            isbn_uid="other-read-anchor",
+            user_id=OTHER_USER_ID,
+            read_status="read",
+            star_rating=5,
+            genres=["science fiction"],
+            subjects=["space"],
+            total_pages=300,
+        )
+        _seed_book(
+            title="Other User Candidate",
+            authors="Other Author",
+            isbn_uid="other-candidate",
             user_id=OTHER_USER_ID,
             read_status="to-read",
+            genres=["science fiction"],
+            subjects=["space"],
+            total_pages=300,
+        )
+        _seed_book(
+            title="My Candidate",
+            authors="Mine",
+            isbn_uid="my-candidate",
+            read_status="to-read",
+            genres=["science fiction"],
+            subjects=["space"],
             total_pages=300,
         )
 
@@ -2506,7 +2528,8 @@ class ApiTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertEqual(result, [])
+        self.assertEqual([item["book"]["title"] for item in result], ["My Candidate"])
+        self.assertEqual(result[0]["matched_liked_books"], [])
 
     def test_recommendation_falls_back_when_metadata_is_missing(self):
         _seed_book(
@@ -2615,6 +2638,51 @@ class ApiTests(unittest.TestCase):
         mock_backfill.assert_not_called()
         mock_page_count_http.assert_not_called()
         mock_metadata_http.assert_not_called()
+
+    def test_recommendation_recomputes_after_book_status_and_rating_change(self):
+        anna = _seed_book(
+            title="Anna Karenina",
+            authors="Leo Tolstoy",
+            isbn_uid="9780345803924",
+            read_status="to-read",
+            star_rating=None,
+            genres=["Drama", "Romance", "Classic"],
+            subjects=["Adultery", "Married Women", "Russian Literature"],
+            total_pages=864,
+        )
+        _seed_book(
+            title="The Scarlet Letter",
+            authors="Nathaniel Hawthorne",
+            isbn_uid="scarlet-letter",
+            read_status="to-read",
+            genres=["Drama", "Romance", "Classic"],
+            subjects=["Adultery", "Married Women"],
+            total_pages=272,
+        )
+
+        db = TestingSessionLocal()
+        try:
+            before = get_recommendation(db, TEST_USER_ID, style="balanced")
+            self.assertTrue(before)
+            self.assertEqual(before[0]["matched_liked_books"], [])
+
+            book = db.query(Book).filter(Book.id == anna.id).one()
+            book.read_status = "read"
+            book.star_rating = 4.75
+            book.end_date = date(2026, 7, 1)
+            book.pages_read = 864
+            book.progress_percent = 100
+            db.commit()
+
+            after = get_recommendation(db, TEST_USER_ID, style="balanced", refresh=True)
+        finally:
+            db.close()
+
+        scarlet = next(item for item in after if item["book"]["title"] == "The Scarlet Letter")
+        self.assertIn(
+            "Anna Karenina",
+            [book["title"] for book in scarlet["matched_liked_books"]],
+        )
 
     @patch("backend.services.postgres_books.lookup_page_count_result")
     def test_find_pages_updates_missing_total_without_overwriting(self, mock_lookup):

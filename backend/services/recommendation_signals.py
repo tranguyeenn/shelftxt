@@ -15,6 +15,7 @@ from backend.services.metadata_normalization import (
     normalize_values,
     subjects_to_genres,
 )
+from backend.services.status import normalize_status
 
 
 VIETNAMESE_RE = re.compile(r"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]", re.IGNORECASE)
@@ -48,12 +49,14 @@ class Similarity:
 @dataclass(frozen=True)
 class BookFeatures:
     index: object
+    title: str
     author: str
     genres: frozenset[str]
     subjects: frozenset[str]
     keywords: frozenset[str]
     language: str | None
     rating: float
+    recency: float
 
 
 def _is_missing(value: object) -> bool:
@@ -151,12 +154,14 @@ def similarity_between(candidate: pd.Series, read_book: pd.Series) -> Similarity
 def features_for_row(index: object, row: pd.Series) -> BookFeatures:
     return BookFeatures(
         index=index,
+        title=row_title(row),
         author=row_author(row),
         genres=frozenset(row_genres(row)),
         subjects=frozenset(row_subjects(row)),
         keywords=frozenset(row_keywords(row)),
         language=infer_language(row),
         rating=float(row.get("rating_norm", 0.5) or 0.5),
+        recency=float(row.get("recency_norm", 0.5) or 0.5),
     )
 
 
@@ -199,6 +204,7 @@ def meaningful_similar_feature_matches(
             + (1.2 * len(similarity.shared_subjects))
             + (0.8 * len(similarity.keyword_overlap))
             + read_book.rating
+            + (0.35 * read_book.recency)
         )
         matches.append((strength, read_book.index, similarity, read_book.rating))
 
@@ -226,6 +232,7 @@ def meaningful_similar_books(
             + (1.2 * len(similarity.shared_subjects))
             + (0.8 * len(similarity.keyword_overlap))
             + rating
+            + (0.35 * float(read_book.get("recency_norm", 0.5) or 0.5))
         )
         matches.append((strength, read_book, similarity))
 
@@ -256,8 +263,17 @@ def primary_language_from_features(read_features: list[BookFeatures]) -> str | N
     return language if count / max(1, sum(counts.values())) >= 0.6 else None
 
 
-def read_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def read_dataframe(df: pd.DataFrame, liked_threshold: float | None = None) -> pd.DataFrame:
     status_col = _resolve_column(df, ["read_status", "Read Status"])
     if status_col is None:
         return df.iloc[0:0].copy()
-    return df[df[status_col].astype(str).str.strip().str.lower() == "read"].copy()
+    read_df = df[df[status_col].apply(lambda value: normalize_status(value) == "completed")].copy()
+    if liked_threshold is None:
+        return read_df
+
+    rating_col = _resolve_column(read_df, ["star_rating", "Star Rating", "rating"])
+    if rating_col is None:
+        return read_df.iloc[0:0].copy()
+
+    ratings = pd.to_numeric(read_df[rating_col], errors="coerce")
+    return read_df[ratings.notna() & (ratings >= liked_threshold)].copy()
