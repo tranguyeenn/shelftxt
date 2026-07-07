@@ -10,11 +10,14 @@ from sqlalchemy.orm import Session
 
 from backend.env import is_local_env
 from backend.repository.postgres_books_repository import get_books_for_recommendation
+from backend.services.recommendation_debug import rec_debug
 from backend.services.recommendation_builder import build_recommendations
+from backend.services.status import normalize_status
 
 VALID_STYLES = frozenset({"balanced", "popular", "discovery"})
 MAX_RECOMMENDATION_BOOKS = 1000
 logger = logging.getLogger(__name__)
+DEBUG_ANNA_TITLE = "anna karenina"
 
 
 def _normalize_style(style: str) -> str:
@@ -106,6 +109,32 @@ def books_to_dataframe(books) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _log_recommendation_debug(df: pd.DataFrame) -> None:
+    rec_debug("total_books_loaded=%s", len(df))
+    if df.empty:
+        rec_debug("status_counts={} anna_in_loaded_books=False")
+        return
+
+    status_col = "Read Status" if "Read Status" in df.columns else "read_status"
+    title_col = "Title" if "Title" in df.columns else "title"
+
+    if status_col not in df.columns:
+        rec_debug("status_counts={} anna_in_loaded_books=False")
+        return
+
+    raw_status_counts = df[status_col].astype(str).str.strip().str.lower().value_counts().to_dict()
+    normalized_status_counts = df[status_col].apply(normalize_status).value_counts().to_dict()
+    anna_in_loaded = title_col in df.columns and any(
+        str(title).strip().lower() == DEBUG_ANNA_TITLE for title in df[title_col]
+    )
+    rec_debug(
+        "status_counts_raw=%s status_counts_normalized=%s anna_in_loaded_books=%s",
+        raw_status_counts,
+        normalized_status_counts,
+        anna_in_loaded,
+    )
+
+
 @lru_cache(maxsize=32)
 def _get_recommendation_cached(cache_key: tuple, top_n: int, style: str):
     _, books_snapshot = cache_key
@@ -131,6 +160,7 @@ def get_recommendation(
     max_pages: int | None = None,
 ):
     total_started = time.perf_counter()
+    rec_debug("user_id=%s", user_id)
     phase_started = time.perf_counter()
     books = get_books_for_recommendation(db, user_id, MAX_RECOMMENDATION_BOOKS)
     get_books_ms = (time.perf_counter() - phase_started) * 1000
@@ -138,6 +168,7 @@ def get_recommendation(
     phase_started = time.perf_counter()
     df = books_to_dataframe(books)
     dataframe_ms = (time.perf_counter() - phase_started) * 1000
+    _log_recommendation_debug(df)
 
     normalized_style = _normalize_style(style)
 

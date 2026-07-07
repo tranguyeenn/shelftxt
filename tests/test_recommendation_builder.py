@@ -3,7 +3,10 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from backend.services.recommendation_builder import build_recommendations
+from backend.services.recommendation_builder import (
+    _select_reason_anchor,
+    build_recommendations,
+)
 
 
 class RecommendationBuilderTests(unittest.TestCase):
@@ -261,6 +264,321 @@ class RecommendationBuilderTests(unittest.TestCase):
             ["Matched", "Unrelated"],
         )
         self.assertIn("censorship", result[0]["explanation"].lower())
+
+    def test_newly_read_high_rated_classic_appears_as_anchor(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Title": "A Midsummer Night's Dream",
+                    "Authors": "William Shakespeare",
+                    "ISBN/UID": "old-1",
+                    "Read Status": "read",
+                    "Star Rating": 4.75,
+                    "End Date": "2020-01-01",
+                    "Genres": ["Drama", "Classic"],
+                    "Subjects": ["Plays"],
+                },
+                {
+                    "Title": "Pride and Prejudice",
+                    "Authors": "Jane Austen",
+                    "ISBN/UID": "old-2",
+                    "Read Status": "read",
+                    "Star Rating": 4.75,
+                    "End Date": "2020-01-02",
+                    "Genres": ["Romance", "Classic"],
+                    "Subjects": ["Courtship"],
+                },
+                {
+                    "Title": "Antigone",
+                    "Authors": "Sophocles",
+                    "ISBN/UID": "old-3",
+                    "Read Status": "read",
+                    "Star Rating": 4.75,
+                    "End Date": "2020-01-03",
+                    "Genres": ["Drama", "Classic"],
+                    "Subjects": ["Greek drama"],
+                },
+                {
+                    "Title": "Anna Karenina",
+                    "Authors": "Leo Tolstoy",
+                    "ISBN/UID": "9780345803924",
+                    "Read Status": "read",
+                    "Star Rating": 4.75,
+                    "End Date": "2026-07-01",
+                    "Genres": ["Drama", "Romance", "Classic"],
+                    "Subjects": ["Adultery", "Married Women", "Russian Literature"],
+                },
+                {
+                    "Title": "Madame Bovary",
+                    "Authors": "Gustave Flaubert",
+                    "ISBN/UID": "t1",
+                    "Read Status": "to-read",
+                    "Genres": ["Drama", "Romance", "Classic"],
+                    "Subjects": ["Adultery", "Married Women"],
+                },
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1)[0]
+
+        self.assertEqual(result["book"]["title"], "Madame Bovary")
+        self.assertIn(
+            "Anna Karenina",
+            [book["title"] for book in result["matched_liked_books"]],
+        )
+        self.assertIn("Anna Karenina", result["explanation"])
+
+    def test_duplicate_to_read_same_isbn_does_not_suppress_read_rated_anchor(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Title": "Anna Karenina",
+                    "Authors": "Leo Tolstoy",
+                    "ISBN/UID": "9780345803924",
+                    "Read Status": "to-read",
+                    "Star Rating": np.nan,
+                    "Genres": ["Drama", "Romance", "Classic"],
+                    "Subjects": ["Adultery", "Married Women", "Russian Literature"],
+                },
+                {
+                    "Title": "Anna Karenina",
+                    "Authors": "Leo Tolstoy",
+                    "ISBN/UID": "9780345803924",
+                    "Read Status": "read",
+                    "Star Rating": 4.75,
+                    "Genres": ["Drama", "Romance", "Classic"],
+                    "Subjects": ["Adultery", "Married Women", "Russian Literature"],
+                },
+                {
+                    "Title": "The Scarlet Letter",
+                    "Authors": "Nathaniel Hawthorne",
+                    "ISBN/UID": "scarlet-letter",
+                    "Read Status": "to-read",
+                    "Genres": ["Drama", "Romance", "Classic"],
+                    "Subjects": ["Adultery", "Married Women"],
+                },
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+
+        self.assertEqual([item["book"]["title"] for item in result], ["The Scarlet Letter"])
+        self.assertEqual(result[0]["matched_liked_books"][0]["title"], "Anna Karenina")
+
+    def test_completed_books_influence_scores_but_are_not_recommended(self):
+        base_rows = [
+            {
+                "Title": "Unrelated Read",
+                "Authors": "A",
+                "ISBN/UID": "read-1",
+                "Read Status": "read",
+                "Star Rating": 4,
+                "Genres": ["history"],
+                "Subjects": ["war"],
+            },
+            {
+                "Title": "The Scarlet Letter",
+                "Authors": "Nathaniel Hawthorne",
+                "ISBN/UID": "scarlet-letter",
+                "Read Status": "to-read",
+                "Genres": ["Drama", "Romance", "Classic"],
+                "Subjects": ["Adultery", "Married Women"],
+            },
+            {
+                "Title": "Space Opera",
+                "Authors": "B",
+                "ISBN/UID": "space-opera",
+                "Read Status": "to-read",
+                "Genres": ["science fiction"],
+                "Subjects": ["space"],
+            },
+        ]
+        before = build_recommendations(pd.DataFrame(base_rows), top_n=2)
+        before_scarlet = next(item for item in before if item["book"]["title"] == "The Scarlet Letter")
+
+        after = build_recommendations(
+            pd.DataFrame(
+                base_rows
+                + [
+                    {
+                        "Title": "Anna Karenina",
+                        "Authors": "Leo Tolstoy",
+                        "ISBN/UID": "9780345803924",
+                        "Read Status": "completed",
+                        "Star Rating": 5,
+                        "Genres": ["Drama", "Romance", "Classic"],
+                        "Subjects": ["Adultery", "Married Women", "Russian Literature"],
+                    }
+                ]
+            ),
+            top_n=3,
+        )
+
+        after_titles = [item["book"]["title"] for item in after]
+        after_scarlet = next(item for item in after if item["book"]["title"] == "The Scarlet Letter")
+
+        self.assertNotIn("Anna Karenina", after_titles)
+        self.assertGreater(after_scarlet["score"], before_scarlet["score"])
+        self.assertIn(
+            "Anna Karenina",
+            [book["title"] for book in after_scarlet["matched_liked_books"]],
+        )
+
+    def test_explanation_prefers_score_contributors_over_similarity_rank(self):
+        rows = [
+            {
+                "Title": "Anna Karenina",
+                "Authors": "Leo Tolstoy",
+                "ISBN/UID": "anna",
+                "Read Status": "read",
+                "Star Rating": 4.75,
+                "End Date": "2026-07-01",
+                "Genres": ["Drama", "Romance", "Classic"],
+                "Subjects": ["Adultery", "Married Women"],
+            },
+        ]
+        for index in range(12):
+            rows.append(
+                {
+                    "Title": f"Other Read {index}",
+                    "Authors": f"Author {index}",
+                    "ISBN/UID": f"read-{index}",
+                    "Read Status": "read",
+                    "Star Rating": 5,
+                    "End Date": "2020-01-01",
+                    "Genres": ["Historical Fiction", "Young Adult"],
+                    "Subjects": ["History"],
+                }
+            )
+        rows.append(
+            {
+                "Title": "Romeo and Juliet",
+                "Authors": "William Shakespeare",
+                "ISBN/UID": "romeo",
+                "Read Status": "to-read",
+                "Genres": ["Drama", "Classic"],
+                "Subjects": ["Love stories"],
+            }
+        )
+
+        result = build_recommendations(pd.DataFrame(rows), top_n=1)[0]
+
+        self.assertEqual(result["book"]["title"], "Romeo and Juliet")
+        self.assertIn(
+            "Anna Karenina",
+            [book["title"] for book in result["matched_liked_books"]],
+        )
+        self.assertIn("Anna Karenina", result["reason"])
+
+    def test_select_reason_anchor_prefers_high_rating_when_contribution_close(self):
+        candidates = [
+            {
+                "title": "Othello",
+                "rating": 3.0,
+                "_score_weight": 0.59,
+                "_match_score": 4,
+                "_shared_genres": ["Drama"],
+                "_shared_subjects": [],
+            },
+            {
+                "title": "Anna Karenina",
+                "rating": 4.75,
+                "_score_weight": 0.40,
+                "_match_score": 2,
+                "_shared_genres": ["Drama", "Classic"],
+                "_shared_subjects": [],
+            },
+            {
+                "title": "Lysistrata",
+                "rating": 4.5,
+                "_score_weight": 0.39,
+                "_match_score": 2,
+                "_shared_genres": ["Drama"],
+                "_shared_subjects": [],
+            },
+        ]
+
+        anchor = _select_reason_anchor(candidates)
+
+        self.assertEqual(anchor["title"], "Anna Karenina")
+
+    def test_select_reason_anchor_keeps_much_stronger_low_rated_anchor(self):
+        candidates = [
+            {
+                "title": "Othello",
+                "rating": 3.0,
+                "_score_weight": 0.90,
+                "_match_score": 5,
+                "_shared_genres": ["Drama"],
+                "_shared_subjects": [],
+            },
+            {
+                "title": "Anna Karenina",
+                "rating": 4.75,
+                "_score_weight": 0.20,
+                "_match_score": 2,
+                "_shared_genres": ["Drama", "Classic"],
+                "_shared_subjects": [],
+            },
+        ]
+
+        anchor = _select_reason_anchor(candidates)
+
+        self.assertEqual(anchor["title"], "Othello")
+
+    def test_reason_headline_prefers_higher_rated_anchor_over_first_match(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "Title": "Othello",
+                    "Authors": "William Shakespeare",
+                    "ISBN/UID": "othello",
+                    "Read Status": "read",
+                    "Star Rating": 3,
+                    "End Date": "2020-01-01",
+                    "Genres": ["Drama", "Historical Fiction"],
+                    "Subjects": ["Drama"],
+                },
+                {
+                    "Title": "Anna Karenina",
+                    "Authors": "Leo Tolstoy",
+                    "ISBN/UID": "anna",
+                    "Read Status": "read",
+                    "Star Rating": 4.75,
+                    "End Date": "2026-07-01",
+                    "Genres": ["Drama", "Romance", "Classic"],
+                    "Subjects": ["Adultery"],
+                },
+                {
+                    "Title": "Lysistrata",
+                    "Authors": "Aristophanes",
+                    "ISBN/UID": "lysistrata",
+                    "Read Status": "read",
+                    "Star Rating": 4.5,
+                    "End Date": "2020-01-02",
+                    "Genres": ["Drama", "Classic"],
+                    "Subjects": ["Drama"],
+                },
+                {
+                    "Title": "Romeo and Juliet",
+                    "Authors": "William Shakespeare",
+                    "ISBN/UID": "romeo",
+                    "Read Status": "to-read",
+                    "Genres": ["Drama", "Classic"],
+                    "Subjects": ["Courtship", "Love stories"],
+                },
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1)[0]
+
+        self.assertEqual(result["book"]["title"], "Romeo and Juliet")
+        matched_titles = [book["title"] for book in result["matched_liked_books"]]
+        self.assertIn("Othello", matched_titles)
+        self.assertIn("Anna Karenina", matched_titles)
+        self.assertIn("Anna Karenina", result["reason"])
+        self.assertIn("4.75★", result["reason"])
+        self.assertNotIn("which you rated 3★", result["reason"])
 
 
 if __name__ == "__main__":
