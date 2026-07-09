@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/Card";
+import { formatDisplayDateFromDate } from "@/lib/books";
 import { getReadingMomentum } from "@/lib/dashboardMetrics";
 import type { BookRecord } from "@/lib/books";
 
@@ -8,11 +9,7 @@ type ReadingMomentumProps = {
 
 export function ReadingMomentum({ library }: ReadingMomentumProps) {
   const momentum = getReadingMomentum(library);
-  const lastCompleted = momentum.lastCompletedDate?.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  });
+  const lastCompleted = formatDisplayDateFromDate(momentum.lastCompletedDate);
 
   return (
     <Card className="grid gap-4">
@@ -44,7 +41,7 @@ export function ReadingMomentum({ library }: ReadingMomentumProps) {
       </dl>
 
       <div className="border-t border-border-subtle pt-3 text-sm text-text-muted">
-        {lastCompleted ? `Last finish recorded ${lastCompleted}.` : "No completed book date recorded yet."}
+        {momentum.lastCompletedDate ? `Last finish recorded ${lastCompleted}.` : "No completed book date recorded yet."}
         <p className="mt-1 text-xs text-text-dim">
           Pages include books finished this month and progress on books started this month.
         </p>

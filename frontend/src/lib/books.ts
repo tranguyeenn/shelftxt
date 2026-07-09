@@ -174,15 +174,19 @@ export function starRating(book: BookRecord): number | null {
 export function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   const text = String(value).trim();
-  let normalized = text;
+  const isoDate = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
   const ymdSlash = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(text);
   const mdySlash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
-  if (ymdSlash) {
-    normalized = `${ymdSlash[1]}-${ymdSlash[2].padStart(2, "0")}-${ymdSlash[3].padStart(2, "0")}`;
-  } else if (mdySlash) {
-    normalized = `${mdySlash[3]}-${mdySlash[1].padStart(2, "0")}-${mdySlash[2].padStart(2, "0")}`;
+  if (isoDate) {
+    return new Date(Number(isoDate[1]), Number(isoDate[2]) - 1, Number(isoDate[3]));
   }
-  const d = new Date(normalized);
+  if (ymdSlash) {
+    return new Date(Number(ymdSlash[1]), Number(ymdSlash[2]) - 1, Number(ymdSlash[3]));
+  }
+  if (mdySlash) {
+    return new Date(Number(mdySlash[3]), Number(mdySlash[1]) - 1, Number(mdySlash[2]));
+  }
+  const d = new Date(text);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -198,14 +202,18 @@ export function endDateValue(book: BookRecord): string | null {
   return book["End Date"] ?? book.end_date ?? null;
 }
 
-export function formatDisplayDate(value: string | null | undefined): string {
-  const date = parseDate(value);
+export function formatDisplayDateFromDate(date: Date | null | undefined): string {
   if (!date) return "—";
   return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric"
   });
+}
+
+export function formatDisplayDate(value: string | null | undefined): string {
+  const date = parseDate(value);
+  return formatDisplayDateFromDate(date);
 }
 
 export function daysSince(date: Date): number {
