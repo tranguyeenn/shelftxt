@@ -28,9 +28,9 @@ export const ACCENT_PRESETS: Record<
 > = {
   teal: {
     label: "Shelf green",
-    accent: "#2E5A3A",
-    accentDim: "#3C6F49",
-    accentMuted: "rgba(46, 90, 58, 0.28)"
+    accent: "#8EE88F",
+    accentDim: "#6FDC72",
+    accentMuted: "rgba(142, 232, 143, 0.14)"
   },
   blue: {
     label: "Sage",
@@ -153,6 +153,35 @@ export function recommendQuery(
     params.set("max_pages", String(filters.max_pages));
   }
   return `/recommend?${params.toString()}`;
+}
+
+export function recommendationSectionsQuery(
+  settings: UserSettings,
+  refresh = false,
+  excludeIds: string[] = [],
+  filters: RecommendationFilters = {}
+): string {
+  const params = new URLSearchParams({
+    style: settings.recommendationStyle,
+    limit: "10"
+  });
+  if (refresh) {
+    params.set("refresh", "true");
+  }
+  if (excludeIds.length > 0) {
+    params.set("exclude_ids", excludeIds.join(","));
+  }
+  const genre = filters.genre?.trim();
+  if (genre) {
+    params.set("genre", genre);
+  }
+  if (filters.min_pages !== undefined) {
+    params.set("min_pages", String(filters.min_pages));
+  }
+  if (filters.max_pages !== undefined) {
+    params.set("max_pages", String(filters.max_pages));
+  }
+  return `/recommendations/sections?${params.toString()}`;
 }
 
 export type RecommendationFilters = {

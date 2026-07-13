@@ -7,6 +7,7 @@ from backend.services.recommendation_builder import (
     _select_reason_anchor,
     build_recommendations,
 )
+from backend.services.recommendation import recommendation_sections_response
 
 
 class RecommendationBuilderTests(unittest.TestCase):
@@ -78,6 +79,52 @@ class RecommendationBuilderTests(unittest.TestCase):
         titles = {item["book"]["title"] for item in results}
         self.assertEqual(titles, {"TBR One", "TBR Two"})
         self.assertGreater(len(first["similar_books"]), 0)
+
+    def test_recommendation_sections_are_structured_and_deduplicated(self):
+        response = recommendation_sections_response(
+            [
+                {
+                    "recommended_book": {
+                        "id": "work-1",
+                        "title": "Candidate",
+                        "author": "Author",
+                        "cover_url": None,
+                    },
+                    "score": 0.91,
+                    "reason": "Shares mystery with a completed book.",
+                    "matched_genres": ["Mystery"],
+                    "matched_subjects": ["Detective"],
+                    "related_books": [
+                        {"id": "a", "title": "A", "author": "One"},
+                        {"id": "b", "title": "B", "author": "Two"},
+                        {"id": "c", "title": "C", "author": "Three"},
+                        {"id": "d", "title": "D", "author": "Four"},
+                    ],
+                },
+                {
+                    "recommended_book": {
+                        "id": "work-1",
+                        "title": "Candidate Duplicate",
+                        "author": "Author",
+                    },
+                    "score": 0.8,
+                },
+            ],
+            style="balanced",
+        )
+
+        self.assertEqual(response["style"], "balanced")
+        self.assertEqual(len(response["sections"]), 1)
+        items = response["sections"][0]["items"]
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item["work_id"], "work-1")
+        self.assertEqual(item["match_percentage"], 91)
+        self.assertEqual(item["match_label"], "Strong match")
+        self.assertEqual(item["explanation"]["primary_reason"], "Shares mystery with a completed book.")
+        self.assertEqual(len(item["explanation"]["related_books"]), 3)
+        self.assertEqual(item["explanation"]["shared_genres"], ["Mystery"])
+        self.assertEqual(item["explanation"]["shared_traits"], ["Detective"])
 
     def test_recommendation_reason_names_matched_genre_and_liked_book(self):
         df = pd.DataFrame(

@@ -11,18 +11,26 @@ from backend.db.models import Profile
 from backend.env import is_local_env
 from backend.schemas.books import (
     AddBook,
-    BookSearchResult,
+    BookDiscoveryResponse,
+    BookSearchResponse,
     BookProgressPatch,
     BooksPage,
     ClearLibraryRequest,
     ImportBooks,
     ImportResult,
+    MetadataFromUrlRequest,
+    MetadataFromUrlResponse,
+    ManualMetadataRequest,
+    ManualMetadataResponse,
     PageCountBackfillResponse,
     PageCountLookupResponse,
     PatchBook,
     PatchBookById,
+    WorkEditionsResponse,
 )
-from backend.services.book_search import search_books
+from backend.services.book_search import load_open_library_work_editions, search_books
+from backend.services.book_scraping.service import scrape_book_metadata
+from backend.services.metadata_discovery import discover_books, likely_manual_duplicates, normalize_manual_metadata
 from backend.services.postgres_books import (
     add_book_service,
     clear_library_service,
@@ -85,17 +93,62 @@ def export_books(
     )
 
 
-@router.get("/books/search", response_model=list[BookSearchResult])
+@router.get("/books/search", response_model=BookSearchResponse)
 def search_books_route(
     q: str = Query(..., min_length=1, max_length=300),
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
     try:
-        return search_books(db, current_user.id, q)
+        return search_books(db, current_user.id, q, include_diagnostics=is_local_env())
     except Exception:
         logger.exception("GET /books/search failed user_id=%s", current_user.id)
-        return []
+        return {
+            "status": "degraded",
+            "results": [],
+            "message": "Book metadata search is degraded. Please try again shortly.",
+            "diagnostics": None,
+        }
+
+
+@router.get("/books/search/extended", response_model=BookDiscoveryResponse)
+def extended_book_discovery_route(
+    q: str = Query(..., min_length=1, max_length=2000),
+    limit: int = Query(12, ge=1, le=25),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return discover_books(db, current_user.id, q, limit=limit)
+
+
+@router.post("/books/metadata/manual", response_model=ManualMetadataResponse)
+def normalize_manual_metadata_route(
+    body: ManualMetadataRequest,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    payload = body.model_dump()
+    return {
+        "metadata": normalize_manual_metadata(payload),
+        "duplicates": likely_manual_duplicates(db, current_user.id, payload),
+    }
+
+
+@router.post("/books/metadata/from-url", response_model=MetadataFromUrlResponse)
+async def metadata_from_url_route(
+    body: MetadataFromUrlRequest,
+    current_user: Profile = Depends(get_current_user),
+):
+    try:
+        result = await scrape_book_metadata(body.url, allow_unknown_domain=True)
+        return {
+            "status": result.status,
+            "metadata": result.metadata.to_search_result() if result.metadata else None,
+            "diagnostics": result.diagnostics.model_dump() if is_local_env() else None,
+        }
+    except Exception:
+        logger.exception("POST /books/metadata/from-url failed user_id=%s", current_user.id)
+        return {"status": "failed", "metadata": None, "diagnostics": None}
 
 
 @router.post("/books/clear")
@@ -159,6 +212,24 @@ def find_book_pages(
     current_user: Profile = Depends(get_current_user),
 ):
     return find_page_count_for_book_service(db, book_id, current_user.id)
+
+
+@router.get("/books/works/{work_id}/editions", response_model=WorkEditionsResponse)
+def get_work_editions(
+    work_id: str,
+    q: str | None = Query(None, max_length=300),
+    title: str | None = Query(None, max_length=300),
+    author: str | None = Query(None, max_length=300),
+    limit: int = Query(20, ge=1, le=50),
+    current_user: Profile = Depends(get_current_user),
+):
+    return load_open_library_work_editions(
+        work_id,
+        query=q or "",
+        title=title,
+        authors=[author] if author else None,
+        limit=limit,
+    )
 
 
 @router.get("/books/{book_id}")

@@ -9,8 +9,14 @@ import {
 import { Link } from "react-router-dom";
 
 import { BookLibraryCard } from "@/components/books/BookLibraryCard";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { BookCover } from "@/components/ui/BookCover";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { fetchAllLibraryBooks, parseDate, recordToApiBook } from "@/lib/books";
+import { readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
@@ -18,7 +24,8 @@ import { recommendQuery, type RecommendationFilters } from "@/lib/userSettings";
 import type { ApiBook, ReadingStatus, RecommendationItem } from "@/lib/types";
 
 type StatusFilter = "all" | ReadingStatus;
-type SortOption = "title" | "author" | "rating" | "finished" | "progress";
+type SortOption = "updated" | "added" | "title" | "author" | "rating" | "progress";
+type DisplayMode = "grid" | "list";
 
 const FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All Books" },
@@ -27,6 +34,31 @@ const FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
   { value: "not_started", label: "Plan To Read" },
   { value: "dnf", label: "DNF" }
 ];
+
+const DISPLAY_MODE_KEY = "shelftxt.library.displayMode";
+
+function loadDisplayMode(): DisplayMode {
+  if (typeof window === "undefined") return "grid";
+  return window.localStorage.getItem(DISPLAY_MODE_KEY) === "list" ? "list" : "grid";
+}
+
+function searchableText(book: ApiBook): string {
+  return [
+    book.title,
+    book.author,
+    book.id,
+    ...(book.genres ?? []),
+    ...(book.subjects ?? [])
+  ].join(" ").toLowerCase();
+}
+
+function activityTime(book: ApiBook): number {
+  return (
+    parseDate(book.end_date)?.getTime() ??
+    parseDate(book.start_date)?.getTime() ??
+    0
+  );
+}
 
 export function LibraryPage() {
   const {
@@ -40,7 +72,8 @@ export function LibraryPage() {
   );
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortOption>("title");
+  const [sort, setSort] = useState<SortOption>("updated");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(() => loadDisplayMode());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterError, setFilterError] = useState("");
@@ -100,16 +133,14 @@ export function LibraryPage() {
       const matchesFilter = filter === "all" ? true : book.status === filter;
       const matchesSearch =
         !query ||
-        book.title.toLowerCase().includes(query) ||
-        book.author.toLowerCase().includes(query);
+        searchableText(book).includes(query);
       return matchesFilter && matchesSearch;
     });
     return [...matching].sort((a, b) => {
+      if (sort === "updated") return activityTime(b) - activityTime(a) || a.title.localeCompare(b.title);
+      if (sort === "added") return b.id.localeCompare(a.id) || a.title.localeCompare(b.title);
       if (sort === "author") return a.author.localeCompare(b.author) || a.title.localeCompare(b.title);
       if (sort === "rating") return (b.rating ?? -1) - (a.rating ?? -1) || a.title.localeCompare(b.title);
-      if (sort === "finished") {
-        return (parseDate(b.end_date)?.getTime() ?? 0) - (parseDate(a.end_date)?.getTime() ?? 0);
-      }
       if (sort === "progress") return b.progress_pct - a.progress_pct || a.title.localeCompare(b.title);
       return a.title.localeCompare(b.title);
     });
@@ -161,32 +192,31 @@ export function LibraryPage() {
     setAppliedFilters({});
   }
 
+  function changeDisplayMode(next: DisplayMode) {
+    setDisplayMode(next);
+    window.localStorage.setItem(DISPLAY_MODE_KEY, next);
+  }
+
   return (
-    <div className="grid min-h-[calc(100vh-5rem)] gap-8 bg-[#0B0B0D] font-['Inter',system-ui,sans-serif] text-[#F5F1EA] shadow-[0_0_0_100vmax_#0B0B0D] [clip-path:inset(0_-100vmax)] lg:gap-10">
-      <header>
-        <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-[#C77D92]">
-          Your reading collection
-        </p>
-        <h1 className="font-['Cormorant_Garamond',Georgia,serif] text-5xl font-semibold leading-none tracking-[-0.025em] text-[#F5F1EA] sm:text-[56px]">
-          My Library
-        </h1>
-        <p className="mt-3 max-w-2xl text-[15px] leading-6 text-[#A9A39A]">
-          {isReadOnlyDemo
+    <div className="grid gap-7">
+      <PageHeader
+        eyebrow="Library"
+        title="My Library"
+        subtitle={
+          isReadOnlyDemo
             ? "Browse your books and reading progress in this read-only collection."
-            : `${books.length} book${books.length === 1 ? "" : "s"} collected. Find your next chapter or revisit an old favorite.`}
-        </p>
-      </header>
+            : `${books.length} book${books.length === 1 ? "" : "s"} collected.`
+        }
+        actions={!isReadOnlyDemo ? <Button variant="primary" onClick={() => window.location.assign("/app/add")}>Add Book</Button> : null}
+      />
 
       {error ? (
-        <div
-          className="rounded-[14px] border border-[#C96A6A]/30 bg-[#C96A6A]/10 px-4 py-3 text-sm text-[#C96A6A]"
-          role="alert"
-        >
+        <div className="rounded-lg border border-danger/30 bg-danger-muted px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </div>
       ) : null}
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto_auto_auto]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_auto_auto_auto_auto_auto]">
         <label className="relative block min-w-0">
           <span className="sr-only">Search library</span>
           <svg
@@ -194,7 +224,7 @@ export function LibraryPage() {
             fill="none"
             stroke="currentColor"
             strokeWidth="1.8"
-            className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7B756D]"
+            className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-text-dim"
             aria-hidden
           >
             <circle cx="11" cy="11" r="7" />
@@ -205,8 +235,8 @@ export function LibraryPage() {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by title or author"
-            className="h-12 w-full rounded-[14px] border border-white/[0.08] bg-[#121214] pl-11 pr-4 text-sm text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+            placeholder="Search title, author, ISBN, genre"
+            className="h-12 w-full rounded-lg border border-border bg-bg-elevated pl-11 pr-4 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent/70"
           />
         </label>
 
@@ -215,7 +245,7 @@ export function LibraryPage() {
           <select
             value={filter}
             onChange={(event) => setFilter(event.target.value as StatusFilter)}
-            className="h-12 w-full cursor-pointer appearance-none rounded-[14px] border border-white/[0.08] bg-[#121214] px-4 pr-10 text-sm font-medium text-[#A9A39A] outline-none hover:border-white/15 focus:border-[#C77D92]/70 xl:w-auto"
+            className="h-12 w-full cursor-pointer appearance-none rounded-lg border border-border bg-bg-elevated px-4 pr-10 text-sm font-medium text-text-muted outline-none hover:border-white/15 focus:border-accent/70 xl:w-auto"
           >
             {FILTERS.map((item) => (
               <option key={item.value} value={item.value}>Filter: {item.label}</option>
@@ -229,22 +259,40 @@ export function LibraryPage() {
           <select
             value={sort}
             onChange={(event) => setSort(event.target.value as SortOption)}
-            className="h-12 w-full cursor-pointer appearance-none rounded-[14px] border border-white/[0.08] bg-[#121214] px-4 pr-10 text-sm font-medium text-[#A9A39A] outline-none hover:border-white/15 focus:border-[#C77D92]/70 xl:w-auto"
+            className="h-12 w-full cursor-pointer appearance-none rounded-lg border border-border bg-bg-elevated px-4 pr-10 text-sm font-medium text-text-muted outline-none hover:border-white/15 focus:border-accent/70 xl:w-auto"
           >
+            <option value="updated">Sort: Recently Updated</option>
+            <option value="added">Sort: Recently Added</option>
             <option value="title">Sort: Title</option>
             <option value="author">Sort: Author</option>
             <option value="rating">Sort: Rating</option>
-            <option value="finished">Sort: Recently Finished</option>
             <option value="progress">Sort: Progress</option>
           </select>
           <Chevron />
         </label>
 
+        <div className="grid h-12 grid-cols-2 rounded-lg border border-border bg-bg-elevated p-1">
+          <button
+            type="button"
+            onClick={() => changeDisplayMode("grid")}
+            className={`rounded-md px-3 text-sm ${displayMode === "grid" ? "bg-accent text-bg" : "text-text-muted hover:text-text"}`}
+          >
+            Grid
+          </button>
+          <button
+            type="button"
+            onClick={() => changeDisplayMode("list")}
+            className={`rounded-md px-3 text-sm ${displayMode === "list" ? "bg-accent text-bg" : "text-text-muted hover:text-text"}`}
+          >
+            List
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={() => void load()}
           disabled={loading}
-          className="h-12 cursor-pointer rounded-[14px] border border-white/[0.08] bg-[#121214] px-4 text-sm font-medium text-[#A9A39A] transition-colors hover:border-white/15 hover:text-[#F5F1EA] disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-12 cursor-pointer rounded-lg border border-border bg-bg-elevated px-4 text-sm font-medium text-text-muted transition-colors hover:border-white/15 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Refreshing…" : "Refresh"}
         </button>
@@ -252,7 +300,7 @@ export function LibraryPage() {
         {!isReadOnlyDemo ? (
           <Link
             to="/app/add"
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-[14px] bg-[#C77D92] px-5 text-sm font-semibold text-[#0B0B0D] transition-colors hover:bg-[#D88FA4]"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-bg transition-colors hover:bg-accent-dim"
           >
             <span className="text-lg leading-none">+</span>
             Add Book
@@ -261,64 +309,64 @@ export function LibraryPage() {
       </div>
 
       <form
-        className="grid gap-3 rounded-[20px] border border-white/[0.08] bg-[#121214] p-4 sm:grid-cols-3 lg:grid-cols-[minmax(180px,1fr)_160px_160px_auto_auto]"
+        className="grid gap-3 rounded-lg border border-border bg-surface p-4 sm:grid-cols-3 lg:grid-cols-[minmax(180px,1fr)_160px_160px_auto_auto]"
         onSubmit={applyFilters}
         noValidate
       >
         <label className="grid gap-1.5 text-sm">
-          <span className="text-[#A9A39A]">Genre</span>
+          <span className="text-text-muted">Genre</span>
           <input
             type="text"
             value={genre}
             onChange={(event) => setGenre(event.target.value)}
             placeholder="e.g. romance"
-            className="rounded-[14px] border border-white/[0.08] bg-[#121214] px-3 py-2 text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+            className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-text outline-none placeholder:text-text-dim focus:border-accent/70"
           />
         </label>
         <label className="grid gap-1.5 text-sm">
-          <span className="text-[#A9A39A]">Min pages</span>
+          <span className="text-text-muted">Min pages</span>
           <input
             type="number"
             min="0"
             value={minPages}
             onChange={(event) => setMinPages(event.target.value)}
             placeholder="0"
-            className="rounded-[14px] border border-white/[0.08] bg-[#121214] px-3 py-2 text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+            className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-text outline-none placeholder:text-text-dim focus:border-accent/70"
           />
         </label>
         <label className="grid gap-1.5 text-sm">
-          <span className="text-[#A9A39A]">Max pages</span>
+          <span className="text-text-muted">Max pages</span>
           <input
             type="number"
             min="0"
             value={maxPages}
             onChange={(event) => setMaxPages(event.target.value)}
             placeholder="Any"
-            className="rounded-[14px] border border-white/[0.08] bg-[#121214] px-3 py-2 text-[#F5F1EA] outline-none placeholder:text-[#7B756D] focus:border-[#C77D92]/70"
+            className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-text outline-none placeholder:text-text-dim focus:border-accent/70"
           />
         </label>
         <button
           type="submit"
           disabled={loading}
-          className="self-end rounded-[14px] bg-[#C77D92] px-4 py-2 text-sm font-semibold text-[#0B0B0D] transition-colors hover:bg-[#D88FA4] disabled:cursor-not-allowed disabled:opacity-50"
+          className="self-end rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Applying…" : "Apply filters"}
         </button>
         <button
           type="button"
           onClick={clearFilters}
-          className="self-end rounded-[14px] border border-white/[0.08] bg-[#121214] px-4 py-2 text-sm font-medium text-[#A9A39A] transition-colors hover:border-white/15 hover:text-[#F5F1EA]"
+          className="self-end rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm font-medium text-text-muted transition-colors hover:border-white/15 hover:text-text"
         >
           Clear
         </button>
         {filterError ? (
-          <p className="text-xs text-[#C96A6A] sm:col-span-3 lg:col-span-5" role="alert">
+          <p className="text-xs text-danger sm:col-span-3 lg:col-span-5" role="alert">
             {filterError}
           </p>
         ) : null}
       </form>
 
-      <nav className="flex gap-7 overflow-x-auto border-b border-white/[0.08]" aria-label="Library filters">
+      <nav className="flex gap-7 overflow-x-auto border-b border-border-subtle" aria-label="Library filters">
         {FILTERS.map(({ value, label }) => (
           <button
             key={value}
@@ -327,8 +375,8 @@ export function LibraryPage() {
             className={[
               "relative shrink-0 cursor-pointer pb-3 text-[13px] font-medium transition-colors after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:rounded-full",
               filter === value
-                ? "text-[#F5F1EA] after:bg-[#C77D92]"
-                : "text-[#7B756D] after:bg-transparent hover:text-[#A9A39A]"
+                ? "text-text after:bg-accent"
+                : "text-text-dim after:bg-transparent hover:text-text-muted"
             ].join(" ")}
           >
             {label}
@@ -336,7 +384,7 @@ export function LibraryPage() {
         ))}
       </nav>
 
-      {loading ? <p className="text-sm text-[#A9A39A]">Loading library…</p> : null}
+      {loading ? <p className="text-sm text-text-muted">Loading library...</p> : null}
 
       {!loading && !error && filtered.length === 0 ? (
         <EmptyState
@@ -345,17 +393,25 @@ export function LibraryPage() {
         />
       ) : null}
 
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((book) => (
-          <BookLibraryCard
-            key={book.id}
-            book={book}
-            onUpdated={handleBookUpdated}
-            onDeleted={handleBookDeleted}
-            recommendationScore={recommendationScores.get(book.id)}
-          />
-        ))}
-      </div>
+      {displayMode === "grid" ? (
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {filtered.map((book) => (
+            <BookLibraryCard
+              key={book.id}
+              book={book}
+              onUpdated={handleBookUpdated}
+              onDeleted={handleBookDeleted}
+              recommendationScore={recommendationScores.get(book.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {filtered.map((book) => (
+            <LibraryListItem key={book.id} book={book} recommendationScore={recommendationScores.get(book.id)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -367,10 +423,40 @@ function Chevron() {
       fill="none"
       stroke="currentColor"
       strokeWidth="1.5"
-      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7B756D]"
+      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-dim"
       aria-hidden
     >
       <path d="m6 8 4 4 4-4" />
     </svg>
+  );
+}
+
+function LibraryListItem({ book, recommendationScore }: { book: ApiBook; recommendationScore?: number }) {
+  return (
+    <Card className="grid gap-3 sm:grid-cols-[56px_minmax(0,1fr)_180px] sm:items-center">
+      <BookCover title={book.title} coverUrl={book.cover_url} className="w-14 rounded-md" />
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link className="line-clamp-1 font-semibold text-text hover:text-accent" to={`/app/book/${encodeURIComponent(book.id)}`}>
+            {book.title}
+          </Link>
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+            {statusLabel(book.status)}
+          </span>
+        </div>
+        <p className="mt-1 truncate text-sm text-text-muted">{book.author}</p>
+        <p className="mt-1 text-xs text-text-dim">
+          {book.id ? `Edition ID: ${book.id}` : "Edition ID unavailable"}
+          {book.first_publish_year ? ` · ${book.first_publish_year}` : ""}
+        </p>
+      </div>
+      <div className="grid gap-2">
+        <div className="flex items-center justify-between gap-3 text-xs text-text-muted">
+          <span>{readingProgressLabel(book)}</span>
+          {recommendationScore !== undefined ? <span>{Math.round(recommendationScore * 100)}% match</span> : null}
+        </div>
+        <ProgressBar value={book.progress_pct} />
+      </div>
+    </Card>
   );
 }

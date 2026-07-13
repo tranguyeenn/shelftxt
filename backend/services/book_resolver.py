@@ -201,19 +201,18 @@ def merge_canonical_candidate(primary: BookCandidate, others: list[BookCandidate
     return CanonicalBook(**data)
 
 
-def _provider_fetchers() -> tuple[Callable[[str], list[dict]], Callable[[str], list[dict]]]:
-    from app.integrations.google_books import search_candidates as google_books
+def _provider_fetchers() -> tuple[Callable[[str], list[dict]], ...]:
     from app.integrations.openlibrary import search_candidates as open_library
 
-    return open_library, google_books
+    return (open_library,)
 
 
 def _resolve_uncached(query: str, author: str | None, isbn: str | None) -> CanonicalBook | None:
-    open_library, google_books = _provider_fetchers()
+    provider_fetchers = _provider_fetchers()
     provider_results: list[dict] = []
-    executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="book-resolver")
+    executor = ThreadPoolExecutor(max_workers=max(1, len(provider_fetchers)), thread_name_prefix="book-resolver")
     try:
-        futures = [executor.submit(open_library, isbn or query), executor.submit(google_books, isbn or query)]
+        futures = [executor.submit(fetcher, isbn or query) for fetcher in provider_fetchers]
         for future in futures:
             try:
                 provider_results.extend(future.result(timeout=PROVIDER_TIMEOUT_SECONDS) or [])

@@ -1,6 +1,6 @@
 import unittest
 from contextlib import ExitStack
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, AsyncMock, patch
 from uuid import UUID
 from datetime import date, datetime, timedelta, timezone
 
@@ -164,7 +164,6 @@ class ApiTests(unittest.TestCase):
             "app.integrations.librarything.fetch_related_isbns",
             "app.integrations.librarything.fetch_work_by_title",
             "backend.services.book_search._open_library_results",
-            "backend.services.book_search._google_books_results",
             "backend.services.book_resolver.resolve_book",
             "backend.services.book_resolver.librarything.fetch_related_isbns",
         ):
@@ -375,20 +374,65 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["username"], "test")
 
     @patch("backend.services.book_resolver.librarything.fetch_related_isbns")
-    @patch("backend.services.book_search._google_books_results", return_value=[])
     @patch("backend.services.book_search._open_library_results", return_value=[])
     def test_add_book_search_is_allowed_to_call_metadata_providers(
         self,
         mock_open_library,
-        mock_google_books,
         mock_librarything,
     ):
         response = self.client.get("/books/search?q=space%20politics")
 
         self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn(body["status"], {"empty", "ok"})
+        self.assertEqual(body["results"], [])
+        self.assertIsInstance(body["diagnostics"], list)
         mock_open_library.assert_called_once_with("space politics")
-        mock_google_books.assert_called_once_with("space politics")
         mock_librarything.assert_not_called()
+
+    @patch("backend.services.book_search._open_library_results", side_effect=TimeoutError("down"))
+    @patch("app.integrations.librarything.fetch_work_by_title", side_effect=TimeoutError("down"))
+    def test_add_book_search_returns_degraded_state_when_providers_fail(
+        self,
+        _mock_librarything,
+        _mock_open_library,
+    ):
+        response = self.client.get("/books/search?q=Dune")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "degraded")
+        self.assertEqual(body["results"], [])
+        self.assertIn("providers failed", body["message"])
+        self.assertIsInstance(body["diagnostics"], list)
+
+    @patch("backend.routes.books.scrape_book_metadata", new_callable=AsyncMock)
+    def test_metadata_from_url_returns_scraped_metadata(self, mock_scrape):
+        from backend.services.book_scraping.models import ScrapeDiagnostic, ScrapeResult, ScrapedBookMetadata
+
+        mock_scrape.return_value = ScrapeResult(
+            status="success",
+            metadata=ScrapedBookMetadata(
+                title="Dune",
+                authors=["Frank Herbert"],
+                isbn_uid="9780441172719",
+                source_url="https://www.penguinrandomhouse.com/books/352036/dune/",
+                source_domain="penguinrandomhouse.com",
+                confidence_score=0.95,
+            ),
+            diagnostics=ScrapeDiagnostic(domain="penguinrandomhouse.com", outcome="success"),
+        )
+
+        response = self.client.post(
+            "/books/metadata/from-url",
+            json={"url": "https://www.penguinrandomhouse.com/books/352036/dune/"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "success")
+        self.assertEqual(body["metadata"]["title"], "Dune")
+        self.assertIsInstance(body["diagnostics"], dict)
 
     def test_core_routes_work_while_metadata_providers_are_down(self):
         _seed_book(

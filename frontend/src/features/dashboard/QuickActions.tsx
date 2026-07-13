@@ -17,10 +17,10 @@ export function QuickActions() {
           </Link>
         ) : null}
         <Link
-          to="/app/ranking"
+          to="/app/discover"
           className={`${actionLink} border border-accent/70 bg-transparent text-text hover:bg-accent-muted`}
         >
-          Open TBR ranking
+          Open Discover
         </Link>
         <Link
           to="/app/insights"

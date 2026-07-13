@@ -42,7 +42,8 @@ export function App() {
                 <Route index element={<DashboardPage />} />
                 <Route path="home" element={<Navigate to="/app" replace />} />
                 <Route path="library" element={<LibraryPage />} />
-                <Route path="ranking" element={<RankingPage />} />
+                <Route path="discover" element={<RankingPage />} />
+                <Route path="ranking" element={<Navigate to="/app/discover" replace />} />
                 <Route path="book/:id" element={<BookDetailPage />} />
                 <Route path="add" element={isReadOnlyDemo ? <Navigate to="/app" replace /> : <AddBookPage />} />
                 <Route path="insights" element={<InsightsPage />} />
@@ -52,7 +53,8 @@ export function App() {
                 <Route path="*" element={<Navigate to="/app" replace />} />
               </Route>
               <Route path="library" element={<Navigate to="/app/library" replace />} />
-              <Route path="ranking" element={<Navigate to="/app/ranking" replace />} />
+              <Route path="discover" element={<Navigate to="/app/discover" replace />} />
+              <Route path="ranking" element={<Navigate to="/app/discover" replace />} />
               <Route path="book/:id" element={<LegacyBookRedirect />} />
               <Route path="add" element={<Navigate to="/app/add" replace />} />
               <Route path="insights" element={<Navigate to="/app/insights" replace />} />

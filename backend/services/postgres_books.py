@@ -311,6 +311,21 @@ def add_book_service(db: Session, book, user_id: UUID):
         if related_isbns
         else None
     )
+    manual_metadata = {
+        key: value
+        for key, value in {
+            "publisher": getattr(book, "publisher", None),
+            "publish_date": getattr(book, "publish_date", None),
+            "language": getattr(book, "language", None),
+            "edition_type": getattr(book, "edition_type", None),
+            "original_title": getattr(book, "original_title", None),
+            "notes": getattr(book, "notes", None),
+        }.items()
+        if value not in (None, "", [])
+    }
+    book_metadata = librarything_metadata or {}
+    if manual_metadata:
+        book_metadata["manual"] = manual_metadata
     create_book(
         db,
         {
@@ -341,7 +356,8 @@ def add_book_service(db: Session, book, user_id: UUID):
             else None,
             "work_key": getattr(book, "work_key", None),
             "edition_key": getattr(book, "edition_key", None),
-            "book_metadata": librarything_metadata,
+            "language": normalize_language(getattr(book, "language", None)) if getattr(book, "language", None) else None,
+            "book_metadata": book_metadata or None,
         },
         user_id,
     )

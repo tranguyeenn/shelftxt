@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { Wordmark } from "@/components/ui/Wordmark";
@@ -6,17 +6,16 @@ import { Wordmark } from "@/components/ui/Wordmark";
 const navItems = [
   { to: "/app", label: "Home", icon: DashboardIcon },
   { to: "/app/library", label: "Library", icon: LibraryIcon },
-  { to: "/app/ranking", label: "Recommendations", icon: RankingIcon },
+  { to: "/app/discover", label: "Discover", icon: RankingIcon },
   { to: "/app/insights", label: "Stats", icon: InsightsIcon },
-  { to: "/app/profile", label: "Profile", icon: ProfileIcon },
-  { to: "/app/settings", label: "Settings", icon: SettingsIcon }
+  { to: "/app/profile", label: "Profile", icon: ProfileIcon }
 ] as const;
 
 function linkClass({ isActive }: { isActive: boolean }) {
   return [
     "flex items-center justify-center rounded-lg px-3 py-2.5 text-sm transition-colors md:w-full md:justify-start md:gap-3",
     isActive
-      ? "border border-accent/25 bg-accent-muted text-accent"
+      ? "border border-accent/30 bg-accent-muted text-accent shadow-glow"
       : "text-text-muted hover:bg-white/[0.05] hover:text-text"
   ].join(" ");
 }
@@ -25,13 +24,13 @@ export function Sidebar() {
   const { logout, user } = useAuth();
 
   return (
-    <aside className="md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col md:border-r md:border-border md:bg-bg-elevated">
+    <aside className="md:sticky md:top-0 md:flex md:h-screen md:w-64 md:shrink-0 md:flex-col md:border-r md:border-border md:bg-bg-elevated/95 md:backdrop-blur">
       <div className="hidden border-b border-border-subtle px-4 py-5 md:block">
         <Wordmark className="text-base" />
-        <p className="mt-2 text-sm text-text-muted">stop choosing. start reading.</p>
+        <p className="mt-2 text-sm text-text-muted">track the book in front of you.</p>
       </div>
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-border bg-bg-elevated/95 px-1 py-2 backdrop-blur md:static md:flex md:flex-1 md:grid-cols-none md:flex-col md:gap-1 md:border-t-0 md:bg-transparent md:p-3"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-bg-elevated/95 px-1 py-2 backdrop-blur md:static md:flex md:flex-1 md:grid-cols-none md:flex-col md:gap-1 md:border-t-0 md:bg-transparent md:p-3"
         aria-label="Main"
       >
         {navItems.map(({ to, label, icon: Icon }) => (
@@ -50,7 +49,9 @@ export function Sidebar() {
         >
           Log out
         </button>
-        <p className="mt-3 text-[10px] leading-relaxed text-text-dim">v0.2.0 · focused reading</p>
+        <Link className="mt-3 block text-xs text-text-dim transition-colors hover:text-text" to="/app/settings">
+          Settings
+        </Link>
       </div>
     </aside>
   );
@@ -99,15 +100,6 @@ function InsightsIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
       <path d="M3 3v18h18" />
       <path d="M7 16l4-5 4 3 5-7" />
-    </svg>
-  );
-}
-
-function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-      <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
     </svg>
   );
 }

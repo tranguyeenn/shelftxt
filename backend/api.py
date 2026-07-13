@@ -12,13 +12,16 @@ from starlette.responses import JSONResponse
 
 from backend.demo_mode import is_demo_read_only
 from backend.env import load_backend_env, log_local_env_presence
+from backend.logging_config import configure_development_logging
 from backend.routes.books import router as books_router
 from backend.routes.health import router as health_router
 from backend.routes.metadata import router as metadata_router
 from backend.routes.profile import router as profile_router
 from backend.routes.recommendation import router as recommendations_router
+from backend.routes.stats import router as stats_router
 
 load_backend_env()
+configure_development_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -194,3 +197,5 @@ app.include_router(metadata_router)
 app.include_router(profile_router)
 
 app.include_router(recommendations_router)
+
+app.include_router(stats_router)

@@ -29,6 +29,7 @@ import {
   startMetadataGeneration,
   type MetadataStatus
 } from "@/lib/metadata";
+import { fetchReadingInsights, type ReadingInsightsResponse } from "@/lib/readingInsights";
 import type { RecommendationItem } from "@/lib/types";
 
 function PatternCard({
@@ -46,11 +47,83 @@ function PatternCard({
   );
 }
 
+const insightIconClass =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/25 bg-accent-muted text-xs font-semibold text-accent";
+
+function insightIcon(type: string): string {
+  const labels: Record<string, string> = {
+    pages_per_day: "PD",
+    completed_this_year: "YR",
+    average_completion_time: "FT",
+    top_genre: "GN",
+    top_author: "AU",
+    average_pages: "PG",
+    longest_book: "LG",
+    shortest_book: "SH",
+    highest_rated_genre: "★",
+    completion_rate: "%"
+  };
+  return labels[type] ?? "IN";
+}
+
+function ReadingInsightsCard({ insights }: { insights: ReadingInsightsResponse | null }) {
+  const completed = insights?.completed_books ?? 0;
+  const threshold = insights?.unlock_threshold ?? 3;
+  const progress = Math.min(100, Math.round((completed / threshold) * 100));
+
+  return (
+    <Card className="grid gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-text">Reading Insights</h2>
+          <p className="mt-1 text-sm text-accent">
+            {insights?.profile_label ?? "Building Reading Profile"}
+          </p>
+        </div>
+        <span className="rounded-full border border-border bg-bg-elevated px-2 py-1 text-xs text-text-muted">
+          Real activity
+        </span>
+      </div>
+
+      {!insights || insights.status === "insufficient_activity" ? (
+        <div className="grid gap-3">
+          <p className="text-sm text-text-muted">
+            {insights?.message ?? "Finish a few books to unlock personalized reading insights."}
+          </p>
+          <div>
+            <div className="mb-2 flex justify-between gap-3 text-xs text-text-dim">
+              <span>{completed} of {threshold} completed books needed</span>
+              <span>{progress}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-bg-elevated">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {insights.insights.map((item) => (
+            <div key={`${item.type}-${item.label}`} className="flex min-w-0 gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-3">
+              <span className={insightIconClass} aria-hidden>{insightIcon(item.type)}</span>
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase text-text-dim">{item.label}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-text">{item.value}</p>
+                {item.detail ? <p className="mt-0.5 truncate text-xs text-text-muted">{item.detail}</p> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function InsightsPage() {
   const { settings } = useUserSettings();
   const [library, setLibrary] = useState<BookRecord[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [metadataStatus, setMetadataStatus] = useState<MetadataStatus | null>(null);
+  const [readingInsights, setReadingInsights] = useState<ReadingInsightsResponse | null>(null);
   const [metadataStarting, setMetadataStarting] = useState(false);
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [loading, setLoading] = useState(true);
@@ -60,14 +133,16 @@ export function InsightsPage() {
     setLoading(true);
     setError("");
     try {
-      const [books, recs, metadata] = await Promise.all([
+      const [books, recs, metadata, insights] = await Promise.all([
         fetchAllLibraryBooks(),
         fetchJson<RecommendationItem[]>(recommendQuery(settings)),
-        fetchMetadataStatus()
+        fetchMetadataStatus(),
+        fetchReadingInsights()
       ]);
       setLibrary(books);
       setRecommendations(Array.isArray(recs) ? recs : []);
       setMetadataStatus(metadata);
+      setReadingInsights(insights);
       if (metadata.total_books === 0) {
         setMetadataStarting(false);
       }
@@ -75,6 +150,7 @@ export function InsightsPage() {
       setLibrary([]);
       setRecommendations([]);
       setMetadataStatus(null);
+      setReadingInsights(null);
       setError(err instanceof Error ? err.message : "Failed to load insights");
     } finally {
       setLoading(false);
@@ -195,13 +271,7 @@ export function InsightsPage() {
               </div>
               <MonthlyBooksChart data={monthlyCompletions} />
             </Card>
-            <Card className="grid gap-4">
-              <h2 className="text-sm font-medium text-text">reading moods</h2>
-              <EmptyState
-                title="No reading mood data yet."
-                description="Mood stats will appear when books have mood metadata."
-              />
-            </Card>
+            <ReadingInsightsCard insights={readingInsights} />
           </section>
 
           <section className="grid gap-3">

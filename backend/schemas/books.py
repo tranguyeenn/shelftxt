@@ -37,6 +37,12 @@ class AddBook(ReadingDateRangeMixin):
     work_key: str | None = None
     edition_key: str | None = None
     related_isbns: list[str] = Field(default_factory=list)
+    publisher: str | None = None
+    publish_date: str | None = None
+    language: str | None = None
+    edition_type: Literal["original", "translation", "illustrated", "adaptation", "unknown"] = "unknown"
+    original_title: str | None = None
+    notes: str | None = None
 
 
 class BookSearchResult(BaseModel):
@@ -56,6 +62,102 @@ class BookSearchResult(BaseModel):
     publish_date: str | None = None
     related_isbns: list[str]
     already_in_library: bool
+    confidence_score: float = Field(default=0.0, ge=0, le=1)
+    canonical_title: str | None = None
+    canonical_author: str | None = None
+    edition_count: int = 1
+    edition_type: Literal["original", "translation", "illustrated", "adaptation", "unknown"] = "unknown"
+    primary_edition: dict[str, Any] | None = None
+    editions: list[dict[str, Any]] = Field(default_factory=list)
+    editions_loaded: bool = False
+
+
+class BookSearchProviderDiagnostic(BaseModel):
+    source: str
+    success: bool
+    result_count: int = 0
+    latency_ms: float = 0.0
+    outcome: str
+    http_status: int | None = None
+    request_url: str | None = None
+    response_body: str | None = None
+    error_type: str | None = None
+
+
+class BookDiscoveryProviderDiagnostic(BaseModel):
+    provider: str
+    outcome: str
+    request_attempted: bool
+    result_count: int = 0
+    latency_ms: float = 0.0
+    http_status: int | None = None
+    error_type: str | None = None
+    transient: bool = False
+    parser_version: str | None = None
+
+
+class BookSearchResponse(BaseModel):
+    status: Literal["ok", "empty", "degraded"]
+    results: list[BookSearchResult]
+    message: str | None = None
+    diagnostics: list[BookSearchProviderDiagnostic] | None = None
+
+
+class BookDiscoveryResponse(BaseModel):
+    status: Literal["ok", "empty", "degraded"]
+    results: list[BookSearchResult]
+    message: str | None = None
+    diagnostics: list[BookDiscoveryProviderDiagnostic]
+
+
+class ManualMetadataDuplicate(BaseModel):
+    id: str
+    title: str
+    author: str
+    reason: str
+
+
+class ManualMetadataRequest(BaseModel):
+    title: str = Field(min_length=1)
+    authors: list[str] = Field(default_factory=list)
+    isbn_10: str | None = None
+    isbn_13: str | None = None
+    cover_url: str | None = None
+    publisher: str | None = None
+    publication_date: str | None = None
+    publication_year: int | None = Field(default=None, gt=0)
+    page_count: int | None = Field(default=None, gt=0)
+    language: str | None = None
+    edition_type: Literal["original", "translation", "illustrated", "adaptation", "unknown"] = "unknown"
+    original_title: str | None = None
+    notes: str | None = None
+    work_id: str | None = None
+    edition_id: str | None = None
+
+
+class ManualMetadataResponse(BaseModel):
+    metadata: dict[str, Any]
+    duplicates: list[ManualMetadataDuplicate]
+
+
+class WorkEditionsResponse(BaseModel):
+    status: Literal["ok", "empty"]
+    work_id: str
+    edition_count: int = Field(ge=0)
+    editions_loaded: bool
+    primary_edition: dict[str, Any] | None = None
+    editions: list[dict[str, Any]] = Field(default_factory=list)
+    message: str | None = None
+
+
+class MetadataFromUrlRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class MetadataFromUrlResponse(BaseModel):
+    status: Literal["success", "empty", "blocked", "failed"]
+    metadata: dict[str, Any] | None = None
+    diagnostics: dict[str, Any] | None = None
 
 
 class PatchBook(ReadingDateRangeMixin):

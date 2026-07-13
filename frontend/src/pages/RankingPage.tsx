@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
+import { BookCover } from "@/components/ui/BookCover";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { RecommendationsList } from "@/features/recommendations/RecommendationsList";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
-import { recommendQuery, type RecommendationFilters } from "@/lib/userSettings";
-import type { RecommendationItem } from "@/lib/types";
+import { recommendationSectionsQuery, type RecommendationFilters } from "@/lib/userSettings";
+import type { RecommendationSection, RecommendationSectionItem, RecommendationSectionsResponse } from "@/lib/types";
 
 export function RankingPage() {
   const {
@@ -15,7 +16,7 @@ export function RankingPage() {
     recommendationFilters: appliedFilters,
     setRecommendationFilters: setAppliedFilters
   } = useUserSettings();
-  const [items, setItems] = useState<RecommendationItem[]>([]);
+  const [sections, setSections] = useState<RecommendationSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filterError, setFilterError] = useState("");
@@ -35,13 +36,13 @@ export function RankingPage() {
     setLoading(true);
     setError("");
     try {
-      const ranked = await fetchJson<RecommendationItem[]>(
-        recommendQuery(settings, refresh, excludeIds, filters),
+      const ranked = await fetchJson<RecommendationSectionsResponse>(
+        recommendationSectionsQuery(settings, refresh, excludeIds, filters),
         { skipClientCache: refresh }
       );
-      setItems(Array.isArray(ranked) ? ranked : []);
+      setSections(Array.isArray(ranked.sections) ? ranked.sections : []);
     } catch (err) {
-      setItems([]);
+      setSections([]);
       setError(err instanceof Error ? err.message : "Failed to load recommendations");
     } finally {
       setLoading(false);
@@ -53,7 +54,7 @@ export function RankingPage() {
   }, [load]);
 
   function refreshRecommendations() {
-    const excludeIds = items.map((item) => (item.recommended_book ?? item.book).id).filter(Boolean);
+    const excludeIds = sections.flatMap((section) => section.items.map((item) => item.work_id)).filter(Boolean);
     void load(true, excludeIds, appliedFilters);
   }
 
@@ -87,8 +88,9 @@ export function RankingPage() {
   return (
     <div className="grid gap-6">
       <PageHeader
-        title="Recommendations"
-        subtitle="Ranked books from your own shelf patterns."
+        eyebrow="Discover"
+        title="For You"
+        subtitle="Recommendation sections backed by your ShelfTXT ranking service."
         actions={
           <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
             {loading ? "Refreshing…" : "Refresh"}
@@ -154,24 +156,85 @@ export function RankingPage() {
 
       {loading ? <p className="text-sm text-text-muted">Loading recommendations…</p> : null}
 
-      <div className="border-b border-border-subtle pb-2">
+      <div className="flex gap-2 overflow-x-auto border-b border-border-subtle pb-2" aria-label="Discover filters">
         <span className="inline-flex rounded-lg bg-accent-muted px-3 py-1.5 text-sm text-accent">
-          for you
+          For You
+        </span>
+        <span className="inline-flex rounded-lg border border-border px-3 py-1.5 text-sm text-text-muted">
+          Genres
+        </span>
+        <span className="inline-flex rounded-lg border border-border px-3 py-1.5 text-sm text-text-muted">
+          Authors
         </span>
       </div>
 
-      {!loading && !error && items.length === 0 ? (
+      {!loading && !error && sections.every((section) => section.items.length === 0) ? (
         <EmptyState
           title="No clear recommendation yet."
           description="Add more books from your TBR or rate a few finished reads so ShelfTxt can explain the next pick."
         />
       ) : null}
 
-      {!loading && items.length > 0 ? (
-        <div className="grid gap-4">
-          <RecommendationsList items={items} limit={10} />
+      {!loading && sections.some((section) => section.items.length > 0) ? (
+        <div className="grid gap-6">
+          {sections.map((section) => (
+            <RecommendationSectionBlock key={section.id} section={section} />
+          ))}
         </div>
       ) : null}
     </div>
+  );
+}
+
+function RecommendationSectionBlock({ section }: { section: RecommendationSection }) {
+  if (section.items.length === 0) return null;
+  return (
+    <section className="grid gap-3">
+      <h2 className="text-sm font-semibold uppercase text-text-dim">{section.title}</h2>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {section.items.map((item) => (
+          <StructuredRecommendationCard key={item.work_id} item={item} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function StructuredRecommendationCard({ item }: { item: RecommendationSectionItem }) {
+  return (
+    <Card className="grid gap-4">
+      <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-3">
+        <BookCover title={item.canonical_title} coverUrl={item.cover_url} className="w-[84px] rounded-lg" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-accent/30 bg-accent-muted px-2 py-0.5 text-xs text-accent">
+              {item.match_label}
+            </span>
+            {item.match_percentage != null ? (
+              <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+                {item.match_percentage}% match
+              </span>
+            ) : null}
+          </div>
+          <h3 className="mt-3 line-clamp-2 font-semibold text-text">{item.canonical_title}</h3>
+          <p className="mt-1 truncate text-sm text-text-muted">{item.canonical_author}</p>
+        </div>
+      </div>
+      <p className="line-clamp-3 text-sm leading-6 text-text-muted">{item.explanation.primary_reason}</p>
+      {[...item.genres, ...item.traits].length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {[...item.genres, ...item.traits].slice(0, 5).map((tag) => (
+            <span key={tag} className="rounded-full border border-border px-2 py-1 text-xs text-text-muted">
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" className="px-3 py-1.5 text-xs">
+          {item.library_state.in_library ? "In library" : "Save"}
+        </Button>
+      </div>
+    </Card>
   );
 }

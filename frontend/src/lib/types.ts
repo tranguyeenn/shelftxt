@@ -65,6 +65,44 @@ export type RecommendationItem = {
   similar_books: SimilarBook[];
 };
 
+export type RecommendationSectionItem = {
+  work_id: string;
+  canonical_title: string;
+  canonical_author: string;
+  cover_url?: string | null;
+  score?: number | null;
+  match_percentage?: number | null;
+  match_label: string;
+  genres: string[];
+  traits: string[];
+  explanation: {
+    primary_reason: string;
+    related_books: SimilarBook[];
+    shared_genres: string[];
+    shared_traits: string[];
+    style: string;
+  };
+  library_state: {
+    in_library: boolean;
+    status: ReadingStatus | null;
+    selected_edition_id: string | null;
+  };
+};
+
+export type RecommendationSection = {
+  id: string;
+  type: string;
+  title: string;
+  source_book: SimilarBook | null;
+  items: RecommendationSectionItem[];
+};
+
+export type RecommendationSectionsResponse = {
+  sections: RecommendationSection[];
+  generated_at: string;
+  style: string;
+};
+
 export type BookProgressResponse = {
   book: ApiBook;
 };

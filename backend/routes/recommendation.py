@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import get_current_user
 from backend.db.database import get_db
 from backend.db.models import Profile
-from backend.services.recommendation import get_recommendation
+from backend.services.recommendation import get_recommendation, get_recommendation_sections
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -83,3 +83,69 @@ def recommend(
             min_pages,
             max_pages,
         )
+
+
+@router.get("/recommendations")
+def recommendations(
+    limit: int = Query(
+        10,
+        ge=1,
+        le=20,
+        description="Number of recommendations to return, up to 20.",
+    ),
+    style: str = Query(
+        "balanced",
+        description="Recommendation style: balanced, popular, or discovery",
+    ),
+    refresh: bool = Query(False),
+    exclude_ids: str | None = Query(None),
+    genre: str | None = Query(None),
+    min_pages: int | None = Query(None, ge=0),
+    max_pages: int | None = Query(None, ge=0),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return get_recommendation(
+        db,
+        current_user.id,
+        top_n=limit,
+        style=style,
+        refresh=refresh,
+        exclude_ids=_parse_exclude_ids(exclude_ids),
+        genre=genre,
+        min_pages=min_pages,
+        max_pages=max_pages,
+    )
+
+
+@router.get("/recommendations/sections")
+def recommendation_sections(
+    limit: int = Query(
+        10,
+        ge=1,
+        le=20,
+        description="Number of recommendations to return across generated sections.",
+    ),
+    style: str = Query(
+        "balanced",
+        description="Recommendation style: balanced, popular, or discovery",
+    ),
+    refresh: bool = Query(False),
+    exclude_ids: str | None = Query(None),
+    genre: str | None = Query(None),
+    min_pages: int | None = Query(None, ge=0),
+    max_pages: int | None = Query(None, ge=0),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return get_recommendation_sections(
+        db,
+        current_user.id,
+        top_n=limit,
+        style=style,
+        refresh=refresh,
+        exclude_ids=_parse_exclude_ids(exclude_ids),
+        genre=genre,
+        min_pages=min_pages,
+        max_pages=max_pages,
+    )

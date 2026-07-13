@@ -225,5 +225,133 @@ def get_recommendation(
     return final
 
 
+def recommendation_match_label(score: float | int | None) -> str:
+    try:
+        normalized = float(score or 0)
+    except (TypeError, ValueError):
+        normalized = 0.0
+    if normalized >= 0.85:
+        return "Strong match"
+    if normalized >= 0.65:
+        return "Good match"
+    if normalized >= 0.4:
+        return "Possible match"
+    return "Exploratory match"
+
+
+def recommendation_match_percentage(score: float | int | None) -> int:
+    try:
+        normalized = float(score or 0)
+    except (TypeError, ValueError):
+        normalized = 0.0
+    return round(min(1.0, max(0.0, normalized)) * 100)
+
+
+def recommendation_sections_response(
+    recommendations: list[dict],
+    *,
+    style: str = "balanced",
+) -> dict:
+    from datetime import datetime, timezone
+
+    normalized_style = _normalize_style(style)
+    items: list[dict] = []
+    seen_work_ids: set[str] = set()
+
+    for recommendation in recommendations:
+        book = recommendation.get("recommended_book") or recommendation.get("book") or {}
+        work_id = str(book.get("id") or "").strip()
+        if not work_id or work_id in seen_work_ids:
+            continue
+        seen_work_ids.add(work_id)
+        score = recommendation.get("score")
+        related_books = (recommendation.get("related_books") or recommendation.get("matched_liked_books") or [])[:3]
+        genres = list(recommendation.get("matched_genres") or [])[:5]
+        traits = list(recommendation.get("matched_subjects") or [])[:5]
+        items.append(
+            {
+                "work_id": work_id,
+                "canonical_title": book.get("title") or "Untitled",
+                "canonical_author": book.get("author") or "Unknown author",
+                "cover_url": book.get("cover_url"),
+                "primary_edition": {
+                    "edition_id": work_id,
+                    "isbn_10": None,
+                    "isbn_13": work_id if len(work_id) == 13 and work_id.isdigit() else None,
+                    "page_count": None,
+                    "publication_year": None,
+                    "edition_type": "unknown",
+                },
+                "edition_count": 1,
+                "score": score,
+                "match_percentage": recommendation_match_percentage(score),
+                "match_label": recommendation_match_label(score),
+                "genres": genres,
+                "traits": traits,
+                "explanation": {
+                    "primary_reason": recommendation.get("reason") or recommendation.get("explanation") or "Recommended based on your reading history.",
+                    "related_books": [
+                        {
+                            "id": str(book.get("id") or ""),
+                            "title": str(book.get("title") or ""),
+                        }
+                        for book in related_books
+                    ],
+                    "shared_genres": genres,
+                    "shared_traits": traits,
+                    "style": normalized_style,
+                },
+                "library_state": {
+                    "in_library": True,
+                    "status": "not_started",
+                    "selected_edition_id": work_id,
+                },
+            }
+        )
+
+    sections = []
+    if items:
+        sections.append(
+            {
+                "id": "for-you",
+                "type": "for_you",
+                "title": "For You",
+                "source_book": None,
+                "items": items,
+            }
+        )
+
+    return {
+        "sections": sections,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "style": normalized_style,
+    }
+
+
+def get_recommendation_sections(
+    db: Session,
+    user_id: UUID,
+    top_n: int = 10,
+    style: str = "balanced",
+    refresh: bool = False,
+    exclude_ids: set[str] | None = None,
+    genre: str | None = None,
+    min_pages: int | None = None,
+    max_pages: int | None = None,
+) -> dict:
+    recommendations = get_recommendation(
+        db,
+        user_id,
+        top_n=top_n,
+        style=style,
+        refresh=refresh,
+        exclude_ids=exclude_ids,
+        genre=genre,
+        min_pages=min_pages,
+        max_pages=max_pages,
+    )
+    return recommendation_sections_response(recommendations, style=style)
+
+
 def invalidate_recommendation_cache():
     _get_recommendation_cached.cache_clear()

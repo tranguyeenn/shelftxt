@@ -5,39 +5,45 @@
   --font-serif: Newsreader, Literata, Georgia, ui-serif, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-bg: #0b0b0d;
-  --color-bg-elevated: #121214;
-  --color-surface: #171719;
-  --color-surface-hover: #201f22;
+  --color-bg: #080a09;
+  --color-bg-elevated: #101411;
+  --color-surface: #151a17;
+  --color-surface-hover: #1d241f;
   --color-border: rgba(255, 255, 255, 0.08);
   --color-border-subtle: rgba(255, 255, 255, 0.06);
 
-  --color-text: #f5f1ea;
-  --color-text-muted: #a9a39a;
-  --color-text-dim: #7b756d;
+  --color-text: #f3f7ef;
+  --color-text-muted: #aab4a6;
+  --color-text-dim: #758071;
 
-  --color-accent: #c77d92;
-  --color-accent-dim: #d88fa4;
-  --color-accent-muted: rgba(199, 125, 146, 0.16);
+  --color-accent: #8ee88f;
+  --color-accent-dim: #6fdc72;
+  --color-accent-muted: rgba(142, 232, 143, 0.14);
+  --color-accent-glow: rgba(142, 232, 143, 0.2);
 
   --color-star-filled: #fbbf24;
   --color-star-empty: #5c5650;
 
-  --color-score-rating: #c77d92;
-  --color-score-recency: #6fae81;
+  --color-score-rating: #8ee88f;
+  --color-score-recency: #79b9ff;
   --color-score-author: #b6a27c;
   --color-score-other: #7f9185;
 
   --color-danger: #d97777;
   --color-danger-muted: rgba(217, 119, 119, 0.12);
+  --color-warning: #e4bd61;
+  --color-warning-muted: rgba(228, 189, 97, 0.14);
 
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.875rem;
   --radius-xl: 1rem;
 
-  --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.35);
-  --shadow-soft: 0 10px 32px rgba(0, 0, 0, 0.28);
+  --shadow-card: 0 18px 48px rgba(0, 0, 0, 0.34);
+  --shadow-soft: 0 14px 38px rgba(0, 0, 0, 0.28);
+  --shadow-glow: 0 0 42px rgba(142, 232, 143, 0.12);
+
+  --ease-standard: 180ms ease;
 }
 
 @layer base {
@@ -50,6 +56,11 @@
   body {
     @apply bg-bg text-text antialiased;
     font-family: var(--font-sans);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
   }
 
   ::selection {
@@ -65,6 +76,17 @@
   input[type="number"] {
     appearance: textfield;
     -moz-appearance: textfield;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

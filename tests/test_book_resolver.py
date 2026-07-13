@@ -22,7 +22,7 @@ def _candidate(source: str, **values) -> BookCandidate:
 
 
 def test_exact_isbn_always_wins_selection():
-    exact = _candidate("google_books", isbn="9780441172719")
+    exact = _candidate("librarything", isbn="9780441172719")
     richer_wrong = _candidate(
         "open_library",
         isbn="9780000000000",
@@ -50,17 +50,17 @@ def test_provider_metadata_merges_without_overwriting_primary_edition():
         total_pages=412,
         subjects=("desert",),
     )
-    google = _candidate(
-        "google_books",
+    scraped = _candidate(
+        "scraped",
         isbn="9780000000000",
-        edition_key="google-1",
-        cover_url="google-cover",
+        edition_key="web-1",
+        cover_url="web-cover",
         total_pages=500,
         description="A science-fiction classic.",
         genres=("science fiction",),
     )
 
-    result = merge_canonical_candidate(open_library, [google])
+    result = merge_canonical_candidate(open_library, [scraped])
 
     assert result.description == "A science-fiction classic."
     assert result.genres == ("science fiction",)
@@ -81,7 +81,7 @@ def test_librarything_enriches_but_does_not_affect_core_selection():
     with (
         patch(
             "backend.services.book_resolver._provider_fetchers",
-            return_value=(lambda _query: [provider_result], lambda _query: []),
+            return_value=(lambda _query: [provider_result],),
         ),
         patch(
             "backend.services.book_resolver.librarything.fetch_related_isbns",
@@ -102,17 +102,11 @@ def test_provider_timeout_is_bounded_and_fails_open():
         time.sleep(0.2)
         return []
 
-    google_result = {
-        "title": "Dune",
-        "authors": ["Frank Herbert"],
-        "isbn_uid": "9780441172719",
-        "metadata_source": "google_books",
-    }
     with (
         patch("backend.services.book_resolver.PROVIDER_TIMEOUT_SECONDS", 0.02),
         patch(
             "backend.services.book_resolver._provider_fetchers",
-            return_value=(slow_provider, lambda _query: [google_result]),
+            return_value=(slow_provider,),
         ),
         patch("backend.services.book_resolver.librarything.fetch_related_isbns", return_value=[]),
     ):
@@ -121,13 +115,12 @@ def test_provider_timeout_is_bounded_and_fails_open():
         result = resolve_book("9780441172719")
         elapsed = time.perf_counter() - started
 
-    assert result is not None
-    assert result.source == "google_books"
+    assert result is None
     assert elapsed < 0.15
 
 
 def test_same_input_is_cached_and_deterministic():
-    calls = {"open_library": 0, "google_books": 0}
+    calls = {"open_library": 0}
     result = {
         "title": "Kindred",
         "authors": ["Octavia E. Butler"],
@@ -139,14 +132,10 @@ def test_same_input_is_cached_and_deterministic():
         calls["open_library"] += 1
         return [result]
 
-    def google_books(_query):
-        calls["google_books"] += 1
-        return []
-
     with (
         patch(
             "backend.services.book_resolver._provider_fetchers",
-            return_value=(open_library, google_books),
+            return_value=(open_library,),
         ),
         patch("backend.services.book_resolver.librarything.fetch_related_isbns", return_value=[]),
     ):
@@ -155,7 +144,7 @@ def test_same_input_is_cached_and_deterministic():
         second = resolve_book("9780807083697")
 
     assert first == second
-    assert calls == {"open_library": 1, "google_books": 1}
+    assert calls == {"open_library": 1}
 
 
 def test_concurrent_identical_requests_are_deduplicated():
@@ -178,7 +167,7 @@ def test_concurrent_identical_requests_are_deduplicated():
     with (
         patch(
             "backend.services.book_resolver._provider_fetchers",
-            return_value=(open_library, lambda _query: []),
+            return_value=(open_library,),
         ),
         patch("backend.services.book_resolver.librarything.fetch_related_isbns", return_value=[]),
     ):
@@ -201,7 +190,7 @@ def test_no_good_match_returns_none_safely():
     with (
         patch(
             "backend.services.book_resolver._provider_fetchers",
-            return_value=(lambda _query: [unrelated], lambda _query: []),
+            return_value=(lambda _query: [unrelated],),
         ),
     ):
         clear_resolver_cache()
