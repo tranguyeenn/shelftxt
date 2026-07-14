@@ -19,6 +19,8 @@ from backend.services.metadata_normalization import (
 )
 from backend.services.open_library_editions import (
     edition_fields,
+    normalize_title,
+    select_best_open_library_edition,
 )
 from backend.services.metadata_aggregation import (
     LocalCatalogSource,
@@ -294,6 +296,26 @@ def _open_library_results(query: str, *, limit: int = 8) -> list[dict]:
             seen_work_keys.add(work_key)
         subjects = filter_specific_subjects(doc.get("subject"))
         selected_edition = exact_edition if exact_isbn else None
+        displayed_title = str(doc.get("title") or "")
+        query_title = normalize_title(query)
+        displayed_title_normalized = normalize_title(displayed_title)
+        likely_title_author_query = (
+            bool(work_key)
+            and bool(displayed_title_normalized)
+            and displayed_title_normalized in query_title
+            and query_title != displayed_title_normalized
+        )
+        if selected_edition is None and likely_title_author_query:
+            try:
+                editions = _fetch_open_library_work_editions(work_key, limit=OPEN_LIBRARY_EDITION_LIMIT)
+            except ProviderSearchError:
+                editions = []
+            selected_edition = select_best_open_library_edition(
+                editions,
+                query=query,
+                displayed_title=displayed_title,
+                author_work_match=bool(doc.get("author_name")),
+            )
         selected_fields = edition_fields(selected_edition)
         results.append(
             _normalized_result(

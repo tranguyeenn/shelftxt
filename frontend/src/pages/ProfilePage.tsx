@@ -166,7 +166,7 @@ export function ProfilePage() {
 
       {loading ? <p className="text-sm text-text-muted">Loading profile…</p> : null}
       {message ? (
-        <p className="rounded-lg border border-accent/30 bg-accent-muted px-4 py-3 text-sm text-accent">
+        <p className="rounded-lg border border-accent/30 bg-accent-muted px-4 py-3 text-sm text-accent-readable">
           {message}
         </p>
       ) : null}
@@ -181,7 +181,7 @@ export function ProfilePage() {
                 className="h-16 w-16 rounded-full border border-border object-cover"
               />
             ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-bg-elevated text-xl font-semibold text-accent">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-bg-elevated text-xl font-semibold text-accent-readable">
                 {profileInitials(profile)}
               </div>
             )}
@@ -269,7 +269,7 @@ export function ProfilePage() {
                       className="h-14 w-14 rounded-full object-cover"
                     />
                   ) : (
-                    <span className="flex h-14 w-14 items-center justify-center rounded-full bg-surface text-lg font-semibold text-accent">
+                    <span className="flex h-14 w-14 items-center justify-center rounded-full bg-surface text-lg font-semibold text-accent-readable">
                       {profileInitials(draft)}
                     </span>
                   )}

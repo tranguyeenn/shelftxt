@@ -39,6 +39,7 @@ from backend.services.page_count_lookup import (
     lookup_page_count_result,
 )
 from backend.services.progress import clamp_pages_read, clamp_progress_percent, estimated_pages_read
+from backend.services.reading_activity import record_progress_activity
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
@@ -876,6 +877,9 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id:
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
 
+    previous_pages_read = book.pages_read
+    previous_progress_percent = book.progress_percent
+    previous_status = _normalized_status_from_book(book)
     update_data = {}
     fields_set = getattr(body, "model_fields_set", set())
     if "total_pages" in fields_set:
@@ -917,5 +921,13 @@ def update_book_progress_by_id_service(db: Session, book_id: str, body, user_id:
         update_data["end_date"] = next_end_date
 
     updated = update_book(db, book.id, update_data, user_id)
+    record_progress_activity(
+        db,
+        user_id=user_id,
+        book=updated,
+        previous_pages_read=previous_pages_read,
+        previous_progress_percent=previous_progress_percent,
+        previous_status=previous_status,
+    )
 
     return book_to_dict(updated)

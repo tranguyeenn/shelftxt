@@ -20,6 +20,8 @@
   --color-accent-dim: #6fdc72;
   --color-accent-muted: rgba(142, 232, 143, 0.14);
   --color-accent-glow: rgba(142, 232, 143, 0.2);
+  --color-accent-readable: #8ee88f;
+  --color-on-accent: #071008;
 
   --color-star-filled: #fbbf24;
   --color-star-empty: #5c5650;
@@ -113,6 +115,8 @@ html[data-theme="light"] {
   --color-text: #191b19;
   --color-text-muted: #60605d;
   --color-text-dim: #7b766e;
+  --color-accent-readable: #17622d;
+  --color-on-accent: #061108;
   --color-star-empty: #c4bdb2;
   --color-danger-muted: rgba(217, 119, 119, 0.1);
 }

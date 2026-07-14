@@ -10,7 +10,7 @@ export function PageHeader({ title, subtitle, eyebrow, actions }: PageHeaderProp
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
         {eyebrow ? (
-          <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-accent">
+          <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.12em] text-accent-readable">
             {eyebrow}
           </p>
         ) : null}

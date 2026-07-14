@@ -191,11 +191,11 @@ export function LandingPage() {
             <a href="#stats" className="hover:text-text">Stats</a>
             <a href="#beta" className="hover:text-text">Open Beta</a>
             <Link to="/login" className="hover:text-text">Sign In</Link>
-            <Link to="/register" className="rounded-lg bg-accent px-4 py-2 font-medium text-text shadow-soft hover:bg-accent-dim">
+            <Link to="/register" className="rounded-lg bg-accent px-4 py-2 font-medium text-on-accent shadow-soft hover:bg-accent-dim">
               Get Started
             </Link>
           </nav>
-          <Link to="/register" className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-text shadow-soft hover:bg-accent-dim md:hidden">
+          <Link to="/register" className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-on-accent shadow-soft hover:bg-accent-dim md:hidden">
             Get Started
           </Link>
         </div>
@@ -211,7 +211,7 @@ export function LandingPage() {
             ShelfTxt helps you pick your next read with transparent recommendations built around your library.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link to="/register" className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-text shadow-soft hover:bg-accent-dim">
+            <Link to="/register" className="rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-on-accent shadow-soft hover:bg-accent-dim">
               Get Started Free
             </Link>
             <a href="#example" className="rounded-lg border border-accent/70 px-5 py-3 text-sm font-semibold text-text hover:bg-accent-muted">
@@ -225,7 +225,7 @@ export function LandingPage() {
       <section className="border-y border-border bg-bg-elevated/60">
         <div className="mx-auto grid max-w-7xl gap-10 px-5 py-20 lg:grid-cols-2 lg:px-8">
           <div className="flex flex-col justify-center">
-            <p className="text-sm font-medium text-accent-dim">Problem to solution</p>
+          <p className="text-sm font-medium text-accent-readable">Problem to solution</p>
             <h2 className="mt-4 font-serif text-4xl font-semibold text-text md:text-5xl">
               You have 137 books on your TBR. Now what?
             </h2>
@@ -239,7 +239,7 @@ export function LandingPage() {
 
       <section id="features" className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-accent-dim">Features</p>
+          <p className="text-sm font-medium text-accent-readable">Features</p>
           <h2 className="mt-4 font-serif text-4xl font-semibold text-text">Built around the next decision.</h2>
         </div>
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -254,12 +254,12 @@ export function LandingPage() {
 
       <section id="how" className="border-y border-border bg-bg-elevated/60">
         <div className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
-          <p className="text-sm font-medium text-accent-dim">How It Works</p>
+          <p className="text-sm font-medium text-accent-readable">How It Works</p>
           <h2 className="mt-4 font-serif text-4xl font-semibold text-text">From shelf noise to one clear pick.</h2>
           <div className="mt-10 grid gap-4 md:grid-cols-4">
             {steps.map((step, index) => (
               <div key={step} className="relative rounded-lg border border-border bg-surface p-5">
-                <p className="text-sm font-semibold text-accent-dim">Step {index + 1}</p>
+                <p className="text-sm font-semibold text-accent-readable">Step {index + 1}</p>
                 <p className="mt-4 text-lg font-medium text-text">{step}</p>
               </div>
             ))}
@@ -269,7 +269,7 @@ export function LandingPage() {
 
       <section id="example" className="mx-auto max-w-7xl px-5 py-20 lg:px-8">
         <div className="mb-10 max-w-2xl">
-          <p className="text-sm font-medium text-accent-dim">Example Recommendation</p>
+          <p className="text-sm font-medium text-accent-readable">Example Recommendation</p>
           <h2 className="mt-4 font-serif text-4xl font-semibold text-text">
             Clear reasons, not black-box guesses.
           </h2>
@@ -289,7 +289,7 @@ export function LandingPage() {
 
       <section id="beta" className="mx-auto grid max-w-7xl gap-10 px-5 py-20 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
         <div>
-          <p className="text-sm font-medium text-accent-dim">Built by Readers</p>
+          <p className="text-sm font-medium text-accent-readable">Built by Readers</p>
           <h2 className="mt-4 font-serif text-4xl font-semibold text-text">Not another feed to maintain.</h2>
         </div>
         <div className="text-lg leading-8 text-text-muted">
@@ -310,7 +310,7 @@ export function LandingPage() {
             Ready to pick the next book?
           </h2>
           <p className="mt-5 text-text-muted">Bring the shelf you already have.</p>
-          <Link to="/register" className="mt-8 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-text shadow-soft hover:bg-accent-dim">
+          <Link to="/register" className="mt-8 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-on-accent shadow-soft hover:bg-accent-dim">
             Get Started Free
           </Link>
         </div>

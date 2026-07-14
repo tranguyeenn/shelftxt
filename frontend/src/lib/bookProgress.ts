@@ -1,6 +1,18 @@
 import { fetchJson } from "@/lib/api";
 import { recordToApiBook, type BookRecord } from "@/lib/books";
+import {
+  clampPercent,
+  displayProgressPercent,
+  progressPercentValue,
+  readingProgressSummary
+} from "@/lib/progressDisplay";
 import type { ApiBook, ReadingStatus, TrackingMode } from "@/lib/types";
+
+export {
+  displayProgressPercent,
+  progressPercentValue,
+  readingProgressSummary
+};
 
 export type ProgressValidation = {
   valid: boolean;
@@ -64,7 +76,7 @@ export function estimatedPagesRead(
   totalPages: number | null
 ): number | null {
   if (totalPages === null || !Number.isFinite(totalPages) || totalPages <= 0) return null;
-  const clampedPercent = Math.min(100, Math.max(0, Number.isFinite(progressPercent) ? progressPercent : 0));
+  const clampedPercent = clampPercent(progressPercent);
   return Math.min(totalPages, Math.max(0, Math.round((clampedPercent / 100) * totalPages)));
 }
 

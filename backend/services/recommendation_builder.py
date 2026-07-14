@@ -1,7 +1,9 @@
 import logging
+import math
 import random
 import re
 import time
+from numbers import Real
 
 import pandas as pd
 
@@ -141,6 +143,145 @@ def _unique_tags(tags: list[str]) -> list[str]:
         seen.add(key)
         unique.append(str(tag).strip())
     return unique
+
+
+def _row_list(value: object) -> list:
+    if value is None:
+        return []
+    if isinstance(value, float) and pd.isna(value):
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+
+def _is_missing_value(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return not math.isfinite(float(value))
+    if isinstance(value, (list, tuple, dict, set)):
+        return False
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _safe_value(value: object) -> object:
+    if _is_missing_value(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _safe_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_safe_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_safe_value(item) for item in value]
+    return value
+
+
+def _safe_text(value: object, default: str | None = None) -> str | None:
+    safe = _safe_value(value)
+    if safe is None:
+        return default
+    text = str(safe).strip()
+    return text or default
+
+
+def _safe_bool(value: object, default: bool = False) -> bool:
+    if _is_missing_value(value):
+        return default
+    return bool(value)
+
+
+def _safe_score(value: object, default: float = 0.5) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        score = default
+    if not math.isfinite(score):
+        score = default
+    return round(min(1.0, max(0.0, score)), 4)
+
+
+def _safe_int(value: object) -> int | None:
+    if _is_missing_value(value):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_present(*values: object) -> object:
+    for value in values:
+        safe = _safe_value(value)
+        if safe is not None and str(safe).strip():
+            return safe
+    return None
+
+
+def _numeric_fields(value: object, prefix: str = "") -> dict[str, object]:
+    fields: dict[str, object] = {}
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            fields.update(_numeric_fields(item, child_prefix))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            fields.update(_numeric_fields(item, f"{prefix}[{index}]"))
+    elif isinstance(value, Real) and not isinstance(value, bool):
+        fields[prefix] = value
+    return fields
+
+
+def _unsafe_json_paths(value: object, prefix: str = "") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            paths.extend(_unsafe_json_paths(item, child_prefix))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            paths.extend(_unsafe_json_paths(item, f"{prefix}[{index}]"))
+    elif isinstance(value, Real) and not isinstance(value, bool) and not math.isfinite(float(value)):
+        paths.append(prefix)
+    return paths
+
+
+def _log_recommendation_serialization_probe(item: dict) -> None:
+    unsafe_paths = _unsafe_json_paths(item)
+    book = item.get("recommended_book") or item.get("book") or {}
+    numeric_fields = _numeric_fields(item)
+    logger.debug(
+        "recommendation_serialization_probe title=%r author=%r source_type=%r "
+        "external_id=%r work_id=%r isbn=%r match_score=%r numeric_fields=%s",
+        item.get("title") or book.get("title"),
+        item.get("author") or book.get("author"),
+        item.get("source_type"),
+        item.get("external_id") or book.get("external_id"),
+        item.get("work_id") or book.get("work_id"),
+        item.get("isbn") or book.get("isbn"),
+        item.get("match_score"),
+        numeric_fields,
+    )
+    if not unsafe_paths:
+        return
+    logger.warning(
+        "recommendation_serialization_unsafe title=%r author=%r source_type=%r "
+        "external_id=%r work_id=%r isbn=%r match_score=%r numeric_fields=%s unsafe_paths=%s",
+        item.get("title") or book.get("title"),
+        item.get("author") or book.get("author"),
+        item.get("source_type"),
+        item.get("external_id") or book.get("external_id"),
+        item.get("work_id") or book.get("work_id"),
+        item.get("isbn") or book.get("isbn"),
+        item.get("match_score"),
+        numeric_fields,
+        unsafe_paths,
+    )
 
 
 def _read_books(df: pd.DataFrame) -> pd.DataFrame:
@@ -567,6 +708,103 @@ def _rank_tbr_for_style(df: pd.DataFrame, style: str, refresh: bool = False) -> 
     return score_tbr_books(df, randomness_strength=0.0, diverse_authors=False)
 
 
+def _candidate_identity(row: pd.Series) -> tuple[str, str, str]:
+    work = str(row.get("Work Key", row.get("work_key", "")) or "").strip().lower()
+    title = str(row.get("Title", row.get("title", "")) or "").strip().lower()
+    author = str(row.get("Authors", row.get("author", "")) or "").strip().lower()
+    return (work, title, author)
+
+
+def _candidate_result_key(row: pd.Series) -> tuple[str, str]:
+    work = str(row.get("Work Key", row.get("work_key", "")) or "").strip().lower()
+    if work:
+        return ("work", work)
+    edition = str(row.get("Edition Key", row.get("edition_key", "")) or "").strip().lower()
+    if edition:
+        return ("edition", edition)
+    isbn = _normalized_isbn(row.get("External ISBN", row.get("ISBN/UID")))
+    if isbn:
+        return ("isbn", isbn)
+    _work, title, author = _candidate_identity(row)
+    return ("title_author", f"{title}|{author}")
+
+
+def _exclude_completed_duplicate_works(ranked: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty:
+        return ranked
+    status_col = "Read Status" if "Read Status" in source.columns else "read_status"
+    completed_keys = {
+        _candidate_identity(row)
+        for _, row in source.iterrows()
+        if normalize_status(row.get(status_col)) == "completed"
+    }
+    completed_works = {work for work, _title, _author in completed_keys if work}
+    completed_title_author = {(title, author) for _work, title, author in completed_keys if title and author}
+    keep = []
+    for index, row in ranked.iterrows():
+        work, title, author = _candidate_identity(row)
+        if work and work in completed_works:
+            continue
+        if title and author and (title, author) in completed_title_author:
+            continue
+        keep.append(index)
+    return ranked.loc[keep].copy()
+
+
+def _apply_ownership_ranking(ranked: pd.DataFrame, style: str) -> pd.DataFrame:
+    if ranked.empty or "In Library" not in ranked.columns:
+        return ranked
+    result = ranked.copy()
+    in_library = result["In Library"].map(lambda value: True if pd.isna(value) else bool(value))
+    if style == "discovery":
+        result.loc[in_library, "score"] = result.loc[in_library, "score"] + 0.04
+        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + 0.10
+    elif style == "popular":
+        result.loc[in_library, "score"] = result.loc[in_library, "score"] + 0.14
+        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + 0.03
+    else:
+        result.loc[in_library, "score"] = result.loc[in_library, "score"] + 0.12
+        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + 0.04
+    result["score"] = result["score"].clip(0, 1)
+    return result.sort_values("score", ascending=False)
+
+
+def _blend_library_and_discovery(ranked: pd.DataFrame, top_n: int, style: str) -> pd.DataFrame:
+    if ranked.empty or "In Library" not in ranked.columns or style == "popular":
+        return ranked.head(top_n)
+    in_library = ranked["In Library"].map(lambda value: True if pd.isna(value) else bool(value))
+    library = ranked[in_library]
+    external = ranked[~in_library]
+    if library.empty or external.empty:
+        return ranked.head(top_n)
+
+    external_target = round(top_n * (0.65 if style == "discovery" else 0.35))
+    external_target = min(len(external), max(1, external_target))
+    library_target = min(len(library), max(0, top_n - external_target))
+    if library_target + external_target < top_n:
+        remaining = ranked.loc[
+            ~ranked.index.isin(list(library.head(library_target).index) + list(external.head(external_target).index))
+        ].head(top_n - library_target - external_target)
+        selected = pd.concat([library.head(library_target), external.head(external_target), remaining])
+    else:
+        selected = pd.concat([library.head(library_target), external.head(external_target)])
+    return selected.sort_values("score", ascending=False).head(top_n)
+
+
+def _dedupe_ranked_candidates(ranked: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty:
+        return ranked
+    keep: list[object] = []
+    seen: set[tuple[str, str]] = set()
+    for index, row in ranked.iterrows():
+        key = _candidate_result_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        keep.append(index)
+    return ranked.loc[keep].copy()
+
+
 def _refresh_ranked_candidates(
     ranked: pd.DataFrame,
     *,
@@ -620,7 +858,10 @@ def build_recommendations(
 
     phase_started = time.perf_counter()
     tbr_ranked = _rank_tbr_for_style(df, style, refresh=refresh)
+    tbr_ranked = _exclude_completed_duplicate_works(tbr_ranked, df)
     tbr_ranked = _apply_librarything_signals(tbr_ranked, df)
+    tbr_ranked = _apply_ownership_ranking(tbr_ranked, style)
+    tbr_ranked = _dedupe_ranked_candidates(tbr_ranked)
     if refresh:
         tbr_ranked = _refresh_ranked_candidates(
             tbr_ranked,
@@ -639,12 +880,12 @@ def build_recommendations(
         read_df = read_df.copy()
         read_df[author_col] = "unknown"
 
-    top = tbr_ranked.head(top_n)
+    top = _blend_library_and_discovery(tbr_ranked, top_n, style)
     results = []
 
     explanation_started = time.perf_counter()
     for _, row in top.iterrows():
-        score = float(row.get("score", row.get("author_score", 0.5)) or 0.5)
+        score = _safe_score(row.get("score", row.get("author_score", 0.5)))
         precomputed_matches = row.get("_similar_matches")
         if not isinstance(precomputed_matches, list):
             precomputed_matches = None
@@ -653,6 +894,15 @@ def build_recommendations(
             score_anchors = None
 
         book_api = series_to_api_book(row)
+        in_library = _safe_bool(row.get("In Library", True), default=True)
+        book_id = _safe_int(row.get("Book ID")) if in_library else None
+        external_id = _first_present(row.get("External ID"))
+        work_id = _first_present(row.get("External Work ID"), row.get("Work Key"))
+        edition_id = _first_present(row.get("External Edition ID"), row.get("Edition Key"))
+        isbn = _first_present(row.get("External ISBN"))
+        source_type = _safe_text(row.get("Source Type"), "library" if in_library else "external_discovery")
+        discovery_source = _safe_text(row.get("Discovery Source"), "library" if in_library else "local_catalog")
+        library_status = _safe_value(row.get("Library Status")) if in_library else None
         details = _match_details(row, read_df, precomputed_matches, score_anchors)
         reason = _explanation(row, read_df, precomputed_matches, score_anchors)
         recommendation_reasons = _recommendation_reasons(details)
@@ -661,17 +911,41 @@ def build_recommendations(
         recommendation_breakdown = _breakdown_from_details(details, signals)
         recommended_book = {
             "id": book_api["id"],
+            "book_id": book_id,
+            "external_id": external_id,
+            "work_id": work_id,
+            "edition_id": edition_id,
+            "isbn": isbn,
             "title": book_api["title"],
             "author": book_api["author"],
             "cover_url": book_api.get("cover_url"),
             "description": book_api.get("description"),
+            "genres": _row_list(row.get("Genres")),
+            "subjects": _row_list(row.get("Subjects")),
         }
+        ownership_reason = "Already on your shelf" if in_library else "Discovered for you"
 
-        results.append(
+        result = _safe_value(
             {
                 "recommended_book": recommended_book,
                 "book": recommended_book,
-                "score": round(min(1.0, max(0.0, score)), 4),
+                "book_id": book_id,
+                "external_id": external_id,
+                "work_id": work_id,
+                "edition_id": edition_id,
+                "isbn": isbn,
+                "title": book_api["title"],
+                "author": book_api["author"],
+                "cover_url": book_api.get("cover_url"),
+                "genres": _row_list(row.get("Genres")),
+                "subjects": _row_list(row.get("Subjects")),
+                "score": score,
+                "match_score": score,
+                "in_library": in_library,
+                "source_type": source_type,
+                "external_discovery": not in_library,
+                "discovery_source": discovery_source,
+                "library_status": library_status,
                 "reason": reason,
                 "explanation": reason,
                 "matched_genres": details["matched_genres"],
@@ -679,11 +953,14 @@ def build_recommendations(
                 "matched_authors": details["matched_authors"],
                 "matched_liked_books": details["matched_liked_books"],
                 "related_books": related_books,
-                "recommendation_reasons": recommendation_reasons,
+                "recommendation_reasons": [
+                    {"label": ownership_reason, "detail": "This recommendation is available in your library." if in_library else f"Found from {discovery_source.replace('_', ' ')} metadata."},
+                    *recommendation_reasons,
+                ][:4],
                 "signals": signals,
                 "recommendation_breakdown": recommendation_breakdown,
                 "score_breakdown": {
-                    "overall": round(min(1.0, max(0.0, score)), 4),
+                    "overall": score,
                     "metadata": bool(details["matched_genres"] or details["matched_subjects"]),
                     "author": bool(details["matched_authors"]),
                     "fallback": not bool(details["matched_genres"] or details["matched_subjects"] or details["matched_authors"]),
@@ -699,6 +976,8 @@ def build_recommendations(
                 ),
             }
         )
+        _log_recommendation_serialization_probe(result)
+        results.append(result)
 
     timings["explanation_generation"] = (time.perf_counter() - explanation_started) * 1000
     timings["final_serialization"] = timings["explanation_generation"]

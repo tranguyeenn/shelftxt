@@ -218,6 +218,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "Database unavailable")
 
+    def test_ready_returns_503_when_required_table_is_missing(self):
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE reading_activity")
+
+        response = self.client.get("/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("reading_activity", response.json()["detail"])
+
     def test_get_books_default_pagination(self):
         for i in range(25):
             _seed_book(
@@ -2646,7 +2655,7 @@ class ApiTests(unittest.TestCase):
         "backend.services.page_count_lookup.backfill_missing_page_counts",
         side_effect=AssertionError("background backfill in recommendation test"),
     )
-    def test_recommendation_makes_no_external_lookup_requests(
+    def test_recommendation_provider_failure_does_not_trigger_backfill_or_break_library_results(
         self,
         mock_backfill,
         mock_page_count_http,
@@ -2681,7 +2690,8 @@ class ApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(result), 1)
         mock_backfill.assert_not_called()
         mock_page_count_http.assert_not_called()
-        mock_metadata_http.assert_not_called()
+        self.assertGreater(mock_metadata_http.call_count, 0)
+        self.assertTrue(all(item["in_library"] for item in result))
 
     def test_recommendation_recomputes_after_book_status_and_rating_change(self):
         anna = _seed_book(

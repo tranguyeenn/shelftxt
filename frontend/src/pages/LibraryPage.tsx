@@ -275,14 +275,14 @@ export function LibraryPage() {
           <button
             type="button"
             onClick={() => changeDisplayMode("grid")}
-            className={`rounded-md px-3 text-sm ${displayMode === "grid" ? "bg-accent text-bg" : "text-text-muted hover:text-text"}`}
+            className={`rounded-md px-3 text-sm ${displayMode === "grid" ? "bg-accent text-on-accent" : "text-text-muted hover:text-text"}`}
           >
             Grid
           </button>
           <button
             type="button"
             onClick={() => changeDisplayMode("list")}
-            className={`rounded-md px-3 text-sm ${displayMode === "list" ? "bg-accent text-bg" : "text-text-muted hover:text-text"}`}
+            className={`rounded-md px-3 text-sm ${displayMode === "list" ? "bg-accent text-on-accent" : "text-text-muted hover:text-text"}`}
           >
             List
           </button>
@@ -300,7 +300,7 @@ export function LibraryPage() {
         {!isReadOnlyDemo ? (
           <Link
             to="/app/add"
-            className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-bg transition-colors hover:bg-accent-dim"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-dim"
           >
             <span className="text-lg leading-none">+</span>
             Add Book
@@ -348,7 +348,7 @@ export function LibraryPage() {
         <button
           type="submit"
           disabled={loading}
-          className="self-end rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
+          className="self-end rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? "Applying…" : "Apply filters"}
         </button>

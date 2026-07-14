@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from sqlalchemy import create_engine
@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.db.database import Base
-from backend.db.models import Book, Profile
+from backend.db.models import Book, Profile, ReadingActivity
 from backend.services.reading_insights import get_reading_insights
 
 
@@ -136,3 +136,30 @@ def test_reading_insights_empty_threshold_behavior():
     assert response["unlock_threshold"] == 3
     assert response["insights"] == []
     assert "Finish a few books" in response["message"]
+    assert response["current_streak_days"] == 0
+    assert response["longest_streak_days"] == 0
+    assert response["pages_read_today"] == 0
+    assert response["has_reading_activity"] is False
+
+
+def test_reading_insights_includes_one_activity_event_streak():
+    db = _session()
+    user_id = _profile(db)
+    now = datetime.now(UTC)
+    db.add(
+        ReadingActivity(
+            user_id=user_id,
+            activity_type="progress",
+            occurred_at=now,
+            pages_read_delta=24,
+            progress_delta=8,
+        )
+    )
+    db.commit()
+
+    response = get_reading_insights(db, user_id)
+
+    assert response["current_streak_days"] == 1
+    assert response["longest_streak_days"] == 1
+    assert response["last_reading_date"] == now.date().isoformat()
+    assert response["has_reading_activity"] is True

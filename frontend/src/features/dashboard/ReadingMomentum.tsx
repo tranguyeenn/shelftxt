@@ -15,10 +15,10 @@ export function ReadingMomentum({ library }: ReadingMomentumProps) {
     <Card className="grid gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-accent">Reading momentum</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-accent-readable">Reading momentum</p>
           <h2 className="mt-1 text-lg font-semibold text-text">This month’s activity</h2>
         </div>
-        <div className="grid h-11 w-11 place-items-center rounded-full border border-accent/30 bg-accent-muted text-xl text-accent" aria-hidden>
+        <div className="grid h-11 w-11 place-items-center rounded-full border border-accent/30 bg-accent-muted text-xl text-accent-readable" aria-hidden>
           ↗
         </div>
       </div>

@@ -98,7 +98,7 @@ export function RegisterPage() {
           ) : null}
 
           {message ? (
-            <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent">
+            <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent-readable">
               {message}
             </p>
           ) : null}

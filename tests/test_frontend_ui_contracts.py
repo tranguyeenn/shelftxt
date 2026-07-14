@@ -34,3 +34,11 @@ def test_stats_page_replaces_reading_moods_with_reading_insights():
     assert "No reading mood data yet" not in source
     assert "Reading Insights" in source
     assert "fetchReadingInsights" in source
+
+
+def test_ranking_page_renders_external_recommendations_without_book_id_requirement():
+    source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
+
+    assert 'sections.every((section) => section.items.length === 0)' in source
+    assert 'item.library_state.in_library ? "Start Reading" : "Add to Library"' in source
+    assert "book_id" not in source

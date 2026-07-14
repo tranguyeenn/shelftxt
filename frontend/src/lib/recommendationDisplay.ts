@@ -41,6 +41,14 @@ export function recommendationMatchPercent(score: number): number {
   return Math.round(Math.min(1, Math.max(0, score)) * 100);
 }
 
+export function recommendationMatchLabel(score: number): string {
+  const normalized = Math.min(1, Math.max(0, Number.isFinite(score) ? score : 0));
+  if (normalized >= 0.85) return "Excellent fit";
+  if (normalized >= 0.65) return "Strong fit";
+  if (normalized >= 0.4) return "Worth exploring";
+  return "Exploratory";
+}
+
 export function signalLabel(value: number | null | undefined): string | null {
   if (value == null || !Number.isFinite(value)) return null;
   if (value < 25) return "Low";

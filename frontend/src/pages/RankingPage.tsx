@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BookCover } from "@/components/ui/BookCover";
@@ -8,7 +9,15 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import { recommendationSectionsQuery, type RecommendationFilters } from "@/lib/userSettings";
-import type { RecommendationSection, RecommendationSectionItem, RecommendationSectionsResponse } from "@/lib/types";
+import type {
+  RecommendationFacet,
+  RecommendationFacetResponse,
+  RecommendationSection,
+  RecommendationSectionItem,
+  RecommendationSectionsResponse
+} from "@/lib/types";
+
+type RecommendationTab = "for-you" | "genres" | "authors";
 
 export function RankingPage() {
   const {
@@ -17,7 +26,14 @@ export function RankingPage() {
     setRecommendationFilters: setAppliedFilters
   } = useUserSettings();
   const [sections, setSections] = useState<RecommendationSection[]>([]);
+  const [genreFacets, setGenreFacets] = useState<RecommendationFacet[]>([]);
+  const [authorFacets, setAuthorFacets] = useState<RecommendationFacet[]>([]);
+  const [activeTab, setActiveTab] = useState<RecommendationTab>(() => {
+    const saved = window.sessionStorage.getItem("shelftxt.recommendationTab");
+    return saved === "genres" || saved === "authors" ? saved : "for-you";
+  });
   const [loading, setLoading] = useState(true);
+  const [facetsLoading, setFacetsLoading] = useState(false);
   const [error, setError] = useState("");
   const [filterError, setFilterError] = useState("");
   const [genre, setGenre] = useState(appliedFilters.genre ?? "");
@@ -53,6 +69,24 @@ export function RankingPage() {
     void load(false, [], appliedFilters);
   }, [load]);
 
+  useEffect(() => {
+    window.sessionStorage.setItem("shelftxt.recommendationTab", activeTab);
+    if (activeTab === "genres" && genreFacets.length === 0) {
+      setFacetsLoading(true);
+      fetchJson<RecommendationFacetResponse>("/recommendations/genres")
+        .then((response) => setGenreFacets(Array.isArray(response.items) ? response.items : []))
+        .catch((err) => setError(err instanceof Error ? err.message : "Failed to load genre filters"))
+        .finally(() => setFacetsLoading(false));
+    }
+    if (activeTab === "authors" && authorFacets.length === 0) {
+      setFacetsLoading(true);
+      fetchJson<RecommendationFacetResponse>("/recommendations/authors")
+        .then((response) => setAuthorFacets(Array.isArray(response.items) ? response.items : []))
+        .catch((err) => setError(err instanceof Error ? err.message : "Failed to load author filters"))
+        .finally(() => setFacetsLoading(false));
+    }
+  }, [activeTab, authorFacets.length, genreFacets.length]);
+
   function refreshRecommendations() {
     const excludeIds = sections.flatMap((section) => section.items.map((item) => item.work_id)).filter(Boolean);
     void load(true, excludeIds, appliedFilters);
@@ -81,6 +115,18 @@ export function RankingPage() {
       ...(parsedMax !== undefined ? { max_pages: parsedMax } : {})
     };
     setFilterError("");
+    setAppliedFilters(filters);
+    void load(false, [], filters);
+  }
+
+  function selectFacet(tab: RecommendationTab, label: string) {
+    const filters: RecommendationFilters = {
+      ...(tab === "genres" ? { genre: label } : {}),
+      ...(tab === "authors" ? { author: label } : {})
+    };
+    setGenre(tab === "genres" ? label : "");
+    setMinPages("");
+    setMaxPages("");
     setAppliedFilters(filters);
     void load(false, [], filters);
   }
@@ -157,16 +203,31 @@ export function RankingPage() {
       {loading ? <p className="text-sm text-text-muted">Loading recommendations…</p> : null}
 
       <div className="flex gap-2 overflow-x-auto border-b border-border-subtle pb-2" aria-label="Discover filters">
-        <span className="inline-flex rounded-lg bg-accent-muted px-3 py-1.5 text-sm text-accent">
-          For You
-        </span>
-        <span className="inline-flex rounded-lg border border-border px-3 py-1.5 text-sm text-text-muted">
-          Genres
-        </span>
-        <span className="inline-flex rounded-lg border border-border px-3 py-1.5 text-sm text-text-muted">
-          Authors
-        </span>
+        {(["for-you", "genres", "authors"] as RecommendationTab[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`inline-flex rounded-lg px-3 py-1.5 text-sm ${
+              activeTab === tab
+                ? "bg-accent-muted text-accent-readable"
+                : "border border-border text-text-muted hover:text-text"
+            }`}
+          >
+            {tab === "for-you" ? "For You" : tab === "genres" ? "Genres" : "Authors"}
+          </button>
+        ))}
       </div>
+
+      {activeTab === "genres" || activeTab === "authors" ? (
+        <FacetSelector
+          loading={facetsLoading}
+          items={activeTab === "genres" ? genreFacets : authorFacets}
+          selected={activeTab === "genres" ? appliedFilters.genre : appliedFilters.author}
+          emptyLabel={activeTab === "genres" ? "No genre filters yet." : "No author filters yet."}
+          onSelect={(label) => selectFacet(activeTab, label)}
+        />
+      ) : null}
 
       {!loading && !error && sections.every((section) => section.items.length === 0) ? (
         <EmptyState
@@ -200,6 +261,45 @@ function RecommendationSectionBlock({ section }: { section: RecommendationSectio
   );
 }
 
+function FacetSelector({
+  loading,
+  items,
+  selected,
+  emptyLabel,
+  onSelect
+}: {
+  loading: boolean;
+  items: RecommendationFacet[];
+  selected?: string;
+  emptyLabel: string;
+  onSelect: (label: string) => void;
+}) {
+  if (loading) return <p className="text-sm text-text-muted">Loading filters...</p>;
+  if (items.length === 0) return <p className="text-sm text-text-muted">{emptyLabel}</p>;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => {
+        const active = selected?.toLowerCase() === item.label.toLowerCase();
+        return (
+          <button
+            key={item.label}
+            type="button"
+            onClick={() => onSelect(item.label)}
+            className={`rounded-full border px-3 py-1.5 text-sm ${
+              active
+                ? "border-accent/40 bg-accent-muted text-accent-readable"
+                : "border-border bg-bg-elevated text-text-muted hover:text-text"
+            }`}
+          >
+            {item.label}
+            <span className="ml-2 text-xs text-text-dim">{item.candidate_count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function StructuredRecommendationCard({ item }: { item: RecommendationSectionItem }) {
   return (
     <Card className="grid gap-4">
@@ -207,8 +307,11 @@ function StructuredRecommendationCard({ item }: { item: RecommendationSectionIte
         <BookCover title={item.canonical_title} coverUrl={item.cover_url} className="w-[84px] rounded-lg" />
         <div className="min-w-0">
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-accent/30 bg-accent-muted px-2 py-0.5 text-xs text-accent">
+            <span className="rounded-full border border-accent/30 bg-accent-muted px-2 py-0.5 text-xs text-accent-readable">
               {item.match_label}
+            </span>
+            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+              {item.library_state.in_library ? "On your shelf" : "New discovery"}
             </span>
             {item.match_percentage != null ? (
               <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
@@ -232,8 +335,14 @@ function StructuredRecommendationCard({ item }: { item: RecommendationSectionIte
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" className="px-3 py-1.5 text-xs">
-          {item.library_state.in_library ? "In library" : "Save"}
+          {item.library_state.in_library ? "Start Reading" : "Add to Library"}
         </Button>
+        <Link
+          to={item.library_state.in_library ? `/app/book/${encodeURIComponent(item.work_id)}` : "/app/add"}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text"
+        >
+          View Details
+        </Link>
       </div>
     </Card>
   );

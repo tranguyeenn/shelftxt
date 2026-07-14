@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid, false, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, Uuid, false, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -230,6 +230,66 @@ class Book(Base):
     )
 
     book_metadata: Mapped[dict | None] = mapped_column(
+        "metadata",
+        JSON_OBJECT,
+        nullable=True,
+    )
+
+
+class ReadingActivity(Base):
+    __tablename__ = "reading_activity"
+    __table_args__ = (
+        Index("ix_reading_activity_user_id_occurred_at", "user_id", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("profiles.id"),
+        nullable=False,
+        index=True,
+    )
+
+    book_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("books.id"),
+        nullable=True,
+        index=True,
+    )
+
+    activity_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    pages_read_delta: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+
+    progress_delta: Mapped[float] = mapped_column(
+        Float,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
+
+    activity_metadata: Mapped[dict | None] = mapped_column(
         "metadata",
         JSON_OBJECT,
         nullable=True,

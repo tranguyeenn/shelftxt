@@ -206,7 +206,7 @@ export function CsvImportSection() {
         accept=".csv,text/csv"
         disabled={isReadOnlyDemo}
         onChange={(e) => void onCsvSelected(e.target.files?.[0] ?? null)}
-        className="block w-full cursor-pointer rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text file:mr-3 file:rounded-md file:border-0 file:bg-accent-muted file:px-3 file:py-1 file:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+        className="block w-full cursor-pointer rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text file:mr-3 file:rounded-md file:border-0 file:bg-accent-muted file:px-3 file:py-1 file:text-accent-readable disabled:cursor-not-allowed disabled:opacity-50"
       />
 
       {fileName ? <p className="text-xs text-text-dim">Selected: {fileName}</p> : null}
@@ -237,7 +237,7 @@ export function CsvImportSection() {
       ) : null}
 
       {message ? (
-        <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent">
+        <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent-readable">
           {message}
         </p>
       ) : null}

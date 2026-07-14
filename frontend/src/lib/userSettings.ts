@@ -146,6 +146,10 @@ export function recommendQuery(
   if (genre) {
     params.set("genre", genre);
   }
+  const author = filters.author?.trim();
+  if (author) {
+    params.set("author", author);
+  }
   if (filters.min_pages !== undefined) {
     params.set("min_pages", String(filters.min_pages));
   }
@@ -175,6 +179,10 @@ export function recommendationSectionsQuery(
   if (genre) {
     params.set("genre", genre);
   }
+  const author = filters.author?.trim();
+  if (author) {
+    params.set("author", author);
+  }
   if (filters.min_pages !== undefined) {
     params.set("min_pages", String(filters.min_pages));
   }
@@ -186,6 +194,7 @@ export function recommendationSectionsQuery(
 
 export type RecommendationFilters = {
   genre?: string;
+  author?: string;
   min_pages?: number;
   max_pages?: number;
 };

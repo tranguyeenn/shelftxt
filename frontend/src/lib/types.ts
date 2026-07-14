@@ -36,9 +36,37 @@ export type MatchedLikedBook = SimilarBook & {
 };
 
 export type RecommendationItem = {
-  recommended_book?: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description">;
-  book: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description">;
+  recommended_book?: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description" | "genres" | "subjects"> & {
+    book_id?: number | null;
+    external_id?: string | null;
+    work_id?: string | null;
+    edition_id?: string | null;
+    isbn?: string | null;
+  };
+  book: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description" | "genres" | "subjects"> & {
+    book_id?: number | null;
+    external_id?: string | null;
+    work_id?: string | null;
+    edition_id?: string | null;
+    isbn?: string | null;
+  };
+  book_id?: number | null;
+  external_id?: string | null;
+  work_id?: string | null;
+  edition_id?: string | null;
+  isbn?: string | null;
+  title?: string;
+  author?: string;
+  cover_url?: string | null;
+  genres?: string[];
+  subjects?: string[];
   score: number;
+  match_score?: number;
+  in_library?: boolean;
+  source_type?: "library" | "external_discovery";
+  external_discovery?: boolean;
+  discovery_source?: string | null;
+  library_status?: string | null;
   reason?: string;
   explanation: string;
   matched_genres?: string[];
@@ -65,6 +93,17 @@ export type RecommendationItem = {
   similar_books: SimilarBook[];
 };
 
+export type RecommendationFacet = {
+  label: string;
+  score: number;
+  candidate_count: number;
+  external_candidate_count: number;
+};
+
+export type RecommendationFacetResponse = {
+  items: RecommendationFacet[];
+};
+
 export type RecommendationSectionItem = {
   work_id: string;
   canonical_title: string;
@@ -87,6 +126,9 @@ export type RecommendationSectionItem = {
     status: ReadingStatus | null;
     selected_edition_id: string | null;
   };
+  in_library?: boolean;
+  external_discovery?: boolean;
+  discovery_source?: string | null;
 };
 
 export type RecommendationSection = {

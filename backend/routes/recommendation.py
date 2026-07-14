@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.auth.dependencies import get_current_user
 from backend.db.database import get_db
 from backend.db.models import Profile
-from backend.services.recommendation import get_recommendation, get_recommendation_sections
+from backend.services.recommendation import get_recommendation, get_recommendation_sections, recommendation_facets
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -45,6 +45,10 @@ def recommend(
         None,
         description="Only recommend books matching this genre.",
     ),
+    author: str | None = Query(
+        None,
+        description="Only recommend books matching this author.",
+    ),
     min_pages: int | None = Query(
         None,
         ge=0,
@@ -68,6 +72,7 @@ def recommend(
             refresh=refresh,
             exclude_ids=_parse_exclude_ids(exclude_ids),
             genre=genre,
+            author=author,
             min_pages=min_pages,
             max_pages=max_pages,
         )
@@ -100,6 +105,7 @@ def recommendations(
     refresh: bool = Query(False),
     exclude_ids: str | None = Query(None),
     genre: str | None = Query(None),
+    author: str | None = Query(None),
     min_pages: int | None = Query(None, ge=0),
     max_pages: int | None = Query(None, ge=0),
     db: Session = Depends(get_db),
@@ -113,6 +119,7 @@ def recommendations(
         refresh=refresh,
         exclude_ids=_parse_exclude_ids(exclude_ids),
         genre=genre,
+        author=author,
         min_pages=min_pages,
         max_pages=max_pages,
     )
@@ -133,6 +140,7 @@ def recommendation_sections(
     refresh: bool = Query(False),
     exclude_ids: str | None = Query(None),
     genre: str | None = Query(None),
+    author: str | None = Query(None),
     min_pages: int | None = Query(None, ge=0),
     max_pages: int | None = Query(None, ge=0),
     db: Session = Depends(get_db),
@@ -146,6 +154,25 @@ def recommendation_sections(
         refresh=refresh,
         exclude_ids=_parse_exclude_ids(exclude_ids),
         genre=genre,
+        author=author,
         min_pages=min_pages,
         max_pages=max_pages,
     )
+
+
+@router.get("/recommendations/genres")
+def recommendation_genres(
+    limit: int = Query(12, ge=1, le=30),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return recommendation_facets(db, current_user.id, kind="genres", limit=limit)
+
+
+@router.get("/recommendations/authors")
+def recommendation_authors(
+    limit: int = Query(12, ge=1, le=30),
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return recommendation_facets(db, current_user.id, kind="authors", limit=limit)

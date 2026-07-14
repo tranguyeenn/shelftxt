@@ -14,6 +14,13 @@ export type ReadingInsightsResponse = {
   unlock_threshold: number;
   status: "ready" | "insufficient_activity";
   message: string | null;
+  current_streak_days: number;
+  longest_streak_days: number;
+  read_today: boolean;
+  last_reading_date: string | null;
+  pages_read_today: number;
+  active_days_this_year: number;
+  has_reading_activity: boolean;
 };
 
 export function fetchReadingInsights(): Promise<ReadingInsightsResponse> {

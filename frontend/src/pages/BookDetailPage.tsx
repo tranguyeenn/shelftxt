@@ -150,7 +150,7 @@ export function BookDetailPage() {
               {description ? (
                 <Card className="grid gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-accent">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-accent-readable">
                       About the book
                     </p>
                     <h3 className="mt-1 font-serif text-2xl font-semibold text-text">Description</h3>

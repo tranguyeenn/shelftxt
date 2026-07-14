@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from backend.db.models import Book
+from backend.services.reading_activity import get_reading_streak_stats
 from backend.services.status import normalize_status
 
 UNLOCK_THRESHOLD = 3
@@ -166,6 +167,7 @@ def get_reading_insights(db: Session, user_id: UUID) -> dict:
     )
 
     status = "ready" if completed_count >= UNLOCK_THRESHOLD else "insufficient_activity"
+    streaks = get_reading_streak_stats(db, user_id)
     return {
         "profile_label": profile_label,
         "insights": insights[:8] if status == "ready" else [],
@@ -177,4 +179,5 @@ def get_reading_insights(db: Session, user_id: UUID) -> dict:
             if status == "ready"
             else "Finish a few books to unlock personalized reading insights."
         ),
+        **streaks,
     }

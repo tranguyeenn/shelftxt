@@ -4,7 +4,7 @@ type BadgeProps = {
 };
 
 const toneClass = {
-  accent: "bg-accent-muted text-accent border-accent/20",
+  accent: "bg-accent-muted text-accent-readable border-accent/20",
   neutral: "bg-bg-elevated text-text-muted border-border",
   success: "bg-score-rating/15 text-score-rating border-score-rating/25",
   warning: "bg-score-recency/15 text-score-recency border-score-recency/25"

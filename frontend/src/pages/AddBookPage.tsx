@@ -366,7 +366,7 @@ export function AddBookPage() {
                 type="submit"
                 disabled={searching || !query.trim()}
                 aria-label="Search"
-                className="absolute right-2.5 top-2.5 grid h-11 w-11 cursor-pointer place-items-center rounded-xl bg-accent text-bg transition-colors hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
+                className="absolute right-2.5 top-2.5 grid h-11 w-11 cursor-pointer place-items-center rounded-xl bg-accent text-on-accent transition-colors hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current" strokeWidth="2">
                   <circle cx="11" cy="11" r="7" />
@@ -515,7 +515,7 @@ export function AddBookPage() {
                 </label>
               </div>
             ) : null}
-            {message ? <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent">{message}</p> : null}
+            {message ? <p className="rounded-lg border border-accent/30 bg-accent-muted px-3 py-2 text-sm text-accent-readable">{message}</p> : null}
 
             <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="primary" type="submit" disabled={loading || Boolean(message)}>{loading ? "Adding…" : message ? "Added" : "Add book"}</Button>

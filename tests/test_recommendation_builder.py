@@ -79,6 +79,8 @@ class RecommendationBuilderTests(unittest.TestCase):
         titles = {item["book"]["title"] for item in results}
         self.assertEqual(titles, {"TBR One", "TBR Two"})
         self.assertGreater(len(first["similar_books"]), 0)
+        self.assertTrue(first["in_library"])
+        self.assertFalse(first["external_discovery"])
 
     def test_recommendation_sections_are_structured_and_deduplicated(self):
         response = recommendation_sections_response(
@@ -253,7 +255,7 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertEqual(result[0]["book"]["title"], "Có hạnh phúc")
         self.assertEqual(result[0]["explanation"], "Recommended based on your reading history.")
         self.assertEqual(result[0]["matched_liked_books"], [])
-        self.assertEqual(result[0]["recommendation_reasons"], [])
+        self.assertEqual(result[0]["recommendation_reasons"][0]["label"], "Already on your shelf")
 
     def test_generic_genres_do_not_create_similarity_but_can_fallback(self):
         df = pd.DataFrame(
@@ -311,6 +313,50 @@ class RecommendationBuilderTests(unittest.TestCase):
             ["Matched", "Unrelated"],
         )
         self.assertIn("censorship", result[0]["explanation"].lower())
+
+    def test_external_books_are_returned_and_library_candidates_get_boost(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["mystery"]},
+                {"Title": "Owned Match", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["mystery"], "In Library": True, "Discovery Source": "library"},
+                {"Title": "External Match", "Authors": "C", "ISBN/UID": "x1", "Read Status": "to-read", "Genres": ["mystery"], "In Library": False, "Discovery Source": "local_catalog"},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2, style="balanced")
+
+        self.assertEqual([item["book"]["title"] for item in result], ["Owned Match", "External Match"])
+        self.assertTrue(result[0]["in_library"])
+        self.assertTrue(result[1]["external_discovery"])
+
+    def test_discovery_style_returns_more_external_candidates(self):
+        rows = [{"Title": "Read", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["fantasy"]}]
+        rows += [
+            {"Title": f"Owned {i}", "Authors": "B", "ISBN/UID": f"t{i}", "Read Status": "to-read", "Genres": ["fantasy"], "In Library": True}
+            for i in range(5)
+        ]
+        rows += [
+            {"Title": f"External {i}", "Authors": "C", "ISBN/UID": f"x{i}", "Read Status": "to-read", "Genres": ["fantasy"], "In Library": False}
+            for i in range(5)
+        ]
+
+        balanced = build_recommendations(pd.DataFrame(rows), top_n=6, style="balanced")
+        discovery = build_recommendations(pd.DataFrame(rows), top_n=6, style="discovery")
+
+        assert sum(1 for item in discovery if item["external_discovery"]) > sum(1 for item in balanced if item["external_discovery"])
+
+    def test_completed_duplicate_work_is_excluded(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Completed Work", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Work Key": "W1", "Genres": ["classic"]},
+                {"Title": "Completed Work", "Authors": "A", "ISBN/UID": "x1", "Read Status": "to-read", "Work Key": "W1", "Genres": ["classic"], "In Library": False},
+                {"Title": "Different Work", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["classic"], "In Library": True},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=3)
+
+        self.assertEqual([item["book"]["title"] for item in result], ["Different Work"])
 
     def test_newly_read_high_rated_classic_appears_as_anchor(self):
         df = pd.DataFrame(

@@ -48,7 +48,7 @@ function PatternCard({
 }
 
 const insightIconClass =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/25 bg-accent-muted text-xs font-semibold text-accent";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/25 bg-accent-muted text-xs font-semibold text-accent-readable";
 
 function insightIcon(type: string): string {
   const labels: Record<string, string> = {
@@ -76,7 +76,7 @@ function ReadingInsightsCard({ insights }: { insights: ReadingInsightsResponse |
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-medium text-text">Reading Insights</h2>
-          <p className="mt-1 text-sm text-accent">
+          <p className="mt-1 text-sm text-accent-readable">
             {insights?.profile_label ?? "Building Reading Profile"}
           </p>
         </div>
@@ -218,7 +218,7 @@ export function InsightsPage() {
           action={
             <Link
               to="/app/add"
-              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text hover:bg-accent-dim"
+              className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim"
             >
               Add a book
             </Link>

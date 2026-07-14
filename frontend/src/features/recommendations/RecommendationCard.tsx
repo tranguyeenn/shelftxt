@@ -8,7 +8,7 @@ import { MoodTags } from "@/components/ui/MoodTags";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import {
   buildRecommendationReasons,
-  recommendationMatchPercent,
+  recommendationMatchLabel,
   recommendationSignals,
   readerFacingExplanation
 } from "@/lib/recommendationDisplay";
@@ -33,12 +33,13 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
   } = item;
   const showExplanation = settings.showRecommendationExplanations;
   const tags = [...matched_genres, ...matched_subjects].slice(0, 5);
-  const match = recommendationMatchPercent(score);
+  const matchLabel = recommendationMatchLabel(score);
   const signals = recommendationSignals(item);
   const reasons = buildRecommendationReasons(item).slice(0, 3);
   const relatedBooks = (item.related_books ?? item.recommendation_breakdown?.inspired_by ?? matched_liked_books).slice(0, 3);
   const explanation = readerFacingExplanation(item);
   const description = book.description?.trim();
+  const detailPath = item.in_library ? `/app/book/${encodeURIComponent(book.id)}` : "/app/add";
 
   return (
     <Card className="grid gap-4 md:grid-cols-[72px_1fr]">
@@ -50,7 +51,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
       <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-muted text-sm font-semibold text-accent">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-muted text-sm font-semibold text-accent-readable">
             #{rank}
           </span>
           <div>
@@ -65,7 +66,12 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
             <p className="mt-0.5 text-sm text-text-muted">{book.author}</p>
           </div>
         </div>
-        <Badge tone={rank <= 3 ? "success" : "neutral"}>{match}% match</Badge>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge tone={rank <= 3 ? "success" : "neutral"}>{matchLabel}</Badge>
+          <Badge tone={item.in_library ? "accent" : "neutral"}>
+            {item.in_library ? "On your shelf" : "New discovery"}
+          </Badge>
+        </div>
       </div>
 
       {showExplanation ? (
@@ -102,7 +108,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
           <button
             type="button"
             onClick={() => setShowWhy((current) => !current)}
-            className="justify-self-start rounded-lg px-3 py-1.5 text-sm text-accent hover:bg-accent-muted"
+            className="justify-self-start rounded-lg px-3 py-1.5 text-sm text-accent-readable hover:bg-accent-muted"
           >
             why this book?
           </button>
@@ -154,6 +160,20 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
           </ul>
         </div>
       ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Link
+          to={item.in_library ? detailPath : "/app/add"}
+          className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-on-accent hover:bg-accent-dim"
+        >
+          {item.in_library ? "Start Reading" : "Add to Library"}
+        </Link>
+        <Link
+          to={detailPath}
+          className="rounded-lg border border-border px-3 py-1.5 text-sm text-text-muted hover:text-text"
+        >
+          View Details
+        </Link>
+      </div>
       </div>
     </Card>
   );
