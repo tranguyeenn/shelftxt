@@ -478,7 +478,7 @@ def build_reading_clusters_from_dataframe(
 def _cluster_title(rule: ClusterRule, anchors: list[pd.Series]) -> str:
     anchor_titles = {_row_title(row).casefold() for row in anchors}
     if rule.cluster_id == "ya-dystopian-speculative" and "the hunger games" in anchor_titles:
-        return "Survival competitions and dystopian rebellion"
+        return "Survival and dystopian rebellion"
     if rule.cluster_id == "ya-mystery-thriller" and "the naturals" in anchor_titles:
         return "Criminal profilers and teen mysteries"
     if rule.cluster_id == "contemporary-romance-new-adult" and "book lovers" in anchor_titles:

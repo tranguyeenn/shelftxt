@@ -1,7 +1,7 @@
 """add book embeddings pgvector table
 
 Revision ID: 5a6b7c8d9e10
-Revises: 06df780d0799
+Revises: 7c2d1a9e4b33
 Create Date: 2026-07-15 00:00:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "5a6b7c8d9e10"
-down_revision: Union[str, Sequence[str], None] = "06df780d0799"
+down_revision: Union[str, Sequence[str], None] = "7c2d1a9e4b33"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -1,7 +1,7 @@
 """dedupe recommendation feedback by identity and action
 
 Revision ID: 7c2d1a9e4b33
-Revises: 2f8b6d0a4c91
+Revises: 06df780d0799
 Create Date: 2026-07-15 00:00:00.000000
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "7c2d1a9e4b33"
-down_revision: Union[str, Sequence[str], None] = "2f8b6d0a4c91"
+down_revision: Union[str, Sequence[str], None] = "06df780d0799"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

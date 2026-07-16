@@ -7,7 +7,7 @@ Create Date: 2026-07-15 12:24:19.981534
 
 from typing import Sequence, Union
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 
 
@@ -39,6 +39,16 @@ def _index_exists(index_name: str) -> bool:
 
 
 def upgrade() -> None:
+    if context.is_offline_mode():
+        _populate_identity_values()
+        op.alter_column(
+            TABLE_NAME,
+            COLUMN_NAME,
+            existing_type=sa.String(length=512),
+            nullable=False,
+        )
+        return
+
     # Older databases may genuinely lack the column.
     # Fresh databases may already have it from 2f8b6d0a4c91.
     if not _column_exists(COLUMN_NAME):
@@ -51,6 +61,52 @@ def upgrade() -> None:
             ),
         )
 
+    _populate_identity_values()
+
+    if not _index_exists(INDEX_NAME):
+        op.create_index(
+            INDEX_NAME,
+            TABLE_NAME,
+            [COLUMN_NAME],
+            unique=False,
+        )
+
+    op.alter_column(
+        TABLE_NAME,
+        COLUMN_NAME,
+        existing_type=sa.String(length=512),
+        nullable=False,
+    )
+
+
+def downgrade() -> None:
+    if context.is_offline_mode():
+        op.alter_column(
+            TABLE_NAME,
+            COLUMN_NAME,
+            existing_type=sa.String(length=512),
+            nullable=True,
+        )
+        return
+
+    # This revision may not have created the column because it can already
+    # exist from the parent revision. Do not drop a parent-owned column.
+    if _index_exists(INDEX_NAME):
+        op.drop_index(
+            INDEX_NAME,
+            table_name=TABLE_NAME,
+        )
+
+    if _column_exists(COLUMN_NAME):
+        op.alter_column(
+            TABLE_NAME,
+            COLUMN_NAME,
+            existing_type=sa.String(length=512),
+            nullable=True,
+        )
+
+
+def _populate_identity_values() -> None:
     op.execute(
         """
         UPDATE recommendation_feedback
@@ -79,36 +135,3 @@ def upgrade() -> None:
         WHERE recommendation_identity IS NULL
         """
     )
-
-    if not _index_exists(INDEX_NAME):
-        op.create_index(
-            INDEX_NAME,
-            TABLE_NAME,
-            [COLUMN_NAME],
-            unique=False,
-        )
-
-    op.alter_column(
-        TABLE_NAME,
-        COLUMN_NAME,
-        existing_type=sa.String(length=512),
-        nullable=False,
-    )
-
-
-def downgrade() -> None:
-    # This revision may not have created the column because it can already
-    # exist from the parent revision. Do not drop a parent-owned column.
-    if _index_exists(INDEX_NAME):
-        op.drop_index(
-            INDEX_NAME,
-            table_name=TABLE_NAME,
-        )
-
-    if _column_exists(COLUMN_NAME):
-        op.alter_column(
-            TABLE_NAME,
-            COLUMN_NAME,
-            existing_type=sa.String(length=512),
-            nullable=True,
-        )

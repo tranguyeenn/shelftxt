@@ -14,7 +14,6 @@ import {
   getClusterDisplayTitle,
   getRecommendationDisplayExplanation,
   getRecommendationMatchLabel,
-  normalizeRecommendationCluster,
   normalizeRecommendationItem,
   visibleRecommendationTags
 } from "@/lib/recommendationNormalization";
@@ -23,6 +22,7 @@ import type {
   RecommendationFacet,
   RecommendationFacetResponse,
   RecommendationClustersResponse,
+  RecommendationCluster,
   RecommendationItem,
   RecommendationSection,
   RecommendationSectionItem,
@@ -30,10 +30,6 @@ import type {
 } from "@/lib/types";
 
 type RecommendationTab = "for-you" | "genres" | "authors";
-type RecommendationResponseDebug = {
-  endpoint: string;
-  responseType: "clusters" | "sections";
-};
 
 const RECOMMENDATION_UI_RESPONSE_VERSION = "identity-v2";
 
@@ -55,7 +51,6 @@ export function RankingPage() {
   const [error, setError] = useState("");
   const [filterError, setFilterError] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
-  const [responseDebug, setResponseDebug] = useState<RecommendationResponseDebug | null>(null);
   const [genre, setGenre] = useState(appliedFilters.genre ?? "");
   const [minPages, setMinPages] = useState(
     appliedFilters.min_pages === undefined ? "" : String(appliedFilters.min_pages)
@@ -78,8 +73,7 @@ export function RankingPage() {
       );
       const responseSections = Array.isArray(ranked.sections) ? ranked.sections : [];
       return {
-        sections: normalizeRecommendationSections(responseSections),
-        debug: { endpoint, responseType: "sections" as const }
+        sections: normalizeRecommendationSections(responseSections)
       };
     } catch (err) {
       throw err instanceof Error ? err : new Error("Failed to load recommendations");
@@ -102,20 +96,16 @@ export function RankingPage() {
       const clusterSections = normalizeRecommendationClusterSections(clustered);
       if (clusterSections.length > 0) {
         setSections(clusterSections);
-        setResponseDebug({ endpoint: clusterEndpoint, responseType: "clusters" });
         return;
       }
       const fallback = await loadFallbackSections(refresh, excludeIds, filters);
       setSections(fallback.sections);
-      setResponseDebug(fallback.debug);
     } catch (clusterErr) {
       try {
         const fallback = await loadFallbackSections(refresh, excludeIds, filters);
         setSections(fallback.sections);
-        setResponseDebug(fallback.debug);
       } catch (fallbackErr) {
         setSections([]);
-        setResponseDebug(null);
         setError(
           fallbackErr instanceof Error
             ? fallbackErr.message
@@ -340,7 +330,6 @@ export function RankingPage() {
             <RecommendationSectionBlock
               key={section.id}
               section={section}
-              responseDebug={responseDebug}
               onNotInterested={handleNotInterested}
             />
           ))}
@@ -389,7 +378,7 @@ export function sectionItemFromRecommendation(item: RecommendationItem): Recomme
     in_library: inLibrary,
     is_in_library: inLibrary,
     source,
-    external_discovery: item.external_discovery,
+    external_discovery: source === "external" ? true : item.external_discovery,
     discovery_source: item.discovery_source,
     discovery_query: item.discovery_query,
     discovery_cluster_id: item.discovery_cluster_id,
@@ -424,7 +413,27 @@ function normalizeRecommendationClusterSections(clusters: RecommendationClusters
   if (!Array.isArray(clusters)) return [];
   return clusters
     .filter((cluster) => Array.isArray(cluster.recommendations) && cluster.recommendations.length > 0)
-    .map(normalizeRecommendationCluster);
+    .map(clusterSectionFromCluster);
+}
+
+function clusterSectionFromCluster(cluster: RecommendationCluster): RecommendationSection {
+  const title = cluster.title || "Recommended for you";
+  return {
+    ...cluster,
+    id: `cluster-${cluster.cluster_id}`,
+    type: "cluster",
+    title: cluster.title,
+    reading_identity: cluster.reading_identity || title,
+    source_book: null,
+    why: cluster.why || undefined,
+    anchors: Array.isArray(cluster.anchors) ? cluster.anchors : [],
+    dominant_genres: Array.isArray(cluster.dominant_genres) ? cluster.dominant_genres : [],
+    dominant_themes: Array.isArray(cluster.dominant_themes) ? cluster.dominant_themes : [],
+    items: cluster.recommendations.map((item) => ({
+      ...normalizeRecommendationItem(item),
+      cluster_id: cluster.cluster_id
+    }))
+  };
 }
 
 export function visibleRecommendationSections(sections: RecommendationSection[]): RecommendationSection[] {
@@ -451,6 +460,10 @@ function visibleRecommendationKey(item: RecommendationSectionItem): string {
   );
 }
 
+function sectionItemSource(item: RecommendationSectionItem): "library" | "external" {
+  return item.source === "external" || item.library_state.in_library === false ? "external" : "library";
+}
+
 function recommendationSource(item: RecommendationItem): "library" | "external" {
   if (item.source === "external" || item.source_type === "external_discovery" || item.external_discovery === true || item.is_in_library === false || item.in_library === false) {
     return "external";
@@ -470,17 +483,14 @@ function recommendationActionLabel(item: RecommendationSectionItem): string {
 }
 
 function recommendationBadgeLabel(item: RecommendationSectionItem): string {
-  return item.library_state.in_library ? "On your shelf" : "Outside your library";
+  const fallback = item.library_state.in_library ? "On your shelf" : "Outside your library";
+  return sectionItemSource(item) === "external" ? "Outside your library" : fallback;
 }
 
 function recommendationTitleAuthorIdentity(title: string, author: string): string {
   const normalize = (value: string) =>
     value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `title_author:${normalize(title)}:${normalize(author.split(",", 1)[0] ?? "")}`;
-}
-
-function showRecommendationDiagnostics(): boolean {
-  return import.meta.env.DEV && new URLSearchParams(window.location.search).get("debugRecommendations") === "1";
 }
 
 function recommendationClustersQuery(settings: { recommendationStyle: string }): string {
@@ -495,17 +505,14 @@ function recommendationClustersQuery(settings: { recommendationStyle: string }):
 
 function RecommendationSectionBlock({
   section,
-  responseDebug,
   onNotInterested
 }: {
   section: RecommendationSection;
-  responseDebug: RecommendationResponseDebug | null;
   onNotInterested: (item: RecommendationSectionItem) => Promise<void>;
 }) {
   if (section.items.length === 0) return null;
   const anchors = section.anchors ?? [];
   const readingIdentity = getClusterDisplayTitle(section);
-  const diagnosticVisible = showRecommendationDiagnostics();
   const themes = [...(section.dominant_themes ?? []), ...(section.dominant_genres ?? [])]
     .filter((theme) => visibleRecommendationTags([theme]).length > 0)
     .filter((theme, index, all) => theme && all.findIndex((candidate) => candidate.toLowerCase() === theme.toLowerCase()) === index)
@@ -514,14 +521,6 @@ function RecommendationSectionBlock({
     <section className="grid gap-3">
       <div className="grid gap-2">
         <h2 className="text-sm font-semibold uppercase text-text-dim">{readingIdentity}</h2>
-        {diagnosticVisible ? (
-          <div className="rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-muted">
-            <p>Endpoint: {responseDebug?.endpoint ?? "unknown"}</p>
-            <p>Response type: {responseDebug?.responseType ?? "unknown"}</p>
-            <p>Component: RecommendationSectionBlock</p>
-            <p>Response reading_identity: {readingIdentity}</p>
-          </div>
-        ) : null}
         {anchors.length > 0 ? (
           <p className="text-sm text-text-muted">
             Anchors: {anchors.slice(0, 3).map((anchor) => anchor.title).join(", ")}
@@ -540,11 +539,8 @@ function RecommendationSectionBlock({
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {section.items.map((item) => (
-          <StructuredRecommendationCard
-            key={visibleRecommendationKey(item)}
+          <StructuredRecommendationCard key={visibleRecommendationKey(item)}
             item={item}
-            responseDebug={responseDebug}
-            readingIdentity={readingIdentity}
             onNotInterested={onNotInterested}
           />
         ))}
@@ -594,13 +590,9 @@ function FacetSelector({
 
 function StructuredRecommendationCard({
   item,
-  responseDebug,
-  readingIdentity,
   onNotInterested
 }: {
   item: RecommendationSectionItem;
-  responseDebug: RecommendationResponseDebug | null;
-  readingIdentity: string;
   onNotInterested: (item: RecommendationSectionItem) => Promise<void>;
 }) {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
@@ -610,8 +602,6 @@ function StructuredRecommendationCard({
   const detailsPath = item.library_state.in_library
     ? `/app/book/${encodeURIComponent(item.book_id ?? item.work_id)}`
     : "/app/add";
-  const diagnosticBreakdown = item.score_breakdown ?? {};
-  const diagnosticVisible = showRecommendationDiagnostics();
   const visibleTags = visibleRecommendationTags([...item.genres, ...item.traits]).slice(0, 5);
   const matchLabel = getRecommendationMatchLabel(item);
   const readerExplanation = getRecommendationDisplayExplanation(item);
@@ -642,29 +632,6 @@ function StructuredRecommendationCard({
             </span>
           ))}
         </div>
-      ) : null}
-      {diagnosticVisible ? (
-        <details className="rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-muted">
-          <summary className="cursor-pointer text-text">Recommendation diagnostics</summary>
-          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-            <DiagnosticItem label="Cluster" value={item.cluster_id ?? item.discovery_cluster_id} />
-            <DiagnosticItem label="Endpoint used" value={responseDebug?.endpoint} />
-            <DiagnosticItem label="Component" value="StructuredRecommendationCard" />
-            <DiagnosticItem label="Response type" value={responseDebug?.responseType} />
-            <DiagnosticItem label="Response reading_identity" value={readingIdentity} />
-            <DiagnosticItem label="Response explanation" value={readerExplanation} />
-            <DiagnosticItem label="Qualitative label" value={matchLabel} />
-            <DiagnosticItem label="Anchors" value={(item.explanation.related_books ?? []).map((book) => book.title).join(", ")} />
-            <DiagnosticItem label="Semantic similarity" value={diagnosticBreakdown.semantic_similarity ?? diagnosticBreakdown.anchor_similarity} />
-            <DiagnosticItem label="Cluster fit" value={diagnosticBreakdown.cluster_fit} />
-            <DiagnosticItem label="Novelty" value={item.novelty_score ?? diagnosticBreakdown.novelty_score} />
-            <DiagnosticItem label="Explanation source" value={diagnosticBreakdown.explanation_source ?? (item.explanation.primary_reason ? "backend_reader_reason" : "frontend_fallback")} />
-            <DiagnosticItem label="Match source" value={diagnosticBreakdown.match_label_source ?? "qualitative_label_from_final_score"} />
-            <DiagnosticItem label="Final score" value={item.final_score ?? item.score} />
-            <DiagnosticItem label="Discovery query" value={item.discovery_query} />
-            <DiagnosticItem label="Exploration" value={[item.exploration_mode, item.exploration_source].filter(Boolean).join(":")} />
-          </dl>
-        </details>
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" className="px-3 py-1.5 text-xs">
@@ -700,16 +667,5 @@ function StructuredRecommendationCard({
         <p className="text-sm text-danger" role="alert">{feedbackError}</p>
       ) : null}
     </Card>
-  );
-}
-
-function DiagnosticItem({ label, value }: { label: string; value: unknown }) {
-  if (value === null || value === undefined || value === "") return null;
-  const display = typeof value === "number" ? value.toFixed(3) : String(value);
-  return (
-    <div className="min-w-0">
-      <dt className="text-text-dim">{label}</dt>
-      <dd className="truncate text-text">{display}</dd>
-    </div>
   );
 }
