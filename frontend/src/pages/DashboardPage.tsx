@@ -20,10 +20,10 @@ import {
   type BookRecord
 } from "@/lib/books";
 import { displayProgressPercent, progressPercentValue, readingProgressSummary } from "@/lib/bookProgress";
+import { dashboardSummaryLibrary, type DashboardSummary } from "@/lib/dashboardSummary";
 import { loadCachedProfile, profileDisplayName } from "@/lib/profile";
 import { stableRecommendationId, submitRecommendationFeedback } from "@/lib/recommendationFeedback";
 import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
-import type { ReadingInsightsResponse } from "@/lib/readingInsights";
 import { recommendQuery } from "@/lib/userSettings";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
@@ -49,7 +49,7 @@ function pagesReadThisYear(books: ApiBook[], now = new Date()) {
   );
 }
 
-function primaryCurrentRead(books: ApiBook[]) {
+export function primaryCurrentReadForDashboard(books: ApiBook[]) {
   return [...books]
     .filter((book) => book.status === "reading")
     .sort((a, b) => {
@@ -62,16 +62,6 @@ function primaryCurrentRead(books: ApiBook[]) {
 function recommendationBook(item: RecommendationItem) {
   return item.recommended_book ?? item.book;
 }
-
-type DashboardSummary = Pick<
-  ReadingInsightsResponse,
-  "current_streak_days" | "longest_streak_days" | "pages_read_today" | "has_reading_activity" | "read_today"
-> & {
-  current_books: BookRecord[];
-  recent_completed: BookRecord[];
-  completed_this_year: number;
-  pages_read_this_year: number;
-};
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -93,7 +83,7 @@ export function DashboardPage() {
     void fetchJson<DashboardSummary>("/dashboard/summary", { skipClientCache: refresh })
       .then((summary) => {
         setReadingInsights(summary);
-        setLibrary([...(summary.current_books ?? []), ...(summary.recent_completed ?? [])]);
+        setLibrary(dashboardSummaryLibrary(summary));
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load dashboard");
@@ -115,7 +105,7 @@ export function DashboardPage() {
   }, [load]);
 
   const books = useMemo(() => library.map(recordToApiBook), [library]);
-  const current = primaryCurrentRead(books);
+  const current = primaryCurrentReadForDashboard(books);
   const keepGoing = books.filter((book) => book.status === "reading" && book.id !== current?.id);
   const profile = loadCachedProfile();
   const profileName = profileDisplayName(profile);

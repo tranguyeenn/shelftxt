@@ -99,6 +99,7 @@ def _seed_book(
     metadata_source=None,
     work_key=None,
     book_metadata=None,
+    cover_url=None,
 ):
     def _date(value):
         if value is None or isinstance(value, date):
@@ -127,6 +128,7 @@ def _seed_book(
         metadata_source=metadata_source,
         work_key=work_key,
         book_metadata=book_metadata,
+        cover_url=cover_url,
     )
     db.add(book)
     db.commit()
@@ -232,6 +234,99 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertIn("reading_activity", response.json()["detail"])
+
+    def test_dashboard_summary_returns_current_reading_books_with_required_card_fields(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+        _seed_book(
+            title="Percent Current",
+            authors="Percent Author",
+            isbn_uid="percent-current",
+            read_status="to-read",
+            progress_percent=42,
+            pages_read=0,
+            total_pages=None,
+            tracking_mode="percentage",
+            start_date="2026-07-01",
+            cover_url="https://example.com/percent.jpg",
+            genres=None,
+            subjects=None,
+        )
+        _seed_book(
+            title="Pages Current",
+            authors="Pages Author",
+            isbn_uid="pages-current",
+            read_status="to-read",
+            progress_percent=0,
+            pages_read=120,
+            total_pages=300,
+            tracking_mode="pages",
+            start_date="2026-07-02",
+            cover_url="https://example.com/pages.jpg",
+            genres=None,
+            subjects=None,
+        )
+        _seed_book(
+            title="Completed Book",
+            authors="Done Author",
+            isbn_uid="completed-book",
+            read_status="read",
+            progress_percent=100,
+            pages_read=250,
+            total_pages=250,
+            tracking_mode="pages",
+            start_date="2026-06-01",
+            end_date="2026-06-05",
+            last_date_read="2026-06-05",
+        )
+        _seed_book(
+            title="Other User Current",
+            authors="Other Author",
+            isbn_uid="other-user-current",
+            user_id=OTHER_USER_ID,
+            read_status="to-read",
+            progress_percent=80,
+            pages_read=0,
+            tracking_mode="percentage",
+            start_date="2026-07-03",
+        )
+
+        response = self.client.get("/dashboard/summary")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("current_books", payload)
+        self.assertNotIn("currently_reading", payload)
+        current_books = payload["current_books"]
+        self.assertEqual([book["ISBN/UID"] for book in current_books], ["pages-current", "percent-current"])
+
+        pages_book = current_books[0]
+        self.assertEqual(pages_book["Read Status"], "to-read")
+        self.assertEqual(pages_book["Title"], "Pages Current")
+        self.assertEqual(pages_book["Authors"], "Pages Author")
+        self.assertEqual(pages_book["Progress (%)"], 0)
+        self.assertEqual(pages_book["Pages Read"], 120)
+        self.assertEqual(pages_book["Total Pages"], 300)
+        self.assertEqual(pages_book["Tracking Mode"], "pages")
+        self.assertEqual(pages_book["tracking_mode"], "pages")
+        self.assertEqual(pages_book["Start Date"], "2026-07-02")
+        self.assertEqual(pages_book["start_date"], "2026-07-02")
+        self.assertEqual(pages_book["Cover URL"], "https://example.com/pages.jpg")
+        self.assertEqual(pages_book["cover_url"], "https://example.com/pages.jpg")
+        self.assertIn("Genres", pages_book)
+
+        percent_book = current_books[1]
+        self.assertEqual(percent_book["Read Status"], "to-read")
+        self.assertEqual(percent_book["Progress (%)"], 42)
+        self.assertEqual(percent_book["Pages Read"], 0)
+        self.assertIsNone(percent_book["Total Pages"])
+        self.assertEqual(percent_book["Tracking Mode"], "percentage")
+        self.assertEqual(percent_book["ISBN/UID"], "percent-current")
+
+        self.assertEqual([book["ISBN/UID"] for book in payload["recent_completed"]], ["completed-book"])
 
     def test_get_books_default_pagination(self):
         for i in range(25):

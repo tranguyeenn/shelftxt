@@ -95,9 +95,13 @@ export function recordToApiBook(book: BookRecord): ApiBook {
   const totalPages = toNumber(book["Total Pages"]);
   const st = statusNorm(book["Read Status"]);
   let status: ReadingStatus = "not_started";
-  if (st === "read") status = "completed";
+  if (st === "read" || st === "completed") status = "completed";
   else if (st === "dnf") status = "dnf";
-  else if (st === "to-read" && (progress > 0 || pagesRead > 0)) status = "reading";
+  else if (
+    st === "reading" ||
+    st === "currently-reading" ||
+    (st === "to-read" && (progress > 0 || pagesRead > 0))
+  ) status = "reading";
 
   return {
     id: bookId(book),
@@ -156,9 +160,12 @@ export async function patchBook(bookId: string, payload: BookPatchPayload): Prom
 export function derivedShelf(book: BookRecord): DerivedShelf {
   const st = statusNorm(book["Read Status"]);
   const prog = progressPct(book);
+  const pagesRead = toNumber(book["Pages Read"]) ?? 0;
   if (st === "dnf") return "dnf";
-  if (st === "read") return "completed";
-  if (st === "to-read" && prog > 0) return "reading";
+  if (st === "read" || st === "completed") return "completed";
+  if (st === "reading" || st === "currently-reading" || (st === "to-read" && (prog > 0 || pagesRead > 0))) {
+    return "reading";
+  }
   return "unread";
 }
 

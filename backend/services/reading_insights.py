@@ -5,7 +5,7 @@ from datetime import date
 from uuid import UUID
 
 import time
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from backend.db.models import Book
@@ -202,6 +202,13 @@ def get_dashboard_summary(db: Session, user_id: UUID) -> dict:
                 or_(
                     Book.read_status == "reading",
                     Book.read_status == "currently-reading",
+                    and_(
+                        Book.read_status == "to-read",
+                        or_(
+                            Book.progress_percent > 0,
+                            Book.pages_read > 0,
+                        ),
+                    ),
                 ),
             )
             .order_by(Book.start_date.desc().nullslast(), Book.progress_percent.desc().nullslast(), Book.title.asc())
