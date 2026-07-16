@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
+import { StatCard } from "@/components/ui/StatCard";
 import { primaryCurrentReadForDashboard } from "@/pages/DashboardPage";
-import { dashboardSummaryBooks, type DashboardSummary } from "@/lib/dashboardSummary";
+import {
+  dashboardAnnualGoalStat,
+  dashboardSummaryBooks,
+  type DashboardSummary
+} from "@/lib/dashboardSummary";
 import { displayProgressPercent, readingProgressSummary } from "@/lib/progressDisplay";
 
 const baseSummary: DashboardSummary = {
@@ -80,5 +87,19 @@ describe("dashboard summary contract", () => {
     expect(displayProgressPercent(books[0])).toBe("42%");
     expect(readingProgressSummary(books[1])).toBe("120 / 300 pages");
     expect(displayProgressPercent(books[1])).toBe("40%");
+  });
+
+  it("renders annual goal progress from completed_this_year in the summary", () => {
+    const summary = { ...baseSummary, completed_this_year: 31 };
+    const stat = dashboardAnnualGoalStat(summary, 50);
+    const html = renderToStaticMarkup(
+      createElement(StatCard, { label: "annual goal", value: stat.value, hint: stat.hint })
+    );
+
+    expect(stat.value).toBe("31 / 50");
+    expect(stat.hint).toBe("62% complete");
+    expect(html).toContain("annual goal");
+    expect(html).toContain("31 / 50");
+    expect(html).toContain("62% complete");
   });
 });

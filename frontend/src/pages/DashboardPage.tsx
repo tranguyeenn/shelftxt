@@ -20,7 +20,7 @@ import {
   type BookRecord
 } from "@/lib/books";
 import { displayProgressPercent, progressPercentValue, readingProgressSummary } from "@/lib/bookProgress";
-import { dashboardSummaryLibrary, type DashboardSummary } from "@/lib/dashboardSummary";
+import { dashboardAnnualGoalStat, dashboardSummaryLibrary, type DashboardSummary } from "@/lib/dashboardSummary";
 import { loadCachedProfile, profileDisplayName } from "@/lib/profile";
 import { stableRecommendationId, submitRecommendationFeedback } from "@/lib/recommendationFeedback";
 import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
@@ -32,21 +32,6 @@ function timeBasedGreeting() {
   if (hour < 12) return "good morning";
   if (hour < 18) return "good afternoon";
   return "good evening";
-}
-
-function completedThisYear(books: ApiBook[], now = new Date()) {
-  return books.filter((book) => {
-    if (book.status !== "completed") return false;
-    const date = parseDate(book.end_date);
-    return date !== null && date.getFullYear() === now.getFullYear();
-  });
-}
-
-function pagesReadThisYear(books: ApiBook[], now = new Date()) {
-  return completedThisYear(books, now).reduce(
-    (total, book) => total + (book.total_pages ?? book.pages_read ?? 0),
-    0
-  );
 }
 
 export function primaryCurrentReadForDashboard(books: ApiBook[]) {
@@ -80,7 +65,7 @@ export function DashboardPage() {
     setSummaryLoading(true);
     setRecommendationsLoading(true);
 
-    void fetchJson<DashboardSummary>("/dashboard/summary", { skipClientCache: refresh })
+    void fetchJson<DashboardSummary>("/dashboard/summary", { skipClientCache: true })
       .then((summary) => {
         setReadingInsights(summary);
         setLibrary(dashboardSummaryLibrary(summary));
@@ -111,8 +96,9 @@ export function DashboardPage() {
   const profileName = profileDisplayName(profile);
   const fallbackName = user?.email?.split("@")[0] || "reader";
   const greetingName = profileName === "Reader" ? fallbackName : profileName;
-  const completedYearCount = readingInsights?.completed_this_year ?? completedThisYear(books).length;
   const annualGoal = profile.readingGoal && profile.readingGoal > 0 ? profile.readingGoal : null;
+  const annualGoalStat = dashboardAnnualGoalStat(readingInsights, annualGoal);
+  const completedYearCount = readingInsights?.completed_this_year ?? 0;
   const recentCompleted = books
     .filter((book) => book.status === "completed" && parseDate(finishDateValue({
       Title: book.title,
@@ -225,13 +211,13 @@ export function DashboardPage() {
           />
           <StatCard
             label="annual goal"
-            value={annualGoal ? `${completedYearCount} / ${annualGoal}` : "Not set"}
-            hint={annualGoal ? `${Math.round((completedYearCount / annualGoal) * 100)}% complete` : "Set a goal in Profile"}
+            value={annualGoalStat.value}
+            hint={annualGoalStat.hint}
           />
           <StatCard
             label="books read this year"
             value={String(completedYearCount)}
-            hint={`${(readingInsights?.pages_read_this_year ?? pagesReadThisYear(books)).toLocaleString()} pages from completed books`}
+            hint={`${(readingInsights?.pages_read_this_year ?? 0).toLocaleString()} pages from completed books`}
           />
         </div>
       </section>

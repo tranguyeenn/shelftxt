@@ -19,3 +19,17 @@ export function dashboardSummaryLibrary(summary: DashboardSummary): BookRecord[]
 export function dashboardSummaryBooks(summary: DashboardSummary): ApiBook[] {
   return dashboardSummaryLibrary(summary).map(recordToApiBook);
 }
+
+export function dashboardAnnualGoalStat(
+  summary: Pick<DashboardSummary, "completed_this_year"> | null,
+  annualGoal: number | null
+): { value: string; hint: string } {
+  const completedThisYear = summary?.completed_this_year ?? 0;
+  if (annualGoal === null) {
+    return { value: "Not set", hint: "Set a goal in Profile" };
+  }
+  return {
+    value: `${completedThisYear} / ${annualGoal}`,
+    hint: `${Math.round((completedThisYear / annualGoal) * 100)}% complete`
+  };
+}
