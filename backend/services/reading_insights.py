@@ -194,6 +194,7 @@ def get_reading_insights(db: Session, user_id: UUID) -> dict:
 def get_dashboard_summary(db: Session, user_id: UUID) -> dict:
     started = time.perf_counter()
     today = date.today()
+    completion_date = func.coalesce(Book.end_date, Book.last_date_read)
     with timed_stage("dashboard_query"):
         current_books = (
             db.query(Book)
@@ -227,10 +228,9 @@ def get_dashboard_summary(db: Session, user_id: UUID) -> dict:
             .filter(
                 Book.user_id == user_id,
                 Book.read_status.in_(["completed", "read"]),
-                or_(
-                    func.extract("year", Book.end_date) == today.year,
-                    func.extract("year", Book.last_date_read) == today.year,
-                ),
+                completion_date.is_not(None),
+                completion_date <= today,
+                func.extract("year", completion_date) == today.year,
             )
             .scalar()
             or 0
@@ -240,10 +240,9 @@ def get_dashboard_summary(db: Session, user_id: UUID) -> dict:
             .filter(
                 Book.user_id == user_id,
                 Book.read_status.in_(["completed", "read"]),
-                or_(
-                    func.extract("year", Book.end_date) == today.year,
-                    func.extract("year", Book.last_date_read) == today.year,
-                ),
+                completion_date.is_not(None),
+                completion_date <= today,
+                func.extract("year", completion_date) == today.year,
             )
             .scalar()
             or 0

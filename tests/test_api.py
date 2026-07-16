@@ -328,6 +328,123 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual([book["ISBN/UID"] for book in payload["recent_completed"]], ["completed-book"])
 
+    def test_dashboard_summary_completed_this_year_includes_current_year_completions(self):
+        current_year = date.today().year
+        _seed_book(
+            title="This Year One",
+            authors="Author",
+            isbn_uid="this-year-one",
+            read_status="read",
+            end_date=f"{current_year}-01-10",
+            last_date_read=f"{current_year}-01-10",
+            total_pages=100,
+            pages_read=100,
+            progress_percent=100,
+        )
+        _seed_book(
+            title="This Year Two",
+            authors="Author",
+            isbn_uid="this-year-two",
+            read_status="completed",
+            end_date=f"{current_year}-02-10",
+            last_date_read=f"{current_year}-02-10",
+            total_pages=200,
+            pages_read=200,
+            progress_percent=100,
+        )
+
+        response = self.client.get("/dashboard/summary")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["completed_this_year"], 2)
+        self.assertEqual(response.json()["pages_read_this_year"], 300)
+
+    def test_dashboard_summary_completed_this_year_excludes_prior_year_and_conflicting_last_read(self):
+        current_year = date.today().year
+        prior_year = current_year - 1
+        _seed_book(
+            title="Prior Year",
+            authors="Author",
+            isbn_uid="prior-year",
+            read_status="read",
+            end_date=f"{prior_year}-12-10",
+            last_date_read=f"{prior_year}-12-10",
+            total_pages=100,
+            pages_read=100,
+            progress_percent=100,
+        )
+        _seed_book(
+            title="Historical Import With Current Last Read",
+            authors="Author",
+            isbn_uid="historical-current-last-read",
+            read_status="read",
+            end_date=f"{prior_year}-11-10",
+            last_date_read=f"{current_year}-01-10",
+            total_pages=200,
+            pages_read=200,
+            progress_percent=100,
+        )
+        _seed_book(
+            title="This Year",
+            authors="Author",
+            isbn_uid="this-year",
+            read_status="read",
+            end_date=f"{current_year}-02-10",
+            last_date_read=f"{current_year}-02-10",
+            total_pages=300,
+            pages_read=300,
+            progress_percent=100,
+        )
+
+        response = self.client.get("/dashboard/summary")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["completed_this_year"], 1)
+        self.assertEqual(response.json()["pages_read_this_year"], 300)
+
+    def test_dashboard_summary_completed_this_year_excludes_null_and_future_completion_dates(self):
+        current_year = date.today().year
+        future_year = current_year + 1
+        _seed_book(
+            title="Undated Read",
+            authors="Author",
+            isbn_uid="undated-read",
+            read_status="read",
+            end_date=None,
+            last_date_read=None,
+            total_pages=100,
+            pages_read=100,
+            progress_percent=100,
+        )
+        _seed_book(
+            title="Future Read",
+            authors="Author",
+            isbn_uid="future-read",
+            read_status="read",
+            end_date=f"{future_year}-01-10",
+            last_date_read=f"{future_year}-01-10",
+            total_pages=200,
+            pages_read=200,
+            progress_percent=100,
+        )
+        _seed_book(
+            title="Dated Read",
+            authors="Author",
+            isbn_uid="dated-read",
+            read_status="read",
+            end_date=f"{current_year}-03-10",
+            last_date_read=f"{current_year}-03-10",
+            total_pages=300,
+            pages_read=300,
+            progress_percent=100,
+        )
+
+        response = self.client.get("/dashboard/summary")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["completed_this_year"], 1)
+        self.assertEqual(response.json()["pages_read_this_year"], 300)
+
     def test_get_books_default_pagination(self):
         for i in range(25):
             _seed_book(
