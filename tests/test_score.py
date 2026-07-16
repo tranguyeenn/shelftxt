@@ -220,6 +220,43 @@ class ScoreTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
     @patch("numpy.random.uniform")
+    def test_low_rated_and_dnf_anchors_reduce_related_scores(self, mock_uniform):
+        mock_uniform.return_value = [0.0, 0.0]
+        df = pd.DataFrame(
+            [
+                {"title": "Loved Mystery", "author": "A", "read_status": "read", "Star Rating": 5, "Genres": ["mystery"], "Subjects": ["investigation"], "Description": "detective investigation"},
+                {"title": "Hated Space", "author": "B", "read_status": "dnf", "Star Rating": 1, "Genres": ["space opera"], "Subjects": ["spaceships"], "Description": "spaceships empire"},
+                {"title": "Mystery Candidate", "author": "C", "read_status": "to-read", "Genres": ["mystery"], "Subjects": ["investigation"], "Description": "detective case"},
+                {"title": "Space Candidate", "author": "D", "read_status": "to-read", "Genres": ["space opera"], "Subjects": ["spaceships"], "Description": "spaceships empire"},
+            ]
+        )
+
+        result = score_tbr_books(df, randomness_strength=0.0)
+        scores = dict(zip(result["title"], result["score"], strict=True))
+
+        self.assertGreater(scores["Mystery Candidate"], scores["Space Candidate"])
+
+    @patch("numpy.random.uniform")
+    def test_separate_reading_clusters_keep_distinct_anchors(self, mock_uniform):
+        mock_uniform.return_value = [0.0, 0.0]
+        df = pd.DataFrame(
+            [
+                {"title": "Loved Dystopian", "author": "A", "read_status": "read", "Star Rating": 5, "Genres": ["dystopian"], "Subjects": ["surveillance"], "Description": "surveillance state"},
+                {"title": "Loved Romance", "author": "B", "read_status": "read", "Star Rating": 5, "Genres": ["romance"], "Subjects": ["second chance"], "Description": "second chance relationship"},
+                {"title": "Dystopian Candidate", "author": "C", "read_status": "to-read", "Genres": ["dystopian"], "Subjects": ["surveillance"], "Description": "surveillance rebellion"},
+                {"title": "Romance Candidate", "author": "D", "read_status": "to-read", "Genres": ["romance"], "Subjects": ["second chance"], "Description": "second chance love"},
+            ]
+        )
+
+        result = score_tbr_books(df, randomness_strength=0.0)
+        by_title = {row["title"]: row for _, row in result.iterrows()}
+
+        dystopian_anchor_indexes = [anchor[0] for anchor in by_title["Dystopian Candidate"]["_score_anchors"]]
+        romance_anchor_indexes = [anchor[0] for anchor in by_title["Romance Candidate"]["_score_anchors"]]
+        self.assertIn(0, dystopian_anchor_indexes)
+        self.assertIn(1, romance_anchor_indexes)
+
+    @patch("numpy.random.uniform")
     def test_score_tbr_books_uses_low_rated_and_unrated_completed_books(
         self,
         mock_uniform,

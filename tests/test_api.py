@@ -1,5 +1,6 @@
 import unittest
 from contextlib import ExitStack
+from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, patch
 from uuid import UUID
 from datetime import date, datetime, timedelta, timezone
@@ -14,10 +15,11 @@ from sqlalchemy.pool import StaticPool
 from backend import api
 from backend.auth.dependencies import get_current_user
 from backend.db.database import Base, get_db
-from backend.db.models import Book, MetadataJob, Profile
+from backend.db.models import Book, MetadataJob, Profile, RecommendationFeedback
 from backend.services.page_lookup import BookMetadata, GoogleBooksRateLimited, OpenLibraryTimeout
 from backend.services.page_count_lookup import PageCountResult
 from backend.services.recommendation import get_recommendation
+from backend.services.recommendation_feedback import active_feedback_for_user
 
 
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -95,6 +97,8 @@ def _seed_book(
     genres=None,
     first_publish_year=None,
     metadata_source=None,
+    work_key=None,
+    book_metadata=None,
 ):
     def _date(value):
         if value is None or isinstance(value, date):
@@ -121,6 +125,8 @@ def _seed_book(
         genres=genres,
         first_publish_year=first_publish_year,
         metadata_source=metadata_source,
+        work_key=work_key,
+        book_metadata=book_metadata,
     )
     db.add(book)
     db.commit()
@@ -2642,6 +2648,343 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsInstance(response.json(), list)
+
+    def test_recommendation_sections_endpoint_enforces_earliest_unread_naturals_installment(self):
+        series_books = [
+            {"title": "The Naturals", "author": "Jennifer Lynn Barnes", "position": 1, "work_id": "/works/NATURALS-1"},
+            {"title": "Killer Instinct", "author": "Jennifer Lynn Barnes", "position": 2, "work_id": "/works/NATURALS-2"},
+            {"title": "All In", "author": "Jennifer Lynn Barnes", "position": 3, "work_id": "/works/NATURALS-3"},
+            {"title": "Bad Blood", "author": "Jennifer Lynn Barnes", "position": 4, "work_id": "/works/NATURALS-4"},
+        ]
+        series = {
+            "series_name": "The Naturals",
+            "series_position": 1,
+            "series_type": "main_series",
+            "series_books": series_books,
+            "series_confidence": 0.95,
+        }
+        provider_results = [
+            {
+                "title": "Killer Instinct",
+                "authors": ["Jennifer Lynn Barnes"],
+                "isbn_uid": "9780000000002",
+                "subjects": ["serial killers"],
+                "genres": ["mystery"],
+                "metadata_source": "open_library",
+                "work_key": "/works/NATURALS-2",
+                "confidence_score": 0.82,
+                "series": {**series, "series_position": 2},
+                "series_name": "The Naturals",
+                "series_position": 2,
+                "series_books": series_books,
+            },
+            {
+                "title": "All In",
+                "authors": ["Jennifer Lynn Barnes"],
+                "isbn_uid": "9780000000003",
+                "subjects": ["serial killers"],
+                "genres": ["mystery"],
+                "metadata_source": "open_library",
+                "work_key": "/works/NATURALS-3",
+                "confidence_score": 0.82,
+                "series": {**series, "series_position": 3},
+                "series_name": "The Naturals",
+                "series_position": 3,
+                "series_books": series_books,
+            },
+            {
+                "title": "Bad Blood",
+                "authors": ["Jennifer Lynn Barnes"],
+                "isbn_uid": "9780000000004",
+                "subjects": ["serial killers"],
+                "genres": ["mystery"],
+                "metadata_source": "open_library",
+                "work_key": "/works/NATURALS-4",
+                "confidence_score": 0.82,
+                "series": {**series, "series_position": 4},
+                "series_name": "The Naturals",
+                "series_position": 4,
+                "series_books": series_books,
+            },
+        ]
+        _seed_book(
+            title="The Naturals",
+            authors="Jennifer Lynn Barnes",
+            isbn_uid="naturals-1",
+            read_status="read",
+            star_rating=5,
+            progress_percent=100,
+            pages_read=320,
+            total_pages=320,
+            subjects=["serial killers"],
+            genres=["mystery"],
+            work_key="/works/NATURALS-1",
+            book_metadata={"series": series},
+        )
+
+        aggregation = SimpleNamespace(
+            results=provider_results,
+            outcomes=(SimpleNamespace(source="open_library", success=True, result_count=3),),
+        )
+        with patch("backend.services.recommendation_discovery._run_aggregation", return_value=aggregation):
+            response = self.client.get("/recommendations/sections?limit=10&style=balanced&refresh=true")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        titles = [
+            item["canonical_title"]
+            for section in payload["sections"]
+            for item in section["items"]
+        ]
+        self.assertEqual(titles.count("Killer Instinct"), 1)
+        self.assertNotIn("All In", titles)
+        self.assertNotIn("Bad Blood", titles)
+
+    def test_recommendation_clusters_endpoint_returns_cluster_sections(self):
+        _seed_book(
+            title="The Hunger Games",
+            authors="Suzanne Collins",
+            isbn_uid="hunger-games",
+            read_status="read",
+            star_rating=5,
+            progress_percent=100,
+            pages_read=374,
+            total_pages=374,
+            subjects=["dystopian survival"],
+            genres=["young adult"],
+            work_key="/works/HUNGER-GAMES",
+        )
+        _seed_book(
+            title="Scythe",
+            authors="Neal Shusterman",
+            isbn_uid="scythe",
+            read_status="to-read",
+            subjects=["dystopian science fiction"],
+            genres=["young adult"],
+            work_key="/works/SCYTHE",
+        )
+
+        with patch("backend.services.recommendation_clusters.discovery_candidate_rows", return_value=([], SimpleNamespace())):
+            response = self.client.get("/recommendations/clusters?limit=3&max_per_cluster=3")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload[0]["cluster_id"], "ya-dystopian-speculative")
+        self.assertEqual(payload[0]["title"], "Survival and dystopian rebellion")
+        self.assertEqual(payload[0]["anchors"][0]["title"], "The Hunger Games")
+        self.assertEqual(payload[0]["recommendations"][0]["canonical_title"], "Scythe")
+
+    def test_recommendation_feedback_is_scoped_to_authenticated_user(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+
+        response = self.client.post(
+            "/recommendations/feedback",
+            json={
+                "recommendation_id": "work:shared",
+                "feedback_type": "not_interested",
+                "work_id": "shared",
+                "title": "Shared Book",
+                "author": "Author",
+                "genres": ["Mystery"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["should_hide"])
+        db = TestingSessionLocal()
+        try:
+            feedback = db.query(RecommendationFeedback).one()
+            self.assertEqual(feedback.user_id, TEST_USER_ID)
+            self.assertEqual(feedback.feedback_type, "not_interested")
+            self.assertEqual(feedback.related_genres, ["Mystery"])
+        finally:
+            db.close()
+
+    def test_recommendation_feedback_accepts_canonical_identity_action_and_is_idempotent(self):
+        payload = {
+            "canonical_identity": "work:/works/shared-dismissal",
+            "recommendation_id": "work:/works/shared-dismissal",
+            "action": "not_interested",
+            "source": "external",
+            "cluster_id": "ya-mystery-thriller",
+            "work_id": "/works/shared-dismissal",
+            "title": "Dismissed External",
+            "author": "Author",
+        }
+
+        first = self.client.post("/recommendations/feedback", json=payload)
+        second = self.client.post("/recommendations/feedback", json=payload)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        db = TestingSessionLocal()
+        try:
+            rows = db.query(RecommendationFeedback).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].user_id, TEST_USER_ID)
+            self.assertEqual(rows[0].recommendation_identity, "work:/works/shared-dismissal")
+            self.assertEqual(rows[0].feedback_type, "not_interested")
+            self.assertEqual(rows[0].source, "external")
+            self.assertEqual(rows[0].cluster_id, "ya-mystery-thriller")
+        finally:
+            db.close()
+
+    def test_one_users_feedback_does_not_affect_another_users_recommendations(self):
+        _seed_profile(
+            user_id=OTHER_USER_ID,
+            email="other@shelftxt.local",
+            username="other",
+        )
+        for user_id in (TEST_USER_ID, OTHER_USER_ID):
+            _seed_book(
+                title=f"Read {user_id}",
+                authors="Anchor",
+                isbn_uid=f"read-{user_id}",
+                user_id=user_id,
+                read_status="read",
+                star_rating=5,
+                genres=["mystery"],
+            )
+            _seed_book(
+                title="Shared Candidate",
+                authors="Candidate",
+                isbn_uid=f"candidate-{user_id}",
+                user_id=user_id,
+                read_status="to-read",
+                genres=["mystery"],
+                first_publish_year=2000,
+            )
+
+        db = TestingSessionLocal()
+        try:
+            db.add(
+                RecommendationFeedback(
+                    user_id=OTHER_USER_ID,
+                    recommendation_id="title-author:shared-candidate|candidate",
+                    recommendation_identity="title_author:shared-candidate:candidate",
+                    canonical_title="Shared Candidate",
+                    canonical_author="Candidate",
+                    feedback_type="not_interested",
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+                    related_genres=["mystery"],
+                )
+            )
+            db.commit()
+            result = get_recommendation(db, TEST_USER_ID, style="balanced")
+        finally:
+            db.close()
+
+        self.assertEqual([item["book"]["title"] for item in result], ["Shared Candidate"])
+        self.assertEqual(result[0]["score_breakdown"].get("recommendation_feedback_penalty"), 0.0)
+
+    def test_expired_recommendation_feedback_is_not_active(self):
+        db = TestingSessionLocal()
+        try:
+            db.add(
+                RecommendationFeedback(
+                    user_id=TEST_USER_ID,
+                    recommendation_id="work:old",
+                    recommendation_identity="work:old",
+                    work_id="old",
+                    canonical_title="Old",
+                    canonical_author="Author",
+                    feedback_type="not_interested",
+                    expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+                )
+            )
+            db.add(
+                RecommendationFeedback(
+                    user_id=TEST_USER_ID,
+                    recommendation_id="work:active",
+                    recommendation_identity="work:active",
+                    work_id="active",
+                    canonical_title="Active",
+                    canonical_author="Author",
+                    feedback_type="not_interested",
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+                )
+            )
+            db.commit()
+
+            active = active_feedback_for_user(db, TEST_USER_ID)
+        finally:
+            db.close()
+
+        self.assertEqual([item.recommendation_id for item in active], ["work:active"])
+
+    def test_repeated_not_interested_extends_feedback_expiration(self):
+        payload = {
+            "recommendation_id": "work:repeat",
+            "feedback_type": "not_interested",
+            "work_id": "repeat",
+            "title": "Repeated Book",
+            "author": "Author",
+        }
+
+        first = self.client.post("/recommendations/feedback", json=payload)
+        second = self.client.post("/recommendations/feedback", json=payload)
+        third = self.client.post("/recommendations/feedback", json=payload)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(third.status_code, 200)
+        now = datetime.now(timezone.utc)
+        first_expiry = datetime.fromisoformat(first.json()["feedback"]["expires_at"]).replace(tzinfo=timezone.utc)
+        second_expiry = datetime.fromisoformat(second.json()["feedback"]["expires_at"]).replace(tzinfo=timezone.utc)
+        third_expiry = datetime.fromisoformat(third.json()["feedback"]["expires_at"]).replace(tzinfo=timezone.utc)
+
+        self.assertGreaterEqual((first_expiry - now).days, 29)
+        self.assertGreaterEqual((second_expiry - now).days, 89)
+        self.assertGreaterEqual((third_expiry - now).days, 179)
+
+    def test_rejected_edition_does_not_reappear_by_title_author_alias(self):
+        _seed_book(
+            title="Loved Mystery",
+            authors="Anchor",
+            isbn_uid="anchor-mystery",
+            read_status="read",
+            star_rating=5,
+            genres=["mystery"],
+        )
+        _seed_book(
+            title="Rejected Work",
+            authors="Same Author",
+            isbn_uid="9780000000002",
+            read_status="to-read",
+            genres=["mystery"],
+        )
+        _seed_book(
+            title="Alternative Work",
+            authors="Other Author",
+            isbn_uid="9780000000003",
+            read_status="to-read",
+            genres=["mystery"],
+        )
+        db = TestingSessionLocal()
+        try:
+            db.add(
+                RecommendationFeedback(
+                    user_id=TEST_USER_ID,
+                    recommendation_id="isbn:9780000000001",
+                    recommendation_identity="isbn:9780000000001",
+                    isbn="9780000000001",
+                    canonical_title="Rejected Work",
+                    canonical_author="Same Author",
+                    feedback_type="not_interested",
+                    expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+                )
+            )
+            db.commit()
+
+            result = get_recommendation(db, TEST_USER_ID, style="balanced", refresh=True)
+        finally:
+            db.close()
+
+        self.assertEqual([item["book"]["title"] for item in result], ["Alternative Work"])
 
     @patch(
         "backend.services.page_lookup.httpx.get",

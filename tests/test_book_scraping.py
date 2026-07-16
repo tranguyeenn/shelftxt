@@ -59,6 +59,24 @@ def test_graph_jsonld_parses_book_node():
     assert metadata.authors == ["Toni Morrison"]
 
 
+def test_book_jsonld_parses_series_metadata():
+    html = """
+    <script type="application/ld+json">
+    {"@type":"Book","name":"The Two Towers","author":{"name":"J. R. R. Tolkien"},
+     "isPartOf":{"@type":"BookSeries","name":"The Lord of the Rings"},"position":2}
+    </script>
+    """
+
+    metadata, _malformed = parse_book_metadata(html, "https://www.penguinrandomhouse.com/books/two-towers/")
+
+    assert metadata is not None
+    assert metadata.series_name == "The Lord of the Rings"
+    assert metadata.series_position == 2
+    assert metadata.series_type == "main_series"
+    assert metadata.series_source == "penguinrandomhouse.com"
+    assert metadata.series_confidence == 0.75
+
+
 def test_malformed_jsonld_falls_back_to_open_graph():
     html = """
     <script type="application/ld+json">{bad json</script>

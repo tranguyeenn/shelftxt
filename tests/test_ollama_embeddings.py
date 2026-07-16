@@ -12,6 +12,7 @@ from backend.services.ollama_embeddings import (
     book_source_text,
     canonical_embedding_model,
     embedding_content_hash,
+    ensure_recommendation_embeddings,
     normalize_vector,
     rerank_with_semantics,
     weighted_average,
@@ -150,3 +151,51 @@ def test_candidates_without_embeddings_remain_eligible():
 
     assert {item["title"] for item in result} == {"With Vector", "No Vector"}
     assert next(item for item in result if item["title"] == "No Vector")["semantic_available"] is False
+
+
+def test_external_candidates_receive_and_cache_embeddings_when_ollama_available():
+    class FakeClient:
+        model = "embeddinggemma"
+        embedding_model = "embeddinggemma:latest"
+
+        async def embed_many(self, texts):
+            self.texts = texts
+            return [_vector(0.2) for _ in texts]
+
+    class FakeDb:
+        def commit(self):
+            self.committed = True
+
+    upserts = []
+    client = FakeClient()
+    db = FakeDb()
+    recommendations = [
+        {
+            "title": "External Book",
+            "author": "Author",
+            "outside_library": True,
+            "description": "A strong adjacent match",
+            "genres": ["Mystery"],
+            "subjects": ["Investigation"],
+            "discovery_source": "open_library",
+            "recommended_book": {"title": "External Book", "author": "Author"},
+        },
+        {
+            "title": "Library Book",
+            "author": "Author",
+            "outside_library": False,
+            "recommended_book": {"title": "Library Book", "author": "Author"},
+        },
+    ]
+
+    with (
+        patch("backend.services.ollama_embeddings.stored_embedding_record", return_value=None),
+        patch("backend.services.ollama_embeddings.upsert_embedding_record", side_effect=lambda *args, **kwargs: upserts.append(kwargs)),
+    ):
+        stats = asyncio.run(ensure_recommendation_embeddings(db, recommendations, client=client))
+
+    assert stats.scanned == 1
+    assert stats.created == 1
+    assert len(client.texts) == 1
+    assert upserts[0]["embedding_model"] == "embeddinggemma:latest"
+    assert db.committed is True

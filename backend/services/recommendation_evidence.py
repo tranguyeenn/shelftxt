@@ -2,12 +2,28 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.services.metadata_specificity import metadata_specificity
+from backend.services.metadata_specificity import metadata_specificity, normalize_specificity_term
 
 MIN_ANCHOR_SIMILARITY = 0.15
 MIN_GENRE_WITH_ANCHOR_SIMILARITY = 0.12
 STRONG_SEMANTIC_SIMILARITY = 0.55
 MEANINGFUL_METADATA_OVERLAP = 0.4
+GENERIC_BACKFILL_TERMS = {
+    "fiction",
+    "general",
+    "general fiction",
+    "life",
+    "literature",
+    "drama",
+    "novel",
+    "new york times bestseller",
+}
+BACKFILL_EXCLUDED_TERMS = {
+    "government",
+    "natural rights",
+    "political authority",
+    "political philosophy",
+}
 
 
 def _safe_score(value: object, default: float = 0.0) -> float:
@@ -37,6 +53,7 @@ def metadata_evidence(row: pd.Series) -> dict[str, float]:
         "theme_match": _safe_score(signals.get("mood_match")),
         "author_affinity": _safe_score(signals.get("author_affinity")),
         "series_score": _safe_score(feedback_breakdown.get("series_continuity_boost")),
+        "negative_preference_penalty": _safe_score(signals.get("negative_preference_penalty")),
     }
 
 
@@ -54,6 +71,8 @@ def has_backfill_evidence(row: pd.Series) -> bool:
     cluster_fit_breakdown = row.get("_cluster_fit_breakdown")
     if not isinstance(cluster_fit_breakdown, dict):
         cluster_fit_breakdown = {}
+    if evidence.get("negative_preference_penalty", 0.0) > 0:
+        return False
     if evidence["anchor_similarity"] >= 0.05:
         return True
     if evidence["series_score"] > 0:
@@ -62,6 +81,31 @@ def has_backfill_evidence(row: pd.Series) -> bool:
         return True
     if _safe_score(cluster_fit_breakdown.get("cluster_fit")) >= 0.15:
         return True
+    if _is_library_row(row) and _has_specific_backfill_metadata(row):
+        return True
+    return False
+
+
+def _is_library_row(row: pd.Series) -> bool:
+    value = row.get("In Library")
+    return True if pd.isna(value) else bool(value)
+
+
+def _has_specific_backfill_metadata(row: pd.Series) -> bool:
+    normalized_terms: set[str] = set()
+    for column in ("Genres", "Subjects"):
+        values = row.get(column) or []
+        if not isinstance(values, (list, tuple, set)):
+            continue
+        for value in values:
+            normalized = normalize_specificity_term(value)
+            normalized_terms.add(normalized)
+            if normalized in BACKFILL_EXCLUDED_TERMS:
+                return False
+            if normalized in GENERIC_BACKFILL_TERMS:
+                continue
+            if metadata_specificity(value) >= 0.5:
+                return True
     return False
 
 

@@ -26,3 +26,4 @@ coverage.xml
 backend/data/processed/books.csv
 backend/data/raw/*.csv
 *.csv
+shelftxt-local-backup.sql
