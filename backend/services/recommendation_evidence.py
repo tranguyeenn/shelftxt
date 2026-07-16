@@ -49,6 +49,22 @@ def fallback_eligible(ranked: pd.DataFrame, keep_indexes: list[object]) -> bool:
     return bool(ranked.empty or not keep_indexes)
 
 
+def has_backfill_evidence(row: pd.Series) -> bool:
+    evidence = metadata_evidence(row)
+    cluster_fit_breakdown = row.get("_cluster_fit_breakdown")
+    if not isinstance(cluster_fit_breakdown, dict):
+        cluster_fit_breakdown = {}
+    if evidence["anchor_similarity"] >= 0.05:
+        return True
+    if evidence["series_score"] > 0:
+        return True
+    if evidence["author_affinity"] > 0:
+        return True
+    if _safe_score(cluster_fit_breakdown.get("cluster_fit")) >= 0.15:
+        return True
+    return False
+
+
 def has_minimum_positive_evidence(row: pd.Series) -> bool:
     evidence = metadata_evidence(row)
     anchor_similarity = evidence["anchor_similarity"]
@@ -85,6 +101,13 @@ def apply_minimum_evidence_filter(ranked: pd.DataFrame) -> pd.DataFrame:
     if ranked.empty:
         return ranked
     keep = [index for index, row in ranked.iterrows() if has_minimum_positive_evidence(row)]
+    backfill = [
+        index
+        for index, row in ranked.iterrows()
+        if index not in keep and has_backfill_evidence(row)
+    ]
+    if keep and backfill:
+        return ranked.loc[[*keep, *backfill]].copy()
     if fallback_eligible(ranked, keep):
         if keep:
             return ranked

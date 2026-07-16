@@ -13,14 +13,14 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from backend.db.models import Book
-from backend.services.book_search import _run_aggregation
+from backend.services import book_search
+from backend.services import external_candidate_exploration
 from backend.services.canonical_work import (
     canonical_work_for_book,
     canonical_work_for_result,
     completed_component_identities,
     owned_component_identities,
 )
-from backend.services.external_candidate_exploration import explore_external_candidates
 from backend.services.series_metadata import (
     book_series_metadata,
     canonical_series_identity,
@@ -43,6 +43,34 @@ DEFAULT_DISCOVERY_MAX_QUERIES = 8
 MAX_LOCAL_DISCOVERY_CANDIDATES = 250
 DEFAULT_DISCOVERY_RESULTS_PER_QUERY = 20
 MIN_DISCOVERY_CONFIDENCE = 0.35
+
+
+def _run_aggregation(
+    query: str,
+    local_candidates: list[dict],
+    *,
+    allow_external: bool = True,
+    result_limit: int | None = None,
+):
+    return book_search._run_aggregation(
+        query,
+        local_candidates,
+        allow_external=allow_external,
+        result_limit=result_limit,
+    )
+
+
+def explore_external_candidates(
+    library_books: list[Book],
+    *,
+    limit: int = 80,
+    result_limit_per_source: int | None = None,
+):
+    return external_candidate_exploration.explore_external_candidates(
+        library_books,
+        limit=limit,
+        result_limit_per_source=result_limit_per_source,
+    )
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -1011,7 +1039,7 @@ def discovery_candidate_rows(
                 result["inclusion_reason"] = "eligible_after_canonical_duplicate_and_series_checks"
                 by_key[key] = result
 
-    if allow_external:
+    if allow_external and not diagnostics.provider_failures:
         exploration_results, exploration_diagnostics = explore_external_candidates(
             library_books,
             limit=max(limit, results_per_query * max(1, len(query_specs))),

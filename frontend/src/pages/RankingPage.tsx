@@ -317,7 +317,7 @@ export function RankingPage() {
         />
       ) : null}
 
-      {!loading && !error && visibleSections.every((section) => section.items.length === 0) ? (
+      {!loading && !error && sections.every((section) => section.items.length === 0) && visibleSections.every((section) => section.items.length === 0) ? (
         <EmptyState
           title="No clear recommendation yet."
           description="Add more books from your TBR or rate a few finished reads so ShelfTxt can explain the next pick."
