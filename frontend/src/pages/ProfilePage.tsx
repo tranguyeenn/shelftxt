@@ -40,7 +40,7 @@ export function ProfilePage() {
     setError("");
     try {
       const [books, loadedProfile] = await Promise.all([
-        fetchAllLibraryBooks(),
+        fetchAllLibraryBooks({ details: true }),
         fetchProfile(user)
       ]);
       setLibrary(books);

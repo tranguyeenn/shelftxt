@@ -134,7 +134,7 @@ export function InsightsPage() {
     setError("");
     try {
       const [books, recs, metadata, insights] = await Promise.all([
-        fetchAllLibraryBooks(),
+        fetchAllLibraryBooks({ details: true }),
         fetchJson<RecommendationItem[]>(recommendQuery(settings)),
         fetchMetadataStatus(),
         fetchReadingInsights()

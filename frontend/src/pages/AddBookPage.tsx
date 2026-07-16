@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -103,31 +103,78 @@ export function AddBookPage() {
   const [confirmManualDuplicate, setConfirmManualDuplicate] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchCacheRef = useRef<Map<string, BookSearchResponse>>(new Map());
 
-  async function onSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const cleanQuery = query.trim();
-    if (!cleanQuery) return;
+  async function runSearch(cleanQuery: string) {
+    if (cleanQuery.length < 3) {
+      searchAbortRef.current?.abort();
+      setResults([]);
+      setSearched(false);
+      setSearching(false);
+      return;
+    }
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     setSearching(true);
     setSearched(false);
     setError("");
     setMessage("");
     try {
+      const cacheKey = cleanQuery.toLowerCase();
+      const cached = searchCacheRef.current.get(cacheKey);
+      if (cached) {
+        setResults(Array.isArray(cached.results) ? cached.results : []);
+        setSearching(false);
+        setSearched(true);
+        return;
+      }
+
+      const local = await fetchJson<BookSearchResponse>(
+        `/books/search?q=${encodeURIComponent(cleanQuery)}&local_only=true`,
+        { skipClientCache: true, signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
+      setResults(Array.isArray(local.results) ? local.results : []);
+      setSearched(true);
+
       const data = await fetchJson<BookSearchResponse>(
         `/books/search?q=${encodeURIComponent(cleanQuery)}`,
-        { skipClientCache: true }
+        { skipClientCache: true, signal: controller.signal }
       );
+      if (controller.signal.aborted) return;
+      searchCacheRef.current.set(cacheKey, data);
       setResults(Array.isArray(data.results) ? data.results : []);
-      if (data.status === "degraded" && data.message) {
+      if (data.status === "degraded" && data.message && local.results.length === 0) {
         setError(data.message);
       }
     } catch (err) {
+      if (controller.signal.aborted) return;
       setResults([]);
       setError(err instanceof Error ? err.message : "Book search is unavailable.");
     } finally {
-      setSearching(false);
-      setSearched(true);
+      if (!controller.signal.aborted) {
+        setSearching(false);
+        setSearched(true);
+      }
     }
+  }
+
+  useEffect(() => {
+    const cleanQuery = query.trim();
+    if (cleanQuery.length < 3) return;
+    const timeout = window.setTimeout(() => {
+      void runSearch(cleanQuery);
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  async function onSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return;
+    await runSearch(cleanQuery);
   }
 
   async function onExtendedSearch() {

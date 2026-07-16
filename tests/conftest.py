@@ -9,6 +9,13 @@ def clear_provider_failure_cache():
 
 
 @pytest.fixture(autouse=True)
+def clear_auth_cache():
+    from backend.auth.dependencies import clear_auth_cache
+
+    clear_auth_cache()
+
+
+@pytest.fixture(autouse=True)
 def block_recommendation_broad_external_exploration(monkeypatch, request):
     path = str(request.node.path)
     if not (

@@ -94,7 +94,7 @@ export function LibraryPage() {
     setRecommendationScores(new Map());
     try {
       const [rows, ranked] = await Promise.all([
-        fetchAllLibraryBooks(),
+        fetchAllLibraryBooks({ details: true }),
         fetchJson<RecommendationItem[]>(
           recommendQuery(settings, false, [], appliedFilters)
         )

@@ -25,6 +25,7 @@ from backend.repository.postgres_books_repository import (
     get_book_by_isbn_uid,
     get_book_by_isbn_uid_excluding_id,
     get_books_page,
+    get_books_page_light,
     update_book,
 )
 from backend.services.page_lookup import (
@@ -41,6 +42,7 @@ from backend.services.page_count_lookup import (
 )
 from backend.services.progress import clamp_pages_read, clamp_progress_percent, estimated_pages_read
 from backend.services.reading_activity import record_progress_activity
+from backend.services.request_timing import add_timing
 from backend.services.status import database_status_from_normalized, normalize_status
 
 
@@ -74,11 +76,11 @@ def _log_endpoint_timing(endpoint: str, user_id: UUID, started: float, rows: int
     )
 
 
-def book_to_dict(book):
+def book_to_dict(book, *, include_large_fields: bool = True):
     progress_percent = clamp_progress_percent(book.progress_percent)
     pages_read = clamp_pages_read(book.pages_read, book.total_pages)
     estimated_pages = estimated_pages_read(progress_percent, book.total_pages)
-    return {
+    payload = {
         "Title": book.title,
         "Authors": book.authors,
         "ISBN/UID": book.isbn_uid,
@@ -97,23 +99,29 @@ def book_to_dict(book):
         "Total Pages": book.total_pages,
         "Tracking Mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
         "tracking_mode": normalized_tracking_mode(book.tracking_mode, book.total_pages),
-        "Description": book.description,
         "Cover URL": book.cover_url,
         "cover_url": book.cover_url,
-        "Subjects": book.subjects,
         "Genres": book.genres,
         "First Publish Year": book.first_publish_year,
-        "metadata_source": book.metadata_source,
-        "metadata_enriched_at": book.metadata_enriched_at.isoformat()
-        if book.metadata_enriched_at
-        else None,
-        "Language": book.language,
-        "Work Key": book.work_key,
-        "Edition Key": book.edition_key,
-        "metadata": book.book_metadata,
         "page_count_checked": book.page_count_checked,
         "page_count_source": book.page_count_source,
     }
+    if include_large_fields:
+        payload.update(
+            {
+                "Description": book.description,
+                "Subjects": book.subjects,
+                "metadata_source": book.metadata_source,
+                "metadata_enriched_at": book.metadata_enriched_at.isoformat()
+                if book.metadata_enriched_at
+                else None,
+                "Language": book.language,
+                "Work Key": book.work_key,
+                "Edition Key": book.edition_key,
+                "metadata": book.book_metadata,
+            }
+        )
+    return payload
 
 
 def parse_date_or_today(date_str):
@@ -184,18 +192,39 @@ def _validate_date_range(start: date | None, end: date | None) -> None:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
 
 
-def get_books_service(db: Session, user_id: UUID, page: int, limit: int):
+def get_books_service(db: Session, user_id: UUID, page: int, limit: int, *, include_details: bool = False):
     started = time.perf_counter()
+    query_started = time.perf_counter()
     total = count_books(db, user_id)
     start = (page - 1) * limit
-    books = get_books_page(db, user_id, start, limit)
+    books = (
+        get_books_page(db, user_id, start, limit)
+        if include_details
+        else get_books_page_light(db, user_id, start, limit)
+    )
+    query_ms = (time.perf_counter() - query_started) * 1000
+    add_timing("query", query_ms)
+    serialize_started = time.perf_counter()
+    rows = [book_to_dict(book, include_large_fields=include_details) for book in books]
+    serialize_ms = (time.perf_counter() - serialize_started) * 1000
+    add_timing("serialize", serialize_ms)
+    logger.info(
+        "books_endpoint_stage_timing user_id=%s page=%s limit=%s details=%s query_ms=%.2f serialize_ms=%.2f rows=%s",
+        user_id,
+        page,
+        limit,
+        include_details,
+        query_ms,
+        serialize_ms,
+        len(rows),
+    )
     _log_endpoint_timing("GET /books", user_id, started, len(books))
 
     return {
         "page": page,
         "limit": limit,
         "total": total,
-        "results": [book_to_dict(book) for book in books],
+        "results": rows,
     }
 
 

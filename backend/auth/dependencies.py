@@ -1,5 +1,10 @@
 import logging
 import os
+import threading
+import time
+from concurrent.futures import Future
+from dataclasses import dataclass
+from hashlib import sha256
 from uuid import UUID
 
 import httpx
@@ -9,8 +14,33 @@ from sqlalchemy.orm import Session
 from backend.db.database import get_db
 from backend.db.models import Profile
 from backend.env import is_local_env, load_backend_env
+from backend.services.request_timing import timed_stage
 
 logger = logging.getLogger(__name__)
+AUTH_CACHE_TTL_SECONDS = 60
+AUTH_HTTP_TIMEOUT_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class TokenIdentity:
+    user_id: str | None
+    email: str | None
+    supabase_status: int | None
+
+
+_auth_cache: dict[str, tuple[float, TokenIdentity]] = {}
+_auth_inflight: dict[str, Future[TokenIdentity]] = {}
+_auth_lock = threading.Lock()
+
+
+def _token_cache_key(token: str) -> str:
+    return sha256(token.encode("utf-8")).hexdigest()
+
+
+def clear_auth_cache() -> None:
+    with _auth_lock:
+        _auth_cache.clear()
+        _auth_inflight.clear()
 
 
 def _get_bearer_token(request: Request) -> str | None:
@@ -42,11 +72,11 @@ def _supabase_auth_headers(token: str) -> dict[str, str]:
     }
 
 
-def _user_from_token(token: str) -> tuple[str | None, str | None, int | None]:
+def _fetch_user_from_token(token: str) -> TokenIdentity:
     supabase_url = os.getenv("SUPABASE_URL")
 
     if not supabase_url:
-        return None, None, None
+        return TokenIdentity(None, None, None)
 
     url = f"{supabase_url.rstrip('/')}/auth/v1/user"
 
@@ -54,26 +84,60 @@ def _user_from_token(token: str) -> tuple[str | None, str | None, int | None]:
         response = httpx.get(
             url,
             headers=_supabase_auth_headers(token),
-            timeout=10,
+            timeout=AUTH_HTTP_TIMEOUT_SECONDS,
         )
     except httpx.HTTPError:
-        return None, None, None
+        return TokenIdentity(None, None, None)
 
     if response.status_code != status.HTTP_200_OK:
-        return None, None, response.status_code
+        return TokenIdentity(None, None, response.status_code)
 
     try:
         payload = response.json()
     except ValueError:
-        return None, None, response.status_code
+        return TokenIdentity(None, None, response.status_code)
 
     user_id = payload.get("id")
     email = payload.get("email")
 
     if not isinstance(user_id, str):
-        return None, email if isinstance(email, str) else None, response.status_code
+        return TokenIdentity(None, email if isinstance(email, str) else None, response.status_code)
 
-    return user_id, email if isinstance(email, str) else None, response.status_code
+    return TokenIdentity(user_id, email if isinstance(email, str) else None, response.status_code)
+
+
+def _user_from_token(token: str) -> tuple[str | None, str | None, int | None]:
+    cache_key = _token_cache_key(token)
+    now = time.monotonic()
+    with _auth_lock:
+        cached = _auth_cache.get(cache_key)
+        if cached and cached[0] > now:
+            identity = cached[1]
+            return identity.user_id, identity.email, identity.supabase_status
+
+        future = _auth_inflight.get(cache_key)
+        leader = future is None
+        if leader:
+            future = Future()
+            _auth_inflight[cache_key] = future
+
+    if not leader:
+        identity = future.result(timeout=AUTH_HTTP_TIMEOUT_SECONDS + 0.5)
+        return identity.user_id, identity.email, identity.supabase_status
+
+    try:
+        identity = _fetch_user_from_token(token)
+        if identity.user_id is not None:
+            with _auth_lock:
+                _auth_cache[cache_key] = (time.monotonic() + AUTH_CACHE_TTL_SECONDS, identity)
+        future.set_result(identity)
+        return identity.user_id, identity.email, identity.supabase_status
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _auth_lock:
+            _auth_inflight.pop(cache_key, None)
 
 
 def _default_username(email: str | None, profile_id: UUID) -> str:
@@ -147,7 +211,8 @@ def get_current_user(
             detail="Supabase environment variables are not configured",
         )
 
-    user_id, email, supabase_status = _user_from_token(token)
+    with timed_stage("auth"):
+        user_id, email, supabase_status = _user_from_token(token)
 
     if user_id is None:
         _log_local_auth_failure(
@@ -175,13 +240,15 @@ def get_current_user(
             detail="Invalid authenticated user",
         )
 
-    profile = db.query(Profile).filter(Profile.id == profile_id).first()
+    with timed_stage("profile_lookup"):
+        profile = db.query(Profile).filter(Profile.id == profile_id).first()
 
     if profile is not None:
         return profile
 
     if email:
-        profile = db.query(Profile).filter(Profile.email == email).first()
+        with timed_stage("profile_lookup"):
+            profile = db.query(Profile).filter(Profile.email == email).first()
 
         if profile is not None:
             return profile
@@ -192,8 +259,9 @@ def get_current_user(
         username=_default_username(email, profile_id),
     )
 
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
+    with timed_stage("profile_create"):
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
 
     return profile

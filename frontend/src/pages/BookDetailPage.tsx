@@ -37,7 +37,7 @@ export function BookDetailPage() {
     setError("");
     try {
       const [books, recs] = await Promise.all([
-        fetchAllLibraryBooks(),
+        fetchAllLibraryBooks({ details: true }),
         fetchJson<RecommendationItem[]>(recommendQuery(settings))
       ]);
       const list = books;

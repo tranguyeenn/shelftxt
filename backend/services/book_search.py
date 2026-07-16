@@ -36,6 +36,7 @@ from backend.services.book_scraping.domains import is_trusted_domain, normalize_
 from backend.services.book_scraping.service import scrape_book_metadata
 from backend.services.work_grouping import group_search_results
 from backend.services.series_metadata import normalize_series_metadata
+from backend.services.request_timing import add_timing
 
 logger = logging.getLogger(__name__)
 
@@ -880,15 +881,32 @@ def _search_status(results: list[dict], outcomes) -> tuple[str, str | None]:
     return "ok", None
 
 
-def search_books(db: Session, user_id, query: str, *, include_diagnostics: bool = False) -> dict:
+def search_books(
+    db: Session,
+    user_id,
+    query: str,
+    *,
+    include_diagnostics: bool = False,
+    allow_external: bool = True,
+    include_enrichment: bool = True,
+) -> dict:
     clean_query = query.strip()
     if not clean_query:
         return {"status": "empty", "results": [], "message": None, "diagnostics": [] if include_diagnostics else None}
+    search_started = time.perf_counter()
     books = db.query(Book).filter(Book.user_id == user_id).all()
 
-    aggregation = _run_aggregation(clean_query, _local_results(books, clean_query))
+    aggregation_started = time.perf_counter()
+    aggregation = _run_aggregation(
+        clean_query,
+        _local_results(books, clean_query),
+        allow_external=allow_external,
+        timeout_seconds=3.0 if allow_external else None,
+    )
+    aggregation_ms = (time.perf_counter() - aggregation_started) * 1000
+    add_timing("book_search_aggregation", aggregation_ms)
     ranked = aggregation.results
-    scrape_results = _run_scraping(_trusted_source_urls(ranked))
+    scrape_results = _run_scraping(_trusted_source_urls(ranked)) if include_enrichment else []
     scraped_candidates = [
         result.metadata.to_search_result()
         for result in scrape_results
@@ -896,7 +914,8 @@ def search_books(db: Session, user_id, query: str, *, include_diagnostics: bool 
     ]
     if scraped_candidates:
         ranked = _dedupe_results([*ranked, *scraped_candidates], clean_query)[:SEARCH_RESULT_LIMIT]
-    _enrich_related_isbns(ranked)
+    if include_enrichment:
+        _enrich_related_isbns(ranked)
     _mark_duplicates(ranked, books)
     grouped = group_search_results(ranked, clean_query)
     scrape_outcomes = [_scraper_outcome(result) for result in scrape_results]
@@ -909,6 +928,18 @@ def search_books(db: Session, user_id, query: str, *, include_diagnostics: bool 
                 for item in scrape_outcomes
             ],
         ],
+    )
+    total_ms = (time.perf_counter() - search_started) * 1000
+    add_timing("book_search_total", total_ms)
+    logger.info(
+        "book_search_stage_timing query_length=%s allow_external=%s include_enrichment=%s "
+        "aggregation_ms=%.2f total_ms=%.2f results=%s",
+        len(clean_query),
+        allow_external,
+        include_enrichment,
+        aggregation_ms,
+        total_ms,
+        len(grouped),
     )
     return {
         "status": status,

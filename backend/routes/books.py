@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 def get_books(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    details: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
@@ -65,7 +66,7 @@ def get_books(
             limit,
         )
     try:
-        return get_books_service(db, current_user.id, page, limit)
+        return get_books_service(db, current_user.id, page, limit, include_details=details)
     except (SQLAlchemyTimeoutError, OperationalError):
         logger.exception("GET /books database unavailable user_id=%s", current_user.id)
         raise HTTPException(
@@ -96,11 +97,19 @@ def export_books(
 @router.get("/books/search", response_model=BookSearchResponse)
 def search_books_route(
     q: str = Query(..., min_length=1, max_length=300),
+    local_only: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Profile = Depends(get_current_user),
 ):
     try:
-        return search_books(db, current_user.id, q, include_diagnostics=is_local_env())
+        return search_books(
+            db,
+            current_user.id,
+            q,
+            include_diagnostics=is_local_env(),
+            allow_external=not local_only,
+            include_enrichment=False,
+        )
     except Exception:
         logger.exception("GET /books/search failed user_id=%s", current_user.id)
         return {

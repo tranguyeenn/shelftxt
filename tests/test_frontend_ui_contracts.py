@@ -36,6 +36,25 @@ def test_stats_page_replaces_reading_moods_with_reading_insights():
     assert "fetchReadingInsights" in source
 
 
+def test_dashboard_uses_summary_instead_of_fetching_all_library_pages():
+    source = (FRONTEND / "pages" / "DashboardPage.tsx").read_text()
+
+    assert 'fetchJson<DashboardSummary>("/dashboard/summary"' in source
+    assert "fetchAllLibraryBooks" not in source
+    assert "fetchReadingInsights" not in source
+    assert "Promise.all([" not in source
+
+
+def test_add_book_search_is_abortable_local_first_and_debounced():
+    source = (FRONTEND / "pages" / "AddBookPage.tsx").read_text()
+
+    assert "AbortController" in source
+    assert "window.setTimeout" in source
+    assert "cleanQuery.length < 3" in source
+    assert "local_only=true" in source
+    assert "searchCacheRef" in source
+
+
 def test_ranking_page_renders_external_recommendations_without_book_id_requirement():
     source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
 

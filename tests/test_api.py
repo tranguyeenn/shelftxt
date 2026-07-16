@@ -352,6 +352,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["total"], 1)
 
+    def test_get_books_default_uses_lightweight_payload(self):
+        _seed_book(
+            title="Mine",
+            authors="A",
+            isbn_uid="mine",
+            description="Large description",
+            subjects=["expensive"],
+            book_metadata={"raw": {"provider": "payload"}},
+        )
+
+        response = self.client.get("/books?page=1&limit=100")
+
+        self.assertEqual(response.status_code, 200)
+        row = response.json()["results"][0]
+        self.assertNotIn("Description", row)
+        self.assertNotIn("Subjects", row)
+        self.assertNotIn("metadata", row)
+
+    def test_get_books_details_true_returns_full_payload(self):
+        _seed_book(
+            title="Mine",
+            authors="A",
+            isbn_uid="mine",
+            description="Large description",
+            subjects=["specific"],
+            book_metadata={"raw": {"provider": "payload"}},
+        )
+
+        response = self.client.get("/books?page=1&limit=100&details=true")
+
+        self.assertEqual(response.status_code, 200)
+        row = response.json()["results"][0]
+        self.assertEqual(row["Description"], "Large description")
+        self.assertEqual(row["Subjects"], ["specific"])
+        self.assertEqual(row["metadata"], {"raw": {"provider": "payload"}})
+
     def test_get_book_by_id(self):
         _seed_book(title="Existing", authors="Author A", isbn_uid="book-1")
 
@@ -533,7 +569,7 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        book = self.client.get("/books").json()["results"][0]
+        book = self.client.get("/books?details=true").json()["results"][0]
         self.assertEqual(book["ISBN/UID"], "9780807083697")
         self.assertEqual(book["Read Status"], "read")
         self.assertEqual(book["Star Rating"], 4.75)
@@ -551,7 +587,7 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        book = self.client.get("/books").json()["results"][0]
+        book = self.client.get("/books?details=true").json()["results"][0]
         self.assertEqual(book["Title"], "Fast Add")
 
     @patch("backend.services.page_lookup.lookup_book_metadata")
@@ -562,7 +598,7 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        book = self.client.get("/books").json()["results"][0]
+        book = self.client.get("/books?details=true").json()["results"][0]
         self.assertIsNone(book["Description"])
         self.assertIsNone(book["Subjects"])
         self.assertIsNone(book["Genres"])
@@ -1546,7 +1582,7 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        book = self.client.get("/books").json()["results"][0]
+        book = self.client.get("/books?details=true").json()["results"][0]
         self.assertEqual(book["Star Rating"], 4.0)
         mock_lookup_open_library_by_title.assert_not_called()
 
@@ -1664,7 +1700,7 @@ class ApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        book = self.client.get("/books").json()["results"][0]
+        book = self.client.get("/books?details=true").json()["results"][0]
         self.assertEqual(book["ISBN/UID"], "9780441172719")
         self.assertEqual(book["Authors"], "Frank Herbert")
         self.assertEqual(book["Total Pages"], 592)

@@ -19,6 +19,12 @@ from backend.routes.metadata import router as metadata_router
 from backend.routes.profile import router as profile_router
 from backend.routes.recommendation import router as recommendations_router
 from backend.routes.stats import router as stats_router
+from backend.services.request_timing import (
+    init_request_timing,
+    reset_current_request,
+    set_current_request,
+    timing_snapshot,
+)
 
 load_backend_env()
 configure_development_logging()
@@ -148,6 +154,8 @@ async def demo_read_only_guard(request, call_next):
 @app.middleware("http")
 async def endpoint_timing_logger(request, call_next):
     started = time.perf_counter()
+    init_request_timing(request)
+    timing_token = set_current_request(request)
     logger.info(
         "request_start method=%s path=%s",
         request.method,
@@ -157,6 +165,7 @@ async def endpoint_timing_logger(request, call_next):
         response = await call_next(request)
     except Exception:
         duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        reset_current_request(timing_token)
         logger.exception(
             "request_exception method=%s path=%s duration_ms=%.2f",
             request.method,
@@ -166,6 +175,15 @@ async def endpoint_timing_logger(request, call_next):
         raise
 
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    stages = timing_snapshot(request)
+    logger.info(
+        "request_timing method=%s path=%s status_code=%s total_ms=%.2f stages=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        stages,
+    )
     logger.info(
         "request_end method=%s path=%s status_code=%s duration_ms=%.2f",
         request.method,
@@ -181,6 +199,7 @@ async def endpoint_timing_logger(request, call_next):
             response.status_code,
             duration_ms,
         )
+    reset_current_request(timing_token)
     return response
 
 

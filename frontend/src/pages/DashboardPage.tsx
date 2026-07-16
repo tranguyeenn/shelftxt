@@ -13,7 +13,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
 import {
-  fetchAllLibraryBooks,
   finishDateValue,
   formatDisplayDate,
   parseDate,
@@ -24,7 +23,7 @@ import { displayProgressPercent, progressPercentValue, readingProgressSummary } 
 import { loadCachedProfile, profileDisplayName } from "@/lib/profile";
 import { stableRecommendationId, submitRecommendationFeedback } from "@/lib/recommendationFeedback";
 import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
-import { fetchReadingInsights, type ReadingInsightsResponse } from "@/lib/readingInsights";
+import type { ReadingInsightsResponse } from "@/lib/readingInsights";
 import { recommendQuery } from "@/lib/userSettings";
 import type { ApiBook, RecommendationItem } from "@/lib/types";
 
@@ -64,39 +63,51 @@ function recommendationBook(item: RecommendationItem) {
   return item.recommended_book ?? item.book;
 }
 
+type DashboardSummary = Pick<
+  ReadingInsightsResponse,
+  "current_streak_days" | "longest_streak_days" | "pages_read_today" | "has_reading_activity" | "read_today"
+> & {
+  current_books: BookRecord[];
+  recent_completed: BookRecord[];
+  completed_this_year: number;
+  pages_read_this_year: number;
+};
+
 export function DashboardPage() {
   const { user } = useAuth();
   const { settings } = useUserSettings();
   const [library, setLibrary] = useState<BookRecord[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
-  const [readingInsights, setReadingInsights] = useState<ReadingInsightsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [readingInsights, setReadingInsights] = useState<DashboardSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [progressBook, setProgressBook] = useState<ApiBook | null>(null);
 
   const load = useCallback(async (refresh = false, excludeIds: string[] = []) => {
-    setLoading(true);
     setError("");
-    try {
-      const [books, recs, insights] = await Promise.all([
-        fetchAllLibraryBooks(),
-        fetchJson<RecommendationItem[]>(recommendQuery(settings, refresh, excludeIds), {
-          skipClientCache: refresh
-        }),
-        fetchReadingInsights()
-      ]);
-      setLibrary(books);
-      setRecommendations(Array.isArray(recs) ? recs : []);
-      setReadingInsights(insights);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard");
-      setLibrary([]);
-      setRecommendations([]);
-      setReadingInsights(null);
-    } finally {
-      setLoading(false);
-    }
+    setSummaryLoading(true);
+    setRecommendationsLoading(true);
+
+    void fetchJson<DashboardSummary>("/dashboard/summary", { skipClientCache: refresh })
+      .then((summary) => {
+        setReadingInsights(summary);
+        setLibrary([...(summary.current_books ?? []), ...(summary.recent_completed ?? [])]);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load dashboard");
+        setLibrary([]);
+        setReadingInsights(null);
+      })
+      .finally(() => setSummaryLoading(false));
+
+    void fetchJson<RecommendationItem[]>(recommendQuery(settings, refresh, excludeIds), {
+      skipClientCache: refresh
+    })
+      .then((recs) => setRecommendations(Array.isArray(recs) ? recs : []))
+      .catch(() => setRecommendations([]))
+      .finally(() => setRecommendationsLoading(false));
   }, [settings.recommendationStyle]);
 
   useEffect(() => {
@@ -110,7 +121,7 @@ export function DashboardPage() {
   const profileName = profileDisplayName(profile);
   const fallbackName = user?.email?.split("@")[0] || "reader";
   const greetingName = profileName === "Reader" ? fallbackName : profileName;
-  const completedYear = completedThisYear(books);
+  const completedYearCount = readingInsights?.completed_this_year ?? completedThisYear(books).length;
   const annualGoal = profile.readingGoal && profile.readingGoal > 0 ? profile.readingGoal : null;
   const recentCompleted = books
     .filter((book) => book.status === "completed" && parseDate(finishDateValue({
@@ -175,8 +186,8 @@ export function DashboardPage() {
         title={`${timeBasedGreeting()}, ${greetingName}.`}
         subtitle={current ? `Continue ${current.title}.` : "Pick up a current read or choose the next book for your shelf."}
         actions={
-          <Button variant="secondary" onClick={refreshRecommendations} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
+          <Button variant="secondary" onClick={refreshRecommendations} disabled={recommendationsLoading}>
+            {recommendationsLoading ? "Refreshing..." : "Refresh"}
           </Button>
         }
       />
@@ -187,7 +198,7 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      {loading && books.length === 0 ? <p className="text-sm text-text-muted">Loading reading activity...</p> : null}
+      {summaryLoading && books.length === 0 ? <p className="text-sm text-text-muted">Loading reading activity...</p> : null}
       {feedbackMessage ? <p className="text-sm text-text-muted" role="status">{feedbackMessage}</p> : null}
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -224,13 +235,13 @@ export function DashboardPage() {
           />
           <StatCard
             label="annual goal"
-            value={annualGoal ? `${completedYear.length} / ${annualGoal}` : "Not set"}
-            hint={annualGoal ? `${Math.round((completedYear.length / annualGoal) * 100)}% complete` : "Set a goal in Profile"}
+            value={annualGoal ? `${completedYearCount} / ${annualGoal}` : "Not set"}
+            hint={annualGoal ? `${Math.round((completedYearCount / annualGoal) * 100)}% complete` : "Set a goal in Profile"}
           />
           <StatCard
             label="books read this year"
-            value={String(completedYear.length)}
-            hint={`${pagesReadThisYear(books).toLocaleString()} pages from completed books`}
+            value={String(completedYearCount)}
+            hint={`${(readingInsights?.pages_read_this_year ?? pagesReadThisYear(books)).toLocaleString()} pages from completed books`}
           />
         </div>
       </section>
@@ -278,7 +289,7 @@ export function DashboardPage() {
             Discover
           </Link>
         </div>
-        {!loading && recommendations.length === 0 ? (
+        {!recommendationsLoading && recommendations.length === 0 ? (
           <EmptyState
             title="No recommendation yet."
             description="Recommendations improve after you add books and rate completed reads."

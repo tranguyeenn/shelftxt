@@ -2,6 +2,7 @@
 
 import os
 import logging
+import time
 from collections.abc import Generator
 
 from sqlalchemy import event
@@ -9,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from backend.env import ENV_PATH, load_backend_env
+from backend.services.request_timing import add_timing, timed_stage
 
 load_backend_env()
 
@@ -86,11 +88,22 @@ def get_engine():
 def _register_pool_logging(engine_to_register) -> None:
     @event.listens_for(engine_to_register, "checkout")
     def _checkout(dbapi_connection, connection_record, connection_proxy):
+        connection_record.info["checkout_started_at"] = time.perf_counter()
         logger.debug("db_pool_checkout connection_id=%s", id(dbapi_connection))
 
     @event.listens_for(engine_to_register, "checkin")
     def _checkin(dbapi_connection, connection_record):
         logger.debug("db_pool_checkin connection_id=%s", id(dbapi_connection))
+
+    @event.listens_for(engine_to_register, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        context._shelftxt_query_started_at = time.perf_counter()
+
+    @event.listens_for(engine_to_register, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        started = getattr(context, "_shelftxt_query_started_at", None)
+        if started is not None:
+            add_timing("sql", (time.perf_counter() - started) * 1000)
 
 
 def get_session_local():
@@ -107,8 +120,9 @@ def get_session_local():
 
 
 def get_db() -> Generator[Session, None, None]:
-    logger.info("Creating DB session")
-    db = get_session_local()()
+    with timed_stage("db_session"):
+        logger.info("Creating DB session")
+        db = get_session_local()()
 
     try:
         yield db

@@ -222,14 +222,14 @@ export function daysSince(date: Date): number {
 }
 
 /** Fetches all library pages (API max limit is 100 per request). */
-export async function fetchAllLibraryBooks(): Promise<BookRecord[]> {
+export async function fetchAllLibraryBooks({ details = false }: { details?: boolean } = {}): Promise<BookRecord[]> {
   const records: BookRecord[] = [];
   let page = 1;
   let total = 0;
 
   do {
     const res = await fetchJson<PaginatedBooksResponse>(
-      `/books?page=${page}&limit=${LIBRARY_PAGE_LIMIT}`
+      `/books?page=${page}&limit=${LIBRARY_PAGE_LIMIT}${details ? "&details=true" : ""}`
     );
     if (!res || !Array.isArray(res.results)) {
       throw new Error("Invalid library response");

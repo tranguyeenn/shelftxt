@@ -4,10 +4,14 @@ from collections import Counter, defaultdict
 from datetime import date
 from uuid import UUID
 
+import time
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from backend.db.models import Book
+from backend.services.postgres_books import book_to_dict
 from backend.services.reading_activity import get_reading_streak_stats
+from backend.services.request_timing import add_timing, timed_stage
 from backend.services.status import normalize_status
 
 UNLOCK_THRESHOLD = 3
@@ -68,7 +72,9 @@ def _value_insight(type_: str, label: str, value: str, detail: str | None = None
 
 
 def get_reading_insights(db: Session, user_id: UUID) -> dict:
-    books = db.query(Book).filter(Book.user_id == user_id).all()
+    started = time.perf_counter()
+    with timed_stage("insights_query"):
+        books = db.query(Book).filter(Book.user_id == user_id).all()
     completed = [book for book in books if _book_status(book) == "completed"]
     dnf = [book for book in books if _book_status(book) == "dnf"]
     completed_count = len(completed)
@@ -167,7 +173,9 @@ def get_reading_insights(db: Session, user_id: UUID) -> dict:
     )
 
     status = "ready" if completed_count >= UNLOCK_THRESHOLD else "insufficient_activity"
-    streaks = get_reading_streak_stats(db, user_id)
+    with timed_stage("streak_query"):
+        streaks = get_reading_streak_stats(db, user_id)
+    add_timing("insights_total", (time.perf_counter() - started) * 1000)
     return {
         "profile_label": profile_label,
         "insights": insights[:8] if status == "ready" else [],
@@ -181,3 +189,66 @@ def get_reading_insights(db: Session, user_id: UUID) -> dict:
         ),
         **streaks,
     }
+
+
+def get_dashboard_summary(db: Session, user_id: UUID) -> dict:
+    started = time.perf_counter()
+    today = date.today()
+    with timed_stage("dashboard_query"):
+        current_books = (
+            db.query(Book)
+            .filter(
+                Book.user_id == user_id,
+                or_(
+                    Book.read_status == "reading",
+                    Book.read_status == "currently-reading",
+                ),
+            )
+            .order_by(Book.start_date.desc().nullslast(), Book.progress_percent.desc().nullslast(), Book.title.asc())
+            .limit(5)
+            .all()
+        )
+        recent_completed = (
+            db.query(Book)
+            .filter(Book.user_id == user_id, Book.read_status.in_(["completed", "read"]))
+            .order_by(Book.end_date.desc().nullslast(), Book.last_date_read.desc().nullslast(), Book.id.desc())
+            .limit(4)
+            .all()
+        )
+        completed_this_year = (
+            db.query(func.count(Book.id))
+            .filter(
+                Book.user_id == user_id,
+                Book.read_status.in_(["completed", "read"]),
+                or_(
+                    func.extract("year", Book.end_date) == today.year,
+                    func.extract("year", Book.last_date_read) == today.year,
+                ),
+            )
+            .scalar()
+            or 0
+        )
+        pages_this_year = (
+            db.query(func.coalesce(func.sum(Book.total_pages), 0))
+            .filter(
+                Book.user_id == user_id,
+                Book.read_status.in_(["completed", "read"]),
+                or_(
+                    func.extract("year", Book.end_date) == today.year,
+                    func.extract("year", Book.last_date_read) == today.year,
+                ),
+            )
+            .scalar()
+            or 0
+        )
+    with timed_stage("dashboard_serialize"):
+        streaks = get_reading_streak_stats(db, user_id)
+        payload = {
+            "current_books": [book_to_dict(book, include_large_fields=False) for book in current_books],
+            "recent_completed": [book_to_dict(book, include_large_fields=False) for book in recent_completed],
+            "completed_this_year": int(completed_this_year),
+            "pages_read_this_year": int(pages_this_year),
+            **streaks,
+        }
+    add_timing("dashboard_total", (time.perf_counter() - started) * 1000)
+    return payload

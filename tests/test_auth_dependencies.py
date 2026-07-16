@@ -1,4 +1,6 @@
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
@@ -6,7 +8,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.requests import Request
 
-from backend.auth.dependencies import get_current_user
+from backend.auth.dependencies import _user_from_token, get_current_user
 from backend.db.database import Base
 from tests.test_api import TEST_USER_ID, TestingSessionLocal, _seed_profile, engine
 
@@ -82,6 +84,42 @@ def test_service_role_key_is_not_used_as_user_validation_apikey():
             db.close()
 
     assert mock_get.call_args.kwargs["headers"]["apikey"] == "anon-key"
+
+
+def test_token_validation_is_cached_briefly():
+    env = {
+        "SUPABASE_URL": "https://project.supabase.co",
+        "SUPABASE_ANON_KEY": "anon-key",
+    }
+    with patch.dict("os.environ", env, clear=False), patch(
+        "backend.auth.dependencies.httpx.get",
+        return_value=FakeResponse(200, {"id": str(TEST_USER_ID), "email": "reader@example.com"}),
+    ) as mock_get:
+        assert _user_from_token("cached-token") == (str(TEST_USER_ID), "reader@example.com", 200)
+        assert _user_from_token("cached-token") == (str(TEST_USER_ID), "reader@example.com", 200)
+
+    assert mock_get.call_count == 1
+
+
+def test_concurrent_token_validation_is_deduplicated():
+    env = {
+        "SUPABASE_URL": "https://project.supabase.co",
+        "SUPABASE_ANON_KEY": "anon-key",
+    }
+
+    def slow_response(*_args, **_kwargs):
+        time.sleep(0.05)
+        return FakeResponse(200, {"id": str(TEST_USER_ID), "email": "reader@example.com"})
+
+    with patch.dict("os.environ", env, clear=False), patch(
+        "backend.auth.dependencies.httpx.get",
+        side_effect=slow_response,
+    ) as mock_get:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            results = list(executor.map(_user_from_token, ["shared-token"] * 4))
+
+    assert results == [(str(TEST_USER_ID), "reader@example.com", 200)] * 4
+    assert mock_get.call_count == 1
 
 
 def test_supabase_403_becomes_401_with_safe_local_debug_log(caplog):

@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import load_only
 
 from backend.db.models import Book
 
@@ -21,6 +22,38 @@ def get_all_books(db: Session, user_id: UUID):
 def get_books_page(db: Session, user_id: UUID, offset: int, limit: int):
     return (
         db.query(Book)
+        .filter(Book.user_id == user_id)
+        .order_by(Book.id.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+def get_books_page_light(db: Session, user_id: UUID, offset: int, limit: int):
+    return (
+        db.query(Book)
+        .options(
+            load_only(
+                Book.title,
+                Book.authors,
+                Book.isbn_uid,
+                Book.read_status,
+                Book.star_rating,
+                Book.last_date_read,
+                Book.start_date,
+                Book.end_date,
+                Book.progress_percent,
+                Book.pages_read,
+                Book.total_pages,
+                Book.tracking_mode,
+                Book.cover_url,
+                Book.genres,
+                Book.first_publish_year,
+                Book.page_count_checked,
+                Book.page_count_source,
+            )
+        )
         .filter(Book.user_id == user_id)
         .order_by(Book.id.asc())
         .offset(offset)
