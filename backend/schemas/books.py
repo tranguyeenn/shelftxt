@@ -37,6 +37,15 @@ class AddBook(ReadingDateRangeMixin):
     work_key: str | None = None
     edition_key: str | None = None
     related_isbns: list[str] = Field(default_factory=list)
+    series_name: str | None = None
+    series_position: float | None = None
+    series_position_label: str | None = None
+    series_type: str | None = None
+    series_books: list[dict[str, Any]] = Field(default_factory=list)
+    series_source: str | None = None
+    series_confidence: float | None = Field(default=None, ge=0, le=1)
+    series_publication_order: list[dict[str, Any]] | None = None
+    series_chronological_order: list[dict[str, Any]] | None = None
     publisher: str | None = None
     publish_date: str | None = None
     language: str | None = None
@@ -70,6 +79,15 @@ class BookSearchResult(BaseModel):
     primary_edition: dict[str, Any] | None = None
     editions: list[dict[str, Any]] = Field(default_factory=list)
     editions_loaded: bool = False
+    series_name: str | None = None
+    series_position: float | None = None
+    series_position_label: str | None = None
+    series_type: str | None = None
+    series_books: list[dict[str, Any]] = Field(default_factory=list)
+    series_source: str | None = None
+    series_confidence: float | None = Field(default=None, ge=0, le=1)
+    series_publication_order: list[dict[str, Any]] | None = None
+    series_chronological_order: list[dict[str, Any]] | None = None
 
 
 class BookSearchProviderDiagnostic(BaseModel):

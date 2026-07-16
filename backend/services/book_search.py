@@ -34,6 +34,7 @@ from backend.services.metadata_providers import (
 from backend.services.book_scraping.domains import is_trusted_domain, normalize_domain
 from backend.services.book_scraping.service import scrape_book_metadata
 from backend.services.work_grouping import group_search_results
+from backend.services.series_metadata import normalize_series_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,8 @@ def _normalized_result(**values: Any) -> dict:
     authors = values.get("authors") or []
     if isinstance(authors, str):
         authors = [authors]
-    return {
+    series = normalize_series_metadata(values.get("series") if isinstance(values.get("series"), dict) else values)
+    result = {
         "title": _clean_text(values.get("title")) or "Untitled",
         "authors": [str(author).strip() for author in authors if str(author).strip()],
         "isbn_uid": _normalize_isbn(values.get("isbn_uid")),
@@ -187,7 +189,11 @@ def _normalized_result(**values: Any) -> dict:
         "already_in_library": bool(values.get("already_in_library", False)),
         "confidence_score": float(values.get("confidence_score") or 0.0),
         "editions_loaded": bool(values.get("editions_loaded", False)),
-}
+    }
+    if series:
+        result.update(series)
+        result["series"] = series
+    return result
 
 
 def _fetch_open_library_exact_edition(isbn: str) -> dict | None:
@@ -592,9 +598,20 @@ def _merge_search_results(base: dict, incoming: dict, query: str) -> dict:
         "publish_date",
         "language",
         "isbn_uid",
+        "series_name",
+        "series_position",
+        "series_position_label",
+        "series_type",
+        "series_source",
+        "series_confidence",
     ):
         if not merged.get(field) and secondary.get(field):
             merged[field] = secondary[field]
+    for field in ("series_books", "series_publication_order", "series_chronological_order"):
+        if not merged.get(field) and secondary.get(field):
+            merged[field] = secondary[field]
+    if not merged.get("series") and secondary.get("series"):
+        merged["series"] = secondary["series"]
 
     merged["already_in_library"] = bool(primary.get("already_in_library") or secondary.get("already_in_library"))
     merged["confidence_score"] = _confidence_score(merged, query)
@@ -627,37 +644,64 @@ def _dedupe_results(results: list[dict], query: str) -> list[dict]:
     )
 
 
-def _metadata_sources(local_candidates: list[dict]):
+def _metadata_sources(local_candidates: list[dict], *, allow_external: bool = True):
     from app.integrations.librarything import LibraryThingProvider
     from app.integrations.openlibrary import OpenLibraryProvider
 
-    return [
-        LocalCatalogSource(local_candidates),
-        OpenLibraryProvider(),
-        LibraryThingProvider(),
-    ]
+    sources = [LocalCatalogSource(local_candidates)]
+    if allow_external:
+        sources.extend([OpenLibraryProvider(), LibraryThingProvider()])
+    return sources
 
 
-async def _aggregate_results(query: str, local_candidates: list[dict]):
+async def _aggregate_results(
+    query: str,
+    local_candidates: list[dict],
+    *,
+    allow_external: bool = True,
+    result_limit: int | None = None,
+):
     service = MetadataAggregationService(
-        _metadata_sources(local_candidates),
-        limit=SEARCH_RESULT_LIMIT,
+        _metadata_sources(local_candidates, allow_external=allow_external),
+        limit=result_limit or SEARCH_RESULT_LIMIT,
     )
     return await service.aggregate(query)
 
 
-def _run_aggregation(query: str, local_candidates: list[dict]):
+def _run_aggregation(
+    query: str,
+    local_candidates: list[dict],
+    *,
+    allow_external: bool = True,
+    result_limit: int | None = None,
+):
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(_aggregate_results(query, local_candidates))
+        return asyncio.run(
+            _aggregate_results(
+                query,
+                local_candidates,
+                allow_external=allow_external,
+                result_limit=result_limit,
+            )
+        )
 
     # This path is for callers that invoke the sync service from an async context.
     # FastAPI currently runs this endpoint as a sync route in a worker thread.
     import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        return executor.submit(lambda: asyncio.run(_aggregate_results(query, local_candidates))).result()
+        return executor.submit(
+            lambda: asyncio.run(
+                _aggregate_results(
+                    query,
+                    local_candidates,
+                    allow_external=allow_external,
+                    result_limit=result_limit,
+                )
+            )
+        ).result()
 
 
 def _trusted_source_urls(results: list[dict]) -> list[str]:

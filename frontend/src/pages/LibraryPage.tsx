@@ -20,6 +20,7 @@ import { readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import { fetchJson } from "@/lib/api";
+import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
 import { recommendQuery, type RecommendationFilters } from "@/lib/userSettings";
 import type { ApiBook, ReadingStatus, RecommendationItem } from "@/lib/types";
 
@@ -453,7 +454,7 @@ function LibraryListItem({ book, recommendationScore }: { book: ApiBook; recomme
       <div className="grid gap-2">
         <div className="flex items-center justify-between gap-3 text-xs text-text-muted">
           <span>{readingProgressLabel(book)}</span>
-          {recommendationScore !== undefined ? <span>{Math.round(recommendationScore * 100)}% match</span> : null}
+          {recommendationScore !== undefined ? <span>{recommendationMatchLabel(recommendationScore)}</span> : null}
         </div>
         <ProgressBar value={book.progress_pct} />
       </div>

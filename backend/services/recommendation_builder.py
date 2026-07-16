@@ -1,6 +1,5 @@
 import logging
 import math
-import random
 import re
 import time
 from numbers import Real
@@ -10,14 +9,46 @@ import pandas as pd
 from backend.preprocess.normalize import normalize_rating, compute_recency
 from backend.ranking.score import score_tbr_books, _resolve_column
 from backend.services.book_api import series_to_api_book
+from backend.services.recommendation_composition import (
+    blend_library_and_discovery as _blend_library_and_discovery,
+    is_in_library_row as _is_in_library_row,
+)
 from backend.services.recommendation_debug import rec_debug
+from backend.services.metadata_specificity import metadata_specificity, normalize_specificity_term
+from backend.services.recommendation_evidence import (
+    MIN_ANCHOR_SIMILARITY,
+    apply_minimum_evidence_filter as _apply_minimum_evidence_filter,
+)
+from backend.services.recommendation_identity import recommendation_identity, recommendation_identity_aliases
 from backend.services.recommendation_signals import meaningful_similar_books, read_dataframe
 from backend.services.status import normalize_status
 
 logger = logging.getLogger(__name__)
 DEBUG_ANNA_TITLE = "anna karenina"
+DEBUG_TITLES = {"killer instinct", "all in", "bad blood"}
 HIGH_RATING_THRESHOLD = 4.0
 REASON_CLOSE_CONTRIBUTION_MARGIN = 0.35
+MAIN_SERIES_TYPES = {None, "", "main", "main series", "main_series", "main-series", "main novel"}
+
+
+def _debug_title(row: pd.Series) -> str:
+    return str(row.get("Title", row.get("title", "")) or "").strip()
+
+
+def _is_debug_title(value: object) -> bool:
+    return str(value or "").strip().casefold() in DEBUG_TITLES
+
+
+def _log_debug_title(stage: str, row: pd.Series, **fields) -> None:
+    title = _debug_title(row)
+    if not _is_debug_title(title):
+        return
+    logger.info(
+        "recommendation_title_trace stage=%s title=%s %s",
+        stage,
+        title,
+        " ".join(f"{key}={value}" for key, value in fields.items()),
+    )
 
 
 def _normalized_isbn(value: object) -> str | None:
@@ -341,6 +372,8 @@ def _similar_books(
 
     if score_anchors:
         for index, _contribution, _similarity in score_anchors:
+            if float(_contribution or 0.0) < MIN_ANCHOR_SIMILARITY:
+                continue
             if index not in read_df.index:
                 continue
             row = read_df.loc[index]
@@ -427,6 +460,8 @@ def _match_details(
 
     if score_anchors:
         for index, contribution, similarity in score_anchors:
+            if float(contribution or 0.0) < MIN_ANCHOR_SIMILARITY:
+                continue
             if index not in read_df.index:
                 continue
             row = read_df.loc[index]
@@ -528,7 +563,27 @@ def _format_rating(value) -> str | None:
     return f"{rating:g}★"
 
 
-def _reason_from_details(details: dict, read_df: pd.DataFrame) -> str:
+def _reader_theme_label(genres: list[str], subjects: list[str]) -> str:
+    terms = [
+        term
+        for term in _unique_tags(subjects + genres)
+        if metadata_specificity(term) >= 0.5
+    ]
+    if terms:
+        return ", ".join(terms[:3])
+    normalized = " ".join(genres + subjects).casefold()
+    if "dystopian" in normalized or "rebellion" in normalized:
+        return "control, survival, and resistance"
+    if "romance" in normalized or "relationship" in normalized:
+        return "relationships and romantic tension"
+    if "mystery" in normalized or "thriller" in normalized:
+        return "mystery, suspense, and investigation"
+    if "fantasy" in normalized or "magic" in normalized:
+        return "magic and adventure"
+    return "related themes"
+
+
+def _reason_from_details(details: dict, read_df: pd.DataFrame, candidate: pd.Series | None = None) -> str:
     liked_books = details["matched_liked_books"]
     reason_anchor = details.get("reason_anchor")
     genres = details["matched_genres"]
@@ -536,23 +591,28 @@ def _reason_from_details(details: dict, read_df: pd.DataFrame) -> str:
     authors = details["matched_authors"]
     useful_tags = _unique_tags(genres + subjects)
     headline_book = reason_anchor or (liked_books[0] if liked_books else None)
+    cluster_id = str(candidate.get("Discovery Cluster ID") or "") if candidate is not None else ""
 
     if len(useful_tags) < 2 and liked_books:
         titles = " and ".join(book["title"] for book in liked_books[:2])
         return f"Because you enjoyed {titles}, this may fit your reading taste."
 
     if genres and headline_book:
+        anchor_title = headline_book["title"]
         rating = _format_rating(headline_book.get("rating"))
-        suffix = f", which you rated {rating}" if rating else ", from your completed books"
-        if reason_anchor:
-            anchor_tags = _unique_tags(
-                list(reason_anchor.get("shared_genres", []))
-                + list(reason_anchor.get("shared_subjects", []))
-            )
-            signals = anchor_tags or useful_tags
-        else:
-            signals = useful_tags
-        return f"Shares {', '.join(signals[:4])} with {headline_book['title']}{suffix}."
+        rating_clause = f", which you rated {rating}," if rating else ""
+        theme_label = _reader_theme_label(genres, subjects)
+        if cluster_id == "ya-dystopian-speculative":
+            return f"Because you enjoyed survival-focused dystopian stories like {anchor_title}{rating_clause}, this explores similar themes of control, survival, and resistance."
+        if cluster_id == "ya-mystery-thriller":
+            return f"Because you liked investigative stories like {anchor_title}{rating_clause}, this leans into {theme_label}."
+        if cluster_id == "contemporary-romance-new-adult":
+            return f"Because you enjoyed relationship-driven romance like {anchor_title}{rating_clause}, this follows similar emotional and contemporary romance patterns."
+        if cluster_id in {"literary-classics", "literary-relationship-fiction", "russian-realism-moral-fiction"}:
+            return f"Because {anchor_title}{rating_clause} worked for you, this recommendation emphasizes literary relationships, moral conflict, and psychological tension."
+        if cluster_id in {"fantasy", "fantasy-romance"}:
+            return f"Because you enjoyed fantasy anchors like {anchor_title}{rating_clause}, this recommendation stays close to magic, quests, and found-family stakes."
+        return f"Because you enjoyed {anchor_title}{rating_clause}, this recommendation follows similar themes of {theme_label}."
 
     if subjects and liked_books:
         titles = " and ".join(book["title"] for book in liked_books[:2])
@@ -595,6 +655,11 @@ def _signals_from_row(row: pd.Series) -> dict:
         "reader_similarity": _signal_percent(raw.get("reader_similarity")),
         "author_affinity": _signal_percent(raw.get("author_affinity")),
     }
+
+
+def _raw_signal_scores(row: pd.Series) -> dict:
+    raw = row.get("_signal_scores")
+    return raw if isinstance(raw, dict) else {}
 
 
 def _breakdown_from_details(details: dict, signals: dict) -> dict:
@@ -696,6 +761,7 @@ def _explanation(
     return _reason_from_details(
         _match_details(candidate, read_df, precomputed_matches, score_anchors),
         read_df,
+        candidate,
     )
 
 
@@ -703,7 +769,7 @@ def _rank_tbr_for_style(df: pd.DataFrame, style: str, refresh: bool = False) -> 
     style = (style or "balanced").strip().lower()
     if style == "popular":
         return score_tbr_books(df, randomness_strength=0.0, diverse_authors=False)
-    if style == "discovery":
+    if style in {"discovery", "external_first"}:
         return score_tbr_books(df, randomness_strength=0.0, diverse_authors=True)
     return score_tbr_books(df, randomness_strength=0.0, diverse_authors=False)
 
@@ -727,6 +793,243 @@ def _candidate_result_key(row: pd.Series) -> tuple[str, str]:
         return ("isbn", isbn)
     _work, title, author = _candidate_identity(row)
     return ("title_author", f"{title}|{author}")
+
+
+def _feedback_identity_keys(row: pd.Series) -> set[str]:
+    metadata = row.get("metadata")
+    related_isbns: list[str] = []
+    if isinstance(metadata, dict):
+        external = metadata.get("external")
+        librarything = metadata.get("librarything")
+        if isinstance(external, dict):
+            related_isbns.extend(str(value) for value in external.get("related_isbns") or [])
+        if isinstance(librarything, dict):
+            related_isbns.extend(str(value) for value in librarything.get("related_isbns") or [])
+    keys = recommendation_identity_aliases(
+        work_id=str(row.get("External Work ID", row.get("Work Key", "")) or ""),
+        isbn=str(row.get("External ISBN", row.get("ISBN/UID", "")) or ""),
+        title=str(row.get("Title", row.get("title", "")) or ""),
+        author=str(row.get("Authors", row.get("author", "")) or ""),
+        related_isbns=related_isbns,
+    )
+    raw_uid = str(row.get("External ISBN", row.get("ISBN/UID", "")) or "").strip().casefold()
+    if raw_uid:
+        keys.add(raw_uid)
+        keys.add(f"isbn:{raw_uid}")
+    return keys
+
+
+def _feedback_record_keys(record: dict) -> set[str]:
+    keys = recommendation_identity_aliases(
+        work_id=record.get("work_id"),
+        isbn=record.get("isbn"),
+        title=record.get("canonical_title"),
+        author=record.get("canonical_author"),
+    )
+    identity = str(record.get("recommendation_identity") or "").strip()
+    if identity:
+        keys.add(identity)
+        keys.add(identity.casefold())
+    recommendation_id = str(record.get("recommendation_id") or "").strip()
+    if recommendation_id:
+        keys.add(recommendation_id)
+        keys.add(recommendation_id.casefold())
+    return keys
+
+
+def _row_recommendation_identity(row: pd.Series) -> str:
+    return recommendation_identity(
+        work_id=str(row.get("External Work ID", row.get("Work Key", "")) or ""),
+        isbn=str(row.get("External ISBN", row.get("ISBN/UID", "")) or ""),
+        title=str(row.get("Title", row.get("title", "")) or ""),
+        author=str(row.get("Authors", row.get("author", "")) or ""),
+    )
+
+
+def _filter_excluded_candidates(df: pd.DataFrame, excluded_identities: set[str] | None) -> pd.DataFrame:
+    if df.empty or not excluded_identities:
+        return df
+    keep = [
+        index
+        for index, row in df.iterrows()
+        if not (_feedback_identity_keys(row) & excluded_identities)
+    ]
+    return df.loc[keep].copy()
+
+
+def _series_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+
+
+def _series_position(value: object) -> float | None:
+    if _is_missing_value(value):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 and math.isfinite(parsed) else None
+
+
+def _series_type(value: object) -> str | None:
+    if _is_missing_value(value):
+        return None
+    text = str(value or "").strip().casefold().replace("_", " ").replace("-", " ")
+    return text or None
+
+
+def _is_main_series_type(value: object) -> bool:
+    text = _series_type(value)
+    return text in MAIN_SERIES_TYPES or text is None
+
+
+def _series_state(source: pd.DataFrame) -> dict[str, dict]:
+    if source.empty or "Series Name" not in source.columns:
+        return {}
+    status_col = "Read Status" if "Read Status" in source.columns else "read_status"
+    state: dict[str, dict] = {}
+    for _, row in source.iterrows():
+        series_name = str(row.get("Series Name") or "").strip()
+        key = _series_key(series_name)
+        position = _series_position(row.get("Series Position"))
+        if not key or position is None or not _is_main_series_type(row.get("Series Type")):
+            continue
+        status = normalize_status(row.get(status_col))
+        entry = state.setdefault(
+            key,
+            {
+                "series_name": series_name,
+                "owned_positions": set(),
+                "completed_positions": set(),
+                "reading_positions": set(),
+                "dnf_positions": set(),
+            },
+        )
+        entry["owned_positions"].add(position)
+        if status == "completed":
+            entry["completed_positions"].add(position)
+        elif status == "reading":
+            entry["reading_positions"].add(position)
+        elif status == "dnf":
+            entry["dnf_positions"].add(position)
+
+    for entry in state.values():
+        next_required = 1.0
+        completed = entry["completed_positions"]
+        while next_required in completed:
+            next_required += 1.0
+        entry["highest_contiguous_completed_position"] = next_required - 1.0
+        entry["next_required_main_position"] = next_required
+    return state
+
+
+def _apply_series_order_filter(ranked: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty or "Series Name" not in ranked.columns:
+        return ranked
+    state = _series_state(source)
+    if not state:
+        return ranked
+    keep: list[object] = []
+    for index, row in ranked.iterrows():
+        series_name = str(row.get("Series Name") or "").strip()
+        key = _series_key(series_name)
+        position = _series_position(row.get("Series Position"))
+        if not key or position is None or not _is_main_series_type(row.get("Series Type")) or key not in state:
+            keep.append(index)
+            continue
+        entry = state[key]
+        next_required = entry["next_required_main_position"]
+        eligible = position == next_required
+        logger.info(
+            "series_order_eligibility series=%s completed_positions=%s next_required=%s "
+            "candidate=%s candidate_position=%s eligible=%s reason=%s",
+            entry["series_name"],
+            sorted(entry["completed_positions"]),
+            next_required,
+            _debug_title(row),
+            position,
+            str(eligible).lower(),
+            "ok" if eligible else "series_order_skip",
+        )
+        if eligible:
+            keep.append(index)
+            _log_debug_title("ranked", row, series=entry["series_name"], candidate_position=position, eligible=True)
+        else:
+            _log_debug_title("excluded", row, series=entry["series_name"], candidate_position=position, reason="series_order_skip")
+    return ranked.loc[keep].copy()
+
+
+def _apply_feedback_penalties(ranked: pd.DataFrame, feedback_records: list[dict] | None) -> pd.DataFrame:
+    if ranked.empty or not feedback_records:
+        return ranked
+
+    negative = [record for record in feedback_records if record.get("feedback_type") in {"not_interested", "dismissed"}]
+    positive = [record for record in feedback_records if record.get("feedback_type") in {"interested", "accepted"}]
+    if not negative and not positive:
+        return ranked
+
+    negative_key_counts: dict[str, int] = {}
+    positive_key_counts: dict[str, int] = {}
+    genre_counts: dict[str, int] = {}
+    author_counts: dict[str, int] = {}
+
+    for record in negative:
+        for key in _feedback_record_keys(record):
+            negative_key_counts[key] = negative_key_counts.get(key, 0) + 1
+        for genre in record.get("related_genres") or []:
+            normalized = str(genre).strip().casefold()
+            if normalized:
+                genre_counts[normalized] = genre_counts.get(normalized, 0) + 1
+        for author in [record.get("canonical_author"), *(record.get("related_authors") or [])]:
+            normalized = str(author or "").strip().casefold()
+            if normalized:
+                author_counts[normalized] = author_counts.get(normalized, 0) + 1
+
+    for record in positive:
+        for key in _feedback_record_keys(record):
+            positive_key_counts[key] = positive_key_counts.get(key, 0) + 1
+
+    result = ranked.copy()
+    penalties: dict[object, dict] = {}
+
+    for index, row in result.iterrows():
+        keys = _feedback_identity_keys(row)
+        exact_rejections = max((negative_key_counts.get(key, 0) for key in keys), default=0)
+        exact_positive = max((positive_key_counts.get(key, 0) for key in keys), default=0)
+        feedback_penalty = 0.0
+        feedback_boost = 0.0
+
+        if exact_rejections:
+            feedback_penalty += min(0.95, 0.65 + (0.15 * (exact_rejections - 1)))
+        if exact_positive:
+            feedback_boost += min(0.18, 0.08 * exact_positive)
+
+        similar_penalty = 0.0
+        row_genres = [str(value).strip().casefold() for value in _row_list(row.get("Genres")) + _row_list(row.get("Subjects"))]
+        for genre in row_genres:
+            count = genre_counts.get(genre, 0)
+            if count >= 2:
+                similar_penalty += min(0.06, 0.02 * count)
+
+        row_author = str(row.get("Authors", row.get("author", "")) or "").strip().casefold()
+        author_count = author_counts.get(row_author, 0)
+        if author_count >= 2:
+            similar_penalty += min(0.12, 0.04 * author_count)
+
+        similar_penalty = min(0.22, similar_penalty)
+        total_penalty = min(1.0, feedback_penalty + similar_penalty)
+        score = _safe_score(row.get("score"), 0.0)
+        result.at[index, "score"] = min(1.0, max(0.0, score + feedback_boost - total_penalty))
+        penalties[index] = {
+            "recommendation_feedback_penalty": round(total_penalty, 4),
+            "exact_feedback_penalty": round(feedback_penalty, 4),
+            "similar_feedback_penalty": round(similar_penalty, 4),
+            "feedback_positive_boost": round(feedback_boost, 4),
+            "exact_feedback_count": exact_rejections,
+        }
+
+    result["_feedback_breakdown"] = result.index.map(lambda index: penalties.get(index, {}))
+    return result.sort_values("score", ascending=False)
 
 
 def _exclude_completed_duplicate_works(ranked: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
@@ -756,39 +1059,150 @@ def _apply_ownership_ranking(ranked: pd.DataFrame, style: str) -> pd.DataFrame:
         return ranked
     result = ranked.copy()
     in_library = result["In Library"].map(lambda value: True if pd.isna(value) else bool(value))
-    if style == "discovery":
-        result.loc[in_library, "score"] = result.loc[in_library, "score"] + 0.04
-        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + 0.10
+    if style in {"discovery", "external_first"}:
+        library_boost = 0.03
+        external_boost = 0.08 if style == "external_first" else 0.04
     elif style == "popular":
-        result.loc[in_library, "score"] = result.loc[in_library, "score"] + 0.14
-        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + 0.03
+        library_boost = 0.05
+        external_boost = 0.0
     else:
-        result.loc[in_library, "score"] = result.loc[in_library, "score"] + 0.12
-        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + 0.04
+        library_boost = 0.05
+        external_boost = 0.0
+    result.loc[in_library, "score"] = result.loc[in_library, "score"] + library_boost
+    result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + external_boost
+    novelty_boost = pd.Series(0.0, index=result.index)
+    if "Novelty Score" in result.columns:
+        novelty = pd.to_numeric(result["Novelty Score"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+        novelty_weight = 0.12 if style == "external_first" else 0.08 if style == "discovery" else 0.04
+        novelty_boost = novelty * novelty_weight
+        result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + novelty_boost.loc[~in_library]
+    exploration_boost = pd.Series(0.0, index=result.index)
+    if "Exploration Mode" in result.columns:
+        broad_exploration = (~in_library) & result["Exploration Mode"].map(lambda value: bool(str(value or "").strip()))
+        exploration_value = 0.08 if style == "external_first" else 0.03
+        exploration_boost.loc[broad_exploration] = exploration_value
+        result.loc[broad_exploration, "score"] = result.loc[broad_exploration, "score"] + exploration_value
     result["score"] = result["score"].clip(0, 1)
+    boosts = in_library.map(lambda value: library_boost if value else external_boost)
+    result["_library_boost"] = boosts
+    result["_novelty_boost"] = novelty_boost
+    result["_exploration_boost"] = exploration_boost
     return result.sort_values("score", ascending=False)
 
 
-def _blend_library_and_discovery(ranked: pd.DataFrame, top_n: int, style: str) -> pd.DataFrame:
-    if ranked.empty or "In Library" not in ranked.columns or style == "popular":
-        return ranked.head(top_n)
-    in_library = ranked["In Library"].map(lambda value: True if pd.isna(value) else bool(value))
-    library = ranked[in_library]
-    external = ranked[~in_library]
-    if library.empty or external.empty:
-        return ranked.head(top_n)
+def _apply_external_cluster_fit(ranked: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty or "In Library" not in ranked.columns:
+        return ranked
+    result = ranked.copy()
+    fits: dict[object, dict] = {}
 
-    external_target = round(top_n * (0.65 if style == "discovery" else 0.35))
-    external_target = min(len(external), max(1, external_target))
-    library_target = min(len(library), max(0, top_n - external_target))
-    if library_target + external_target < top_n:
-        remaining = ranked.loc[
-            ~ranked.index.isin(list(library.head(library_target).index) + list(external.head(external_target).index))
-        ].head(top_n - library_target - external_target)
-        selected = pd.concat([library.head(library_target), external.head(external_target), remaining])
-    else:
-        selected = pd.concat([library.head(library_target), external.head(external_target)])
-    return selected.sort_values("score", ascending=False).head(top_n)
+    def weighted_overlap(candidate_values: list, target_values: list) -> float:
+        candidate_terms = [normalize_specificity_term(value) for value in candidate_values]
+        target_terms = [
+            normalize_specificity_term(value)
+            for value in target_values
+            if metadata_specificity(value) >= 0.5
+        ]
+        if not candidate_terms or not target_terms:
+            return 0.0
+        possible = sum(metadata_specificity(term) for term in target_terms) or 1.0
+        matched = 0.0
+        for target in target_terms:
+            if any(target == candidate or target in candidate or candidate in target for candidate in candidate_terms):
+                matched += metadata_specificity(target)
+        return min(1.0, matched / possible)
+
+    def generic_overlap(values: list) -> float:
+        if not values:
+            return 0.0
+        generic = sum(1 for value in values if metadata_specificity(value) <= 0.0)
+        return min(1.0, generic / max(1, len(values)))
+
+    for index, row in result.iterrows():
+        if _is_in_library_row(row):
+            fits[index] = {}
+            continue
+        signals = row.get("_signal_scores") if isinstance(row.get("_signal_scores"), dict) else {}
+        query_confidence = _safe_score(row.get("Discovery Query Confidence"), 0.5)
+        candidate_genres = _row_list(row.get("Genres"))
+        candidate_themes = _row_list(row.get("Subjects"))
+        query_genres = _row_list(row.get("Discovery Specific Genres"))
+        query_themes = _row_list(row.get("Discovery Specific Themes"))
+        query_authors = {
+            normalize_specificity_term(value)
+            for value in _row_list(row.get("Discovery Anchor Authors"))
+            if normalize_specificity_term(value)
+        }
+        candidate_author = normalize_specificity_term(row.get("Authors"))
+        genre_specific = weighted_overlap(candidate_genres + candidate_themes, query_genres)
+        theme_specific = weighted_overlap(candidate_themes + candidate_genres, query_themes)
+        author_affinity = _safe_score(signals.get("author_affinity"), 0.0)
+        if candidate_author and candidate_author in query_authors:
+            author_affinity = 1.0
+        anchor_similarity = _safe_score(signals.get("candidate_similarity"), 0.0)
+        cluster_fit = min(
+            1.0,
+            (genre_specific * 0.25)
+            + (theme_specific * 0.25)
+            + (anchor_similarity * 0.20)
+            + (author_affinity * 0.15)
+            + (query_confidence * 0.15),
+        )
+        result.at[index, "score"] = min(1.0, _safe_score(row.get("score"), 0.0) + (0.08 * cluster_fit))
+        fits[index] = {
+            "cluster_fit": round(cluster_fit, 4),
+            "specific_genre_overlap": round(genre_specific, 4),
+            "specific_theme_overlap": round(theme_specific, 4),
+            "anchor_semantic_similarity": round(anchor_similarity, 4),
+            "author_affinity": round(author_affinity, 4),
+            "generic_metadata_overlap": round(generic_overlap(candidate_genres + candidate_themes), 4),
+            "discovery_query_confidence": round(query_confidence, 4),
+        }
+    result["_cluster_fit_breakdown"] = result.index.map(lambda index: fits.get(index, {}))
+    return result.sort_values("score", ascending=False)
+
+
+def _apply_series_continuity_boost(ranked: pd.DataFrame, source: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty or "Series Name" not in ranked.columns or "Series Name" not in source.columns:
+        return ranked
+    status_col = "Read Status" if "Read Status" in source.columns else "read_status"
+    series_progress: dict[str, float] = {}
+    for _, row in source.iterrows():
+        if normalize_status(row.get(status_col)) not in {"completed", "reading"}:
+            continue
+        series_name = str(row.get("Series Name") or "").strip().casefold()
+        if not series_name:
+            continue
+        try:
+            position = float(row.get("Series Position") or 0)
+        except (TypeError, ValueError):
+            position = 0.0
+        series_progress[series_name] = max(series_progress.get(series_name, 0.0), position)
+    if not series_progress:
+        return ranked
+
+    result = ranked.copy()
+    if "_feedback_breakdown" not in result.columns:
+        result["_feedback_breakdown"] = [{} for _ in range(len(result))]
+    for index, row in result.iterrows():
+        series_name = str(row.get("Series Name") or "").strip().casefold()
+        if not series_name or series_name not in series_progress:
+            continue
+        try:
+            position = float(row.get("Series Position") or 0)
+        except (TypeError, ValueError):
+            position = 0.0
+        if position and position <= series_progress[series_name]:
+            continue
+        confidence = _safe_score(row.get("Series Confidence"), 0.5)
+        boost = 0.08 + (0.06 * confidence)
+        result.at[index, "score"] = min(1.0, _safe_score(row.get("score"), 0.0) + boost)
+        breakdown = row.get("_feedback_breakdown") if isinstance(row.get("_feedback_breakdown"), dict) else {}
+        result.at[index, "_feedback_breakdown"] = {
+            **breakdown,
+            "series_continuity_boost": round(boost, 4),
+        }
+    return result.sort_values("score", ascending=False)
 
 
 def _dedupe_ranked_candidates(ranked: pd.DataFrame) -> pd.DataFrame:
@@ -828,9 +1242,7 @@ def _refresh_ranked_candidates(
     fallback = strong[excluded_mask].copy()
 
     fresh_rows = list(fresh.index)
-    random.shuffle(fresh_rows)
     fallback_rows = list(fallback.index)
-    random.shuffle(fallback_rows)
     ordered_index = fresh_rows + fallback_rows
 
     remaining_rows = [index for index in ranked.index if index not in strong.index]
@@ -843,6 +1255,8 @@ def build_recommendations(
     style: str = "balanced",
     refresh: bool = False,
     exclude_ids: set[str] | None = None,
+    feedback_records: list[dict] | None = None,
+    excluded_identities: set[str] | None = None,
 ) -> list[dict]:
     total_started = time.perf_counter()
     timings: dict[str, float] = {}
@@ -852,6 +1266,7 @@ def build_recommendations(
     phase_started = time.perf_counter()
     df = normalize_rating(df)
     df = compute_recency(df)
+    df = _filter_excluded_candidates(df, excluded_identities)
     timings["metadata_normalization"] = (time.perf_counter() - phase_started) * 1000
     read_df = _read_books(df)
     _log_anchor_debug(read_df)
@@ -859,14 +1274,48 @@ def build_recommendations(
     phase_started = time.perf_counter()
     tbr_ranked = _rank_tbr_for_style(df, style, refresh=refresh)
     tbr_ranked = _exclude_completed_duplicate_works(tbr_ranked, df)
+    tbr_ranked = _apply_series_order_filter(tbr_ranked, df)
     tbr_ranked = _apply_librarything_signals(tbr_ranked, df)
     tbr_ranked = _apply_ownership_ranking(tbr_ranked, style)
+    tbr_ranked = _apply_external_cluster_fit(tbr_ranked)
+    tbr_ranked = _apply_series_continuity_boost(tbr_ranked, df)
+    tbr_ranked = _apply_feedback_penalties(tbr_ranked, feedback_records)
+    before_evidence_filter = tbr_ranked.copy()
+    tbr_ranked = _apply_minimum_evidence_filter(tbr_ranked)
+    if not before_evidence_filter.empty:
+        before_external = before_evidence_filter[
+            before_evidence_filter.apply(lambda row: not _is_in_library_row(row), axis=1)
+        ]
+        after_external_indexes = set(tbr_ranked.index)
+        weak_removed = [
+            row.get("Title")
+            for index, row in before_external.iterrows()
+            if index not in after_external_indexes
+        ]
+        logger.info(
+            "recommendation_discovery_filter_diagnostics ranked_external=%s weak_evidence_removed=%s "
+            "weak_evidence_titles=%s surviving_ranked=%s surviving_external=%s",
+            len(before_external),
+            len(weak_removed),
+            weak_removed[:20],
+            len(tbr_ranked),
+            int(tbr_ranked.apply(lambda row: not _is_in_library_row(row), axis=1).sum()) if not tbr_ranked.empty else 0,
+        )
     tbr_ranked = _dedupe_ranked_candidates(tbr_ranked)
     if refresh:
         tbr_ranked = _refresh_ranked_candidates(
             tbr_ranked,
             exclude_ids=exclude_ids or set(),
             top_n=top_n,
+        )
+    for rank_index, (_index, row) in enumerate(tbr_ranked.iterrows(), start=1):
+        _log_debug_title(
+            "ranked",
+            row,
+            rank=rank_index,
+            score=_safe_score(row.get("score"), 0.0),
+            source=row.get("Discovery Source"),
+            outside_library=not _safe_bool(row.get("In Library", True), default=True),
         )
     timings["candidate_selection_ranking"] = (time.perf_counter() - phase_started) * 1000
 
@@ -881,10 +1330,20 @@ def build_recommendations(
         read_df[author_col] = "unknown"
 
     top = _blend_library_and_discovery(tbr_ranked, top_n, style)
+    for rank_index, (_index, row) in enumerate(top.iterrows(), start=1):
+        _log_debug_title(
+            "diversified",
+            row,
+            rank=rank_index,
+            source=row.get("Discovery Source"),
+            outside_library=not _safe_bool(row.get("In Library", True), default=True),
+        )
     results = []
 
     explanation_started = time.perf_counter()
     for _, row in top.iterrows():
+        if excluded_identities and (_feedback_identity_keys(row) & excluded_identities):
+            continue
         score = _safe_score(row.get("score", row.get("author_score", 0.5)))
         precomputed_matches = row.get("_similar_matches")
         if not isinstance(precomputed_matches, list):
@@ -902,12 +1361,30 @@ def build_recommendations(
         isbn = _first_present(row.get("External ISBN"))
         source_type = _safe_text(row.get("Source Type"), "library" if in_library else "external_discovery")
         discovery_source = _safe_text(row.get("Discovery Source"), "library" if in_library else "local_catalog")
+        outside_library = not in_library
         library_status = _safe_value(row.get("Library Status")) if in_library else None
         details = _match_details(row, read_df, precomputed_matches, score_anchors)
         reason = _explanation(row, read_df, precomputed_matches, score_anchors)
         recommendation_reasons = _recommendation_reasons(details)
         related_books = _related_books_from_details(details)
         signals = _signals_from_row(row)
+        raw_signals = _raw_signal_scores(row)
+        library_boost = _safe_score(row.get("_library_boost"), 0.0)
+        feedback_breakdown = row.get("_feedback_breakdown")
+        if not isinstance(feedback_breakdown, dict):
+            feedback_breakdown = {}
+        feedback_breakdown = {
+            "recommendation_feedback_penalty": 0.0,
+            "exact_feedback_penalty": 0.0,
+            "similar_feedback_penalty": 0.0,
+            "feedback_positive_boost": 0.0,
+            "exact_feedback_count": 0,
+            "series_continuity_boost": 0.0,
+            **feedback_breakdown,
+        }
+        cluster_fit_breakdown = row.get("_cluster_fit_breakdown")
+        if not isinstance(cluster_fit_breakdown, dict):
+            cluster_fit_breakdown = {}
         recommendation_breakdown = _breakdown_from_details(details, signals)
         recommended_book = {
             "id": book_api["id"],
@@ -916,13 +1393,45 @@ def build_recommendations(
             "work_id": work_id,
             "edition_id": edition_id,
             "isbn": isbn,
+            "recommendation_id": _row_recommendation_identity(row),
             "title": book_api["title"],
             "author": book_api["author"],
             "cover_url": book_api.get("cover_url"),
             "description": book_api.get("description"),
             "genres": _row_list(row.get("Genres")),
             "subjects": _row_list(row.get("Subjects")),
+            "outside_library": outside_library,
+            "series_name": _first_present(row.get("Series Name")),
+            "canonical_series_identity": _first_present(row.get("Canonical Series Identity")),
+            "series_position": _safe_value(row.get("Series Position")),
+            "series_position_label": _first_present(row.get("Series Position Label")),
+            "series_type": _first_present(row.get("Series Type")),
+            "series_source": _first_present(row.get("Series Source")),
+            "series_confidence": _safe_value(row.get("Series Confidence")),
+            "series_source": _first_present(row.get("Series Source")),
+            "is_main_series_entry": _safe_value(row.get("Is Main Series Entry")),
+            "user_owned_positions": _safe_value(row.get("User Owned Series Positions")) or [],
+            "user_completed_positions": _safe_value(row.get("User Completed Series Positions")) or [],
+            "required_next_position": _safe_value(row.get("Required Next Series Position")),
+            "series_order_decision": _safe_value(row.get("Series Order Decision")),
+            "canonical_work_identity": _first_present(row.get("Canonical Work Identity")),
+            "canonical_title": _first_present(row.get("Canonical Title")),
+            "original_title": _first_present(row.get("Original Title")),
+            "language": _first_present(row.get("Language")),
+            "edition_identity": _first_present(row.get("Edition Identity")),
+            "collection_type": _first_present(row.get("Collection Type")),
+            "component_work_ids": _safe_value(row.get("Component Work IDs")) or [],
+            "component_titles": _safe_value(row.get("Component Titles")) or [],
+            "component_series_positions": _safe_value(row.get("Component Series Positions")) or [],
         }
+        _log_debug_title(
+            "identity_created",
+            row,
+            identity=recommended_book["recommendation_id"],
+            work_id=work_id,
+            isbn=isbn,
+            source=discovery_source,
+        )
         ownership_reason = "Already on your shelf" if in_library else "Discovered for you"
 
         result = _safe_value(
@@ -934,17 +1443,60 @@ def build_recommendations(
                 "work_id": work_id,
                 "edition_id": edition_id,
                 "isbn": isbn,
+                "recommendation_id": recommended_book["recommendation_id"],
                 "title": book_api["title"],
                 "author": book_api["author"],
                 "cover_url": book_api.get("cover_url"),
+                "description": book_api.get("description"),
                 "genres": _row_list(row.get("Genres")),
                 "subjects": _row_list(row.get("Subjects")),
+                "series_name": recommended_book["series_name"],
+                "canonical_series_identity": recommended_book["canonical_series_identity"],
+                "series_position": recommended_book["series_position"],
+                "series_position_label": recommended_book["series_position_label"],
+                "series_type": recommended_book["series_type"],
+                "series_source": recommended_book["series_source"],
+                "series_confidence": recommended_book["series_confidence"],
+                "series_source": recommended_book["series_source"],
+                "is_main_series_entry": recommended_book["is_main_series_entry"],
+                "user_owned_positions": recommended_book["user_owned_positions"],
+                "user_completed_positions": recommended_book["user_completed_positions"],
+                "required_next_position": recommended_book["required_next_position"],
+                "series_order_decision": recommended_book["series_order_decision"],
+                "canonical_work_identity": recommended_book["canonical_work_identity"],
+                "canonical_title": recommended_book["canonical_title"],
+                "original_title": recommended_book["original_title"],
+                "language": recommended_book["language"],
+                "edition_identity": recommended_book["edition_identity"],
+                "collection_type": recommended_book["collection_type"],
+                "component_work_ids": recommended_book["component_work_ids"],
+                "component_titles": recommended_book["component_titles"],
+                "component_series_positions": recommended_book["component_series_positions"],
+                "duplicate_checks": _safe_value(row.get("Duplicate Checks")) or [],
+                "series_order_check": _safe_value(row.get("Series Order Check")),
+                "final_inclusion_reason": _safe_value(row.get("Inclusion Reason")),
+                "series_books": _safe_value(row.get("Series Books")),
+                "series_publication_order": _safe_value(row.get("Series Publication Order")),
+                "series_chronological_order": _safe_value(row.get("Series Chronological Order")),
                 "score": score,
+                "final_score": score,
                 "match_score": score,
                 "in_library": in_library,
+                "is_in_library": in_library,
+                "source": "library" if in_library else "external",
                 "source_type": source_type,
                 "external_discovery": not in_library,
+                "outside_library": outside_library,
                 "discovery_source": discovery_source,
+                "discovery_query": _safe_value(row.get("Discovery Query")),
+                "discovery_cluster_id": _safe_value(row.get("Discovery Cluster ID")),
+                "exploration_mode": _safe_value(row.get("Exploration Mode")),
+                "exploration_source": _safe_value(row.get("Exploration Source")),
+                "provider_rank": _safe_value(row.get("Provider Rank")),
+                "novelty_score": _safe_value(row.get("Novelty Score")),
+                "discovery_anchor_titles": _safe_value(row.get("Discovery Anchor Titles")),
+                "provider_metadata_confidence": _safe_value(row.get("Provider Metadata Confidence")),
+                "provider": discovery_source,
                 "library_status": library_status,
                 "reason": reason,
                 "explanation": reason,
@@ -961,6 +1513,52 @@ def build_recommendations(
                 "recommendation_breakdown": recommendation_breakdown,
                 "score_breakdown": {
                     "overall": score,
+                    "match_percentage_source": "final_score_clamped_times_100_deprecated_for_ui",
+                    "match_label_source": "thresholds_on_final_score",
+                    "explanation_source": "backend_reader_reason_from_anchor_cluster_themes",
+                    "novelty_score": _safe_value(row.get("Novelty Score")),
+                    "exploration_mode": _safe_value(row.get("Exploration Mode")),
+                    "exploration_source": _safe_value(row.get("Exploration Source")),
+                    "candidate_similarity": raw_signals.get("candidate_similarity"),
+                    "long_term_preference_score": raw_signals.get("long_term_preference_score"),
+                    "rating_affinity_score": raw_signals.get("rating_affinity_score"),
+                    "current_mood_score": raw_signals.get("current_mood_score"),
+                    "status_pattern_score": raw_signals.get("status_pattern_score"),
+                    "diversity_bonus": raw_signals.get("diversity_bonus"),
+                    "anchor_similarity": raw_signals.get("candidate_similarity"),
+                    "genre_theme_match": max(
+                        raw_signals.get("genre_fit") or 0.0,
+                        raw_signals.get("mood_match") or 0.0,
+                    ),
+                    "series_score": feedback_breakdown.get("series_continuity_boost", 0.0),
+                    "preference_score": raw_signals.get("long_term_preference_score"),
+                    "recency_score": raw_signals.get("current_mood_score"),
+                    "library_boost": library_boost,
+                    "penalties": {
+                        "dislike_penalty": raw_signals.get("negative_preference_penalty"),
+                        "recommendation_feedback_penalty": feedback_breakdown.get("recommendation_feedback_penalty", 0.0),
+                    },
+                    "negative_preference_penalty": raw_signals.get("negative_preference_penalty"),
+                    **feedback_breakdown,
+                    **cluster_fit_breakdown,
+                    "canonical_work_identity": recommended_book["canonical_work_identity"],
+                    "edition_identity": recommended_book["edition_identity"],
+                    "language": recommended_book["language"],
+                    "original_title": recommended_book["original_title"],
+                    "collection_type": recommended_book["collection_type"],
+                    "component_work_ids": recommended_book["component_work_ids"],
+                    "duplicate_checks": _safe_value(row.get("Duplicate Checks")) or [],
+                    "series_order_check": _safe_value(row.get("Series Order Check")),
+                    "canonical_series_identity": recommended_book["canonical_series_identity"],
+                    "series_name": recommended_book["series_name"],
+                    "series_position": recommended_book["series_position"],
+                    "series_source": recommended_book["series_source"],
+                    "series_confidence": recommended_book["series_confidence"],
+                    "user_owned_positions": recommended_book["user_owned_positions"],
+                    "user_completed_positions": recommended_book["user_completed_positions"],
+                    "required_next_position": recommended_book["required_next_position"],
+                    "series_order_decision": recommended_book["series_order_decision"],
+                    "final_inclusion_reason": _safe_value(row.get("Inclusion Reason")),
                     "metadata": bool(details["matched_genres"] or details["matched_subjects"]),
                     "author": bool(details["matched_authors"]),
                     "fallback": not bool(details["matched_genres"] or details["matched_subjects"] or details["matched_authors"]),
@@ -976,6 +1574,34 @@ def build_recommendations(
                 ),
             }
         )
+        _log_debug_title(
+            "serialized",
+            row,
+            source=discovery_source,
+            outside_library=outside_library,
+            rank=len(results) + 1,
+            identity=recommended_book["recommendation_id"],
+        )
+        if outside_library:
+            logger.info(
+                "external_candidate_final title=%s provider=%s source_query=%s cluster=%s "
+                "anchor_titles=%s semantic_similarity=%s specific_genre_overlap=%s "
+                "specific_theme_overlap=%s generic_metadata_overlap=%s cluster_fit=%s "
+                "final_score=%s final_rank=%s included=true identity=%s",
+                book_api["title"],
+                discovery_source,
+                result.get("discovery_query"),
+                result.get("discovery_cluster_id"),
+                result.get("discovery_anchor_titles"),
+                raw_signals.get("candidate_similarity"),
+                cluster_fit_breakdown.get("specific_genre_overlap"),
+                cluster_fit_breakdown.get("specific_theme_overlap"),
+                cluster_fit_breakdown.get("generic_metadata_overlap"),
+                cluster_fit_breakdown.get("cluster_fit"),
+                score,
+                len(results) + 1,
+                recommended_book["recommendation_id"],
+            )
         _log_recommendation_serialization_probe(result)
         results.append(result)
 

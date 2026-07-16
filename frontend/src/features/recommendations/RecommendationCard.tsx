@@ -7,7 +7,6 @@ import { Card } from "@/components/ui/Card";
 import { MoodTags } from "@/components/ui/MoodTags";
 import { useUserSettings } from "@/contexts/UserSettingsContext";
 import {
-  buildRecommendationReasons,
   recommendationMatchLabel,
   recommendationSignals,
   readerFacingExplanation
@@ -18,11 +17,14 @@ import { openLibraryCoverUrl } from "@/lib/coverUrl";
 type RecommendationCardProps = {
   item: RecommendationItem;
   rank: number;
+  onNotInterested?: (item: RecommendationItem) => Promise<void>;
 };
 
-export function RecommendationCard({ item, rank }: RecommendationCardProps) {
+export function RecommendationCard({ item, rank, onNotInterested }: RecommendationCardProps) {
   const { settings } = useUserSettings();
   const [showWhy, setShowWhy] = useState(false);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
   const book = item.recommended_book ?? item.book;
   const {
     score,
@@ -33,19 +35,19 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
   } = item;
   const showExplanation = settings.showRecommendationExplanations;
   const tags = [...matched_genres, ...matched_subjects].slice(0, 5);
-  const matchLabel = recommendationMatchLabel(score);
+  const matchLabel = item.qualitative_match_label ?? recommendationMatchLabel(score);
   const signals = recommendationSignals(item);
-  const reasons = buildRecommendationReasons(item).slice(0, 3);
   const relatedBooks = (item.related_books ?? item.recommendation_breakdown?.inspired_by ?? matched_liked_books).slice(0, 3);
   const explanation = readerFacingExplanation(item);
   const description = book.description?.trim();
-  const detailPath = item.in_library ? `/app/book/${encodeURIComponent(book.id)}` : "/app/add";
+  const bookIdentity = book.id ?? book.work_id ?? item.work_id ?? item.recommendation_id ?? "";
+  const detailPath = item.in_library && bookIdentity ? `/app/book/${encodeURIComponent(bookIdentity)}` : "/app/add";
 
   return (
     <Card className="grid gap-4 md:grid-cols-[72px_1fr]">
       <BookCover
         title={book.title}
-        coverUrl={book.cover_url ?? openLibraryCoverUrl(book.id, "S")}
+        coverUrl={book.cover_url ?? openLibraryCoverUrl(bookIdentity, "S")}
         className="w-[72px]"
       />
       <div className="grid gap-4">
@@ -57,7 +59,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
           <div>
             <h3 className="text-lg font-semibold text-text">
               <Link
-                to={`/app/book/${encodeURIComponent(book.id)}`}
+                to={detailPath}
                 className="hover:text-accent hover:underline"
               >
                 {book.title}
@@ -83,17 +85,7 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
                 {description}
               </p>
             ) : null}
-            {reasons.length > 0 ? (
-              <ul className="mt-3 grid gap-1.5 text-sm leading-6 text-text-muted">
-                {reasons.map((reason) => (
-                  <li key={`${reason.label}-${reason.detail}`}>
-                    <span className="font-medium text-text">{reason.label}:</span> {reason.detail}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 text-sm leading-relaxed text-text-muted">{explanation}</p>
-            )}
+            <p className="mt-2 text-sm leading-relaxed text-text-muted">{explanation}</p>
             {relatedBooks.length > 0 ? (
               <div className="mt-3">
                 <p className="text-xs font-medium text-text-dim">Related books</p>
@@ -173,7 +165,31 @@ export function RecommendationCard({ item, rank }: RecommendationCardProps) {
         >
           View Details
         </Link>
+        {onNotInterested ? (
+          <button
+            type="button"
+            disabled={submittingFeedback}
+            aria-label={`Not interested in ${book.title}`}
+            title="This recommendation may not match what you want right now."
+            onClick={async () => {
+              setSubmittingFeedback(true);
+              setFeedbackError("");
+              try {
+                await onNotInterested(item);
+              } catch (err) {
+                setFeedbackError(err instanceof Error ? err.message : "Could not update recommendations.");
+                setSubmittingFeedback(false);
+              }
+            }}
+            className="rounded-lg px-3 py-1.5 text-sm text-text-dim hover:bg-bg-elevated hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submittingFeedback ? "Adjusting..." : "Not interested"}
+          </button>
+        ) : null}
       </div>
+      {feedbackError ? (
+        <p className="text-sm text-danger" role="alert">{feedbackError}</p>
+      ) : null}
       </div>
     </Card>
   );

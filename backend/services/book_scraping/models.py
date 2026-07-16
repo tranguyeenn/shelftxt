@@ -19,6 +19,15 @@ class ScrapedBookMetadata(BaseModel):
     publish_date: str | None = None
     language: str | None = None
     book_format: str | None = None
+    series_name: str | None = None
+    series_position: float | None = None
+    series_position_label: str | None = None
+    series_type: str | None = None
+    series_books: list[dict] = Field(default_factory=list)
+    series_source: str | None = None
+    series_confidence: float | None = Field(default=None, ge=0, le=1)
+    series_publication_order: list[dict] | None = None
+    series_chronological_order: list[dict] | None = None
     metadata_source: str = "scraped"
     source_url: str
     source_domain: str
@@ -37,6 +46,15 @@ class ScrapedBookMetadata(BaseModel):
             "publisher": self.publisher,
             "publish_date": self.publish_date,
             "language": self.language,
+            "series_name": self.series_name,
+            "series_position": self.series_position,
+            "series_position_label": self.series_position_label,
+            "series_type": self.series_type,
+            "series_books": self.series_books,
+            "series_source": self.series_source,
+            "series_confidence": self.series_confidence,
+            "series_publication_order": self.series_publication_order,
+            "series_chronological_order": self.series_chronological_order,
             "metadata_source": self.metadata_source,
             "confidence_score": self.confidence_score,
             "source_urls": [self.source_url],

@@ -342,6 +342,70 @@ async def ensure_book_embeddings(
     return stats
 
 
+async def ensure_recommendation_embeddings(
+    db: Session,
+    recommendations: list[dict],
+    *,
+    client: OllamaEmbeddingClient,
+) -> EmbeddingBackfillStats:
+    external_recommendations = [
+        item
+        for item in recommendations
+        if bool(item.get("outside_library") or item.get("external_discovery"))
+    ]
+    stats = EmbeddingBackfillStats(scanned=len(external_recommendations))
+    pending: list[tuple[dict, str, str, str]] = []
+    for item in external_recommendations:
+        source_text = book_source_text_from_row(
+            {
+                "Title": item.get("title"),
+                "Authors": item.get("author"),
+                "Description": item.get("description"),
+                "Genres": item.get("genres"),
+                "Subjects": item.get("subjects"),
+                "Series Name": item.get("series_name"),
+                "Series Position": item.get("series_position"),
+            }
+        )
+        if not source_text:
+            stats.failures += 1
+            continue
+        identity = canonical_identity_for_recommendation(item)
+        content_hash = embedding_content_hash(client.embedding_model, source_text)
+        existing = stored_embedding_record(db, identity, client.embedding_model)
+        if existing and existing.get("content_hash") == content_hash:
+            stats.reused += 1
+            continue
+        pending.append((item, identity, source_text, content_hash))
+
+    for offset in range(0, len(pending), 16):
+        batch = pending[offset : offset + 16]
+        try:
+            vectors = await client.embed_many([item[2] for item in batch])
+        except Exception:
+            stats.failures += len(batch)
+            continue
+        for (item, identity, source_text, content_hash), vector in zip(batch, vectors, strict=True):
+            try:
+                upsert_embedding_record(
+                    db,
+                    canonical_identity=identity,
+                    book_id=None,
+                    title=str(item.get("title") or "Untitled"),
+                    author=str(item.get("author") or "") or None,
+                    embedding=vector,
+                    embedding_model=client.embedding_model,
+                    content_hash=content_hash,
+                    source_text=source_text,
+                    metadata_source=str(item.get("discovery_source") or "recommendation"),
+                )
+                stats.created += 1
+            except Exception:
+                stats.failures += 1
+        db.commit()
+    return stats
+
+
 def positive_book_weight(book: Book) -> float:
     status = normalize_status(
         book.read_status,

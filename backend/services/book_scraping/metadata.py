@@ -13,6 +13,7 @@ from backend.services.book_scraping.domains import (
 )
 from backend.services.book_scraping.jsonld import extract_jsonld_documents, iter_jsonld_nodes
 from backend.services.book_scraping.models import ScrapedBookMetadata
+from backend.services.series_metadata import series_from_jsonld
 
 
 class MetaTagParser(HTMLParser):
@@ -143,6 +144,7 @@ def _metadata_from_jsonld(node: dict, url: str, domain: str) -> ScrapedBookMetad
         or normalize_isbn(node.get("productID"))
     )
     types = _jsonld_type(node)
+    series = series_from_jsonld(node, source=domain)
     return ScrapedBookMetadata(
         title=_first(node.get("name"), node.get("headline"), node.get("alternateName")),
         authors=_names(node.get("author")),
@@ -154,6 +156,15 @@ def _metadata_from_jsonld(node: dict, url: str, domain: str) -> ScrapedBookMetad
         publish_date=normalize_date(node.get("datePublished")),
         language=clean_text(node.get("inLanguage")),
         book_format=clean_text(node.get("bookFormat")),
+        series_name=series.get("series_name") if series else None,
+        series_position=series.get("series_position") if series else None,
+        series_position_label=series.get("series_position_label") if series else None,
+        series_type=series.get("series_type") if series else None,
+        series_books=series.get("series_books", []) if series else [],
+        series_source=series.get("series_source") if series else None,
+        series_confidence=series.get("series_confidence") if series else None,
+        series_publication_order=series.get("series_publication_order") if series else None,
+        series_chronological_order=series.get("series_chronological_order") if series else None,
         source_url=url,
         source_domain=domain,
         parser_used="jsonld",

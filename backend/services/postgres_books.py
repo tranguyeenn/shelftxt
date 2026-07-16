@@ -32,6 +32,7 @@ from backend.services.page_lookup import (
 )
 from backend.env import is_local_env
 from backend.services.metadata_normalization import normalize_language
+from backend.services.series_metadata import normalize_series_metadata
 from backend.services.metadata_jobs import reset_metadata_progress_if_library_empty
 from backend.services.page_count_lookup import (
     MAX_BACKFILL_BOOKS,
@@ -324,9 +325,24 @@ def add_book_service(db: Session, book, user_id: UUID):
         }.items()
         if value not in (None, "", [])
     }
+    series_metadata = normalize_series_metadata(
+        {
+            "series_name": getattr(book, "series_name", None),
+            "series_position": getattr(book, "series_position", None),
+            "series_position_label": getattr(book, "series_position_label", None),
+            "series_type": getattr(book, "series_type", None),
+            "series_books": getattr(book, "series_books", None),
+            "series_source": getattr(book, "series_source", None),
+            "series_confidence": getattr(book, "series_confidence", None),
+            "series_publication_order": getattr(book, "series_publication_order", None),
+            "series_chronological_order": getattr(book, "series_chronological_order", None),
+        }
+    )
     book_metadata = librarything_metadata or {}
     if manual_metadata:
         book_metadata["manual"] = manual_metadata
+    if series_metadata:
+        book_metadata["series"] = series_metadata
     create_book(
         db,
         {

@@ -12,6 +12,7 @@ export type UserSettings = {
 };
 
 const STORAGE_KEY = "shelftxt.userSettings";
+const RECOMMENDATION_UI_RESPONSE_VERSION = "identity-v2";
 
 const DEFAULTS: UserSettings = {
   recommendationStyle: "balanced",
@@ -167,7 +168,8 @@ export function recommendationSectionsQuery(
 ): string {
   const params = new URLSearchParams({
     style: settings.recommendationStyle,
-    limit: "10"
+    limit: "10",
+    ui_response_version: RECOMMENDATION_UI_RESPONSE_VERSION
   });
   if (refresh) {
     params.set("refresh", "true");

@@ -79,6 +79,12 @@ class Profile(Base):
         cascade="all, delete-orphan",
     )
 
+    recommendation_feedback: Mapped[list["RecommendationFeedback"]] = relationship(
+        "RecommendationFeedback",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
 
 class Book(Base):
     __tablename__ = "books"
@@ -231,6 +237,212 @@ class Book(Base):
 
     book_metadata: Mapped[dict | None] = mapped_column(
         "metadata",
+        JSON_OBJECT,
+        nullable=True,
+    )
+
+
+class BookEmbedding(Base):
+    __tablename__ = "book_embeddings"
+    __table_args__ = (
+        UniqueConstraint("canonical_identity", "embedding_model", name="uq_book_embeddings_identity_model"),
+        Index("ix_book_embeddings_canonical_identity", "canonical_identity"),
+        Index("ix_book_embeddings_embedding_model", "embedding_model"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+    )
+
+    canonical_identity: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    book_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("books.id"),
+        nullable=True,
+        index=True,
+    )
+
+    title: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    author: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    # The PostgreSQL migration creates this as VECTOR(768). JSON keeps SQLite
+    # unit tests portable; vector operations use raw Postgres SQL.
+    embedding: Mapped[list[float]] = mapped_column(
+        JSON_LIST,
+        nullable=False,
+    )
+
+    embedding_model: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    content_hash: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    source_text: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    metadata_source: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class RecommendationFeedback(Base):
+    __tablename__ = "recommendation_feedback"
+    __table_args__ = (
+        Index("ix_recommendation_feedback_user_created", "user_id", "created_at"),
+        Index("ix_recommendation_feedback_user_expires", "user_id", "expires_at"),
+        Index("ix_recommendation_feedback_user_work", "user_id", "work_id"),
+        Index("ix_recommendation_feedback_user_recommendation", "user_id", "recommendation_id"),
+        UniqueConstraint("user_id", "recommendation_identity", "feedback_type", name="uq_recommendation_feedback_user_identity_action"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("profiles.id"),
+        nullable=False,
+        index=True,
+    )
+
+    owner: Mapped[Profile] = relationship(
+        "Profile",
+        back_populates="recommendation_feedback",
+    )
+
+    book_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("books.id"),
+        nullable=True,
+        index=True,
+    )
+
+    recommendation_id: Mapped[str] = mapped_column(
+        String(512),
+        nullable=False,
+        index=True,
+    )
+
+    recommendation_identity: Mapped[str] = mapped_column(
+        String(512),
+        nullable=False,
+        index=True,
+    )
+
+    work_id: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    isbn: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    canonical_title: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    canonical_author: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
+
+    feedback_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        index=True,
+    )
+
+    source: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    cluster_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    related_genres: Mapped[list[str] | None] = mapped_column(
+        JSON_LIST,
+        nullable=True,
+    )
+
+    related_authors: Mapped[list[str] | None] = mapped_column(
+        JSON_LIST,
+        nullable=True,
+    )
+
+    related_books: Mapped[list[dict] | None] = mapped_column(
+        JSON_LIST,
+        nullable=True,
+    )
+
+    recommendation_score: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    explanation: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    inferred_trends: Mapped[dict | None] = mapped_column(
         JSON_OBJECT,
         nullable=True,
     )

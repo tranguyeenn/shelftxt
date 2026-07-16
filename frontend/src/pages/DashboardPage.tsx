@@ -22,6 +22,7 @@ import {
 } from "@/lib/books";
 import { displayProgressPercent, progressPercentValue, readingProgressSummary } from "@/lib/bookProgress";
 import { loadCachedProfile, profileDisplayName } from "@/lib/profile";
+import { stableRecommendationId, submitRecommendationFeedback } from "@/lib/recommendationFeedback";
 import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
 import { fetchReadingInsights, type ReadingInsightsResponse } from "@/lib/readingInsights";
 import { recommendQuery } from "@/lib/userSettings";
@@ -71,6 +72,7 @@ export function DashboardPage() {
   const [readingInsights, setReadingInsights] = useState<ReadingInsightsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
   const [progressBook, setProgressBook] = useState<ApiBook | null>(null);
 
   const load = useCallback(async (refresh = false, excludeIds: string[] = []) => {
@@ -122,8 +124,40 @@ export function DashboardPage() {
     .slice(0, 4);
 
   function refreshRecommendations() {
-    const excludeIds = recommendations.map((item) => recommendationBook(item).id).filter(Boolean);
+    const excludeIds = recommendations
+      .map((item) => recommendationBook(item).id)
+      .filter((id): id is string => Boolean(id));
     void load(true, excludeIds);
+  }
+
+  async function handleNotInterested(item: RecommendationItem) {
+    const previous = recommendations;
+    const key = recommendationKey(item);
+    const index = previous.findIndex((candidate) => recommendationKey(candidate) === key);
+    const currentIds = recommendations.slice(0, 10).map(stableRecommendationId);
+    setRecommendations((current) => current.filter((candidate) => recommendationKey(candidate) !== key));
+    setError("");
+    try {
+      const response = await submitRecommendationFeedback(
+        item,
+        "not_interested",
+        currentIds,
+        settings.recommendationStyle
+      );
+      setFeedbackMessage("Got it. We replaced that recommendation.");
+      if (response.replacement) {
+        setRecommendations((current) => {
+          const next = [...current];
+          next.splice(Math.max(0, index), 0, response.replacement as RecommendationItem);
+          return dedupeRecommendations(next).slice(0, 10);
+        });
+      }
+    } catch (err) {
+      setRecommendations(previous);
+      setFeedbackMessage("");
+      setError(err instanceof Error ? err.message : "Failed to update recommendations");
+      throw err;
+    }
   }
 
   function handleProgressUpdated(updated: ApiBook) {
@@ -154,6 +188,7 @@ export function DashboardPage() {
       ) : null}
 
       {loading && books.length === 0 ? <p className="text-sm text-text-muted">Loading reading activity...</p> : null}
+      {feedbackMessage ? <p className="text-sm text-text-muted" role="status">{feedbackMessage}</p> : null}
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         {current ? (
@@ -251,7 +286,11 @@ export function DashboardPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-3">
             {recommendations.slice(0, 3).map((item) => (
-              <RecommendationPreview key={recommendationBook(item).id} item={item} />
+              <RecommendationPreview
+                key={recommendationKey(item)}
+                item={item}
+                onNotInterested={handleNotInterested}
+              />
             ))}
           </div>
         )}
@@ -341,7 +380,15 @@ function CompactReadingRow({ book, onUpdate }: { book: ApiBook; onUpdate: () => 
   );
 }
 
-function RecommendationPreview({ item }: { item: RecommendationItem }) {
+function RecommendationPreview({
+  item,
+  onNotInterested
+}: {
+  item: RecommendationItem;
+  onNotInterested: (item: RecommendationItem) => Promise<void>;
+}) {
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
   const book = recommendationBook(item);
   return (
     <Card className="grid gap-3">
@@ -355,11 +402,47 @@ function RecommendationPreview({ item }: { item: RecommendationItem }) {
         </div>
       </div>
       <p className="line-clamp-3 text-sm text-text-muted">{item.reason || item.explanation}</p>
-      <Link className="text-sm font-medium text-accent hover:text-accent-dim" to="/app/discover">
-        View recommendation
-      </Link>
+      <div className="flex flex-wrap gap-2">
+        <Link className="text-sm font-medium text-accent hover:text-accent-dim" to="/app/discover">
+          View recommendation
+        </Link>
+        <button
+          type="button"
+          disabled={submittingFeedback}
+          aria-label={`Not interested in ${book.title}`}
+          title="This recommendation may not match what you want right now."
+          onClick={async () => {
+            setSubmittingFeedback(true);
+            setFeedbackError("");
+            try {
+              await onNotInterested(item);
+            } catch (err) {
+              setFeedbackError(err instanceof Error ? err.message : "Could not update recommendations.");
+              setSubmittingFeedback(false);
+            }
+          }}
+          className="text-sm text-text-dim hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {submittingFeedback ? "Adjusting..." : "Not interested"}
+        </button>
+      </div>
+      {feedbackError ? <p className="text-sm text-danger" role="alert">{feedbackError}</p> : null}
     </Card>
   );
+}
+
+function recommendationKey(item: RecommendationItem): string {
+  return stableRecommendationId(item);
+}
+
+function dedupeRecommendations(items: RecommendationItem[]): RecommendationItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = recommendationKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function apiBookToRecord(book: ApiBook, previous: BookRecord): BookRecord {

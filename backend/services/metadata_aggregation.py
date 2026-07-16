@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 from typing import Any, Protocol
 
 from backend.services.metadata_providers import MetadataProvider, search_provider
+from backend.services.series_metadata import normalize_series_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,8 @@ def _normalized_result(**values: Any) -> dict:
     authors = values.get("authors") or []
     if isinstance(authors, str):
         authors = [authors]
-    return {
+    series = normalize_series_metadata(values.get("series") if isinstance(values.get("series"), dict) else values)
+    result = {
         "title": _clean_text(values.get("title")) or "Untitled",
         "authors": [str(author).strip() for author in authors if str(author).strip()],
         "isbn_uid": _normalize_isbn(values.get("isbn_uid") or values.get("isbn")),
@@ -191,6 +193,10 @@ def _normalized_result(**values: Any) -> dict:
         "already_in_library": bool(values.get("already_in_library", False)),
         "confidence_score": float(values.get("confidence_score") or 0.0),
     }
+    if series:
+        result.update(series)
+        result["series"] = series
+    return result
 
 
 def _normalized_match_text(value: object) -> str:
@@ -280,9 +286,20 @@ def _merge_results(base: dict, incoming: dict, query: str) -> dict:
         "publish_date",
         "language",
         "isbn_uid",
+        "series_name",
+        "series_position",
+        "series_position_label",
+        "series_type",
+        "series_source",
+        "series_confidence",
     ):
         if not merged.get(field_name) and secondary.get(field_name):
             merged[field_name] = secondary[field_name]
+    for field_name in ("series_books", "series_publication_order", "series_chronological_order"):
+        if not merged.get(field_name) and secondary.get(field_name):
+            merged[field_name] = secondary[field_name]
+    if not merged.get("series") and secondary.get("series"):
+        merged["series"] = secondary["series"]
 
     merged["already_in_library"] = bool(primary.get("already_in_library") or secondary.get("already_in_library"))
     merged["confidence_score"] = _confidence_score(merged, query)

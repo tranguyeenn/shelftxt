@@ -10,7 +10,7 @@ import { BookDeleteButton } from "@/components/books/BookDeleteButton";
 import { pagesLabel, readingProgressLabel, statusLabel } from "@/lib/bookProgress";
 import { isReadOnlyDemo } from "@/lib/demoMode";
 import { formatDisplayDate } from "@/lib/books";
-import { recommendationMatchPercent } from "@/lib/recommendationDisplay";
+import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
 import type { ApiBook } from "@/lib/types";
 
 type BookLibraryCardProps = {
@@ -34,7 +34,7 @@ export function BookLibraryCard({ book, onUpdated, onDeleted, recommendationScor
     <article className="group relative grid min-h-[280px] grid-cols-[104px_minmax(0,1fr)] gap-4 rounded-[20px] border border-white/[0.08] bg-[#171719] p-5 shadow-[0_10px_40px_rgba(0,0,0,0.35)] transition-colors hover:border-white/[0.14]">
       {recommendationScore !== undefined ? (
         <span className="absolute right-4 top-4 rounded-full border border-[#C77D92]/25 bg-[#C77D92]/12 px-2.5 py-1 text-[11px] font-medium text-[#D88FA4]">
-          {recommendationMatchPercent(recommendationScore)}% match
+          {recommendationMatchLabel(recommendationScore)}
         </span>
       ) : null}
       <BookCover

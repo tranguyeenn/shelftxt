@@ -9,6 +9,42 @@ ENV_PATH = ROOT_DIR / ".env"
 
 logger = logging.getLogger(__name__)
 
+OLLAMA_ENABLED = False
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_EMBEDDING_MODEL = "embeddinggemma"
+OLLAMA_TIMEOUT_SECONDS = 10
+OLLAMA_EMBEDDING_DIMENSION = 768
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def ollama_enabled() -> bool:
+    return _env_bool("OLLAMA_ENABLED", OLLAMA_ENABLED)
+
+
+def embeddings_debug_enabled() -> bool:
+    return _env_bool("EMBEDDINGS_DEBUG_ENABLED", False)
+
+
+def ollama_base_url() -> str:
+    return os.getenv("OLLAMA_BASE_URL", OLLAMA_BASE_URL).rstrip("/")
+
+
+def ollama_embedding_model() -> str:
+    return os.getenv("OLLAMA_EMBEDDING_MODEL", OLLAMA_EMBEDDING_MODEL).strip() or OLLAMA_EMBEDDING_MODEL
+
+
+def ollama_timeout_seconds() -> float:
+    try:
+        return float(os.getenv("OLLAMA_TIMEOUT_SECONDS", str(OLLAMA_TIMEOUT_SECONDS)))
+    except (TypeError, ValueError):
+        return float(OLLAMA_TIMEOUT_SECONDS)
+
 
 def load_backend_env() -> None:
     load_dotenv(dotenv_path=ENV_PATH, override=False)

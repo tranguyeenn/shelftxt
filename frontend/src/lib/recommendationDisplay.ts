@@ -5,48 +5,12 @@ export type RecommendationReason = {
   detail: string;
 };
 
-function sentenceJoin(parts: string[]): string {
-  const filtered = parts.map((part) => part.trim()).filter(Boolean);
-  if (filtered.length === 0) return "";
-  if (filtered.length === 1) return filtered[0];
-  if (filtered.length === 2) return `${filtered[0]} and ${filtered[1]}`;
-  return `${filtered.slice(0, -1).join(", ")}, and ${filtered[filtered.length - 1]}`;
-}
-
-function uniqueTags(tags: string[]): string[] {
-  const seen = new Set<string>();
-  return tags
-    .map((tag) => tag.trim())
-    .filter((tag) => {
-      const key = tag.toLowerCase();
-      if (!tag || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-}
-
-function readingCategory(genres: string[]): string {
-  const normalized = genres.map((genre) => genre.toLowerCase());
-  if (normalized.some((genre) => genre.includes("romance"))) return "romance";
-  if (normalized.some((genre) => genre.includes("fantasy"))) return "fantasy";
-  if (normalized.some((genre) => genre.includes("historical"))) return "historical fiction";
-  if (normalized.some((genre) => genre.includes("classic") || genre.includes("literary"))) {
-    return "literary classics";
-  }
-  if (genres.length > 0) return genres.slice(0, 2).join(" and ");
-  return "books";
-}
-
-export function recommendationMatchPercent(score: number): number {
-  return Math.round(Math.min(1, Math.max(0, score)) * 100);
-}
-
 export function recommendationMatchLabel(score: number): string {
   const normalized = Math.min(1, Math.max(0, Number.isFinite(score) ? score : 0));
-  if (normalized >= 0.85) return "Excellent fit";
-  if (normalized >= 0.65) return "Strong fit";
-  if (normalized >= 0.4) return "Worth exploring";
-  return "Exploratory";
+  if (normalized >= 0.85) return "Strong match";
+  if (normalized >= 0.65) return "Good match";
+  if (normalized >= 0.4) return "Possible match";
+  return "Exploratory match";
 }
 
 export function signalLabel(value: number | null | undefined): string | null {
@@ -122,69 +86,5 @@ export function recommendationFallbackExplanation(item: RecommendationItem): str
 }
 
 export function readerFacingExplanation(item: RecommendationItem): string {
-  const book = item.recommended_book ?? item.book;
-  const genres = (item.matched_genres ?? []).slice(0, 3);
-  const themes = (item.matched_subjects ?? []).slice(0, 3);
-  const usefulTags = uniqueTags([...genres, ...themes]);
-  const inspiredBy = (
-    item.related_books ??
-    item.recommendation_breakdown?.inspired_by ??
-    item.matched_liked_books ??
-    []
-  ).slice(0, 3);
-  const authors = (item.matched_authors ?? []).slice(0, 2);
-  const signals = recommendationSignals(item);
-  const sentences: string[] = [];
-
-  if (usefulTags.length < 2 && inspiredBy.length > 0) {
-    const titles = sentenceJoin(inspiredBy.slice(0, 2).map((liked) => liked.title));
-    return `Because you enjoyed ${titles}, this may fit your reading taste.`;
-  }
-
-  if (inspiredBy.length > 0) {
-    const titles = sentenceJoin(inspiredBy.slice(0, 2).map((liked) => liked.title));
-    const descriptor =
-      themes.length > 0
-        ? `for its similar themes of ${sentenceJoin(themes.slice(0, 2))}`
-        : genres.length > 0
-          ? `as another ${readingCategory(genres)} read`
-          : "for a similar reading experience";
-    sentences.push(
-      `Because you enjoyed ${titles}, you may enjoy ${book.title} ${descriptor}.`
-    );
-  }
-
-  if (genres.length > 0 && themes.length > 0) {
-    sentences.push(
-      `You've enjoyed ${readingCategory(genres)}, and ${book.title} shares themes of ${sentenceJoin(themes)}.`
-    );
-  } else if (genres.length > 0) {
-    sentences.push(
-      `Because you rated ${readingCategory(genres)} highly, ${book.title} is a strong match for your reading preferences.`
-    );
-  }
-
-  if (sentences.length < 2 && themes.length > 0) {
-    sentences.push(
-      `${book.title} matches themes that show up in your completed books, including ${sentenceJoin(themes)}.`
-    );
-  }
-
-  if (sentences.length < 2 && authors.length > 0) {
-    sentences.push(
-      `It is also connected to authors you've enjoyed, including ${sentenceJoin(authors)}.`
-    );
-  }
-
-  if (sentences.length === 0 && signals.length > 0) {
-    sentences.push(
-      `${book.title} appears to be the strongest match from your current library, though related books are not available yet.`
-    );
-  }
-
-  if (sentences.length === 0) {
-    return recommendationFallbackExplanation(item);
-  }
-
-  return sentences.slice(0, 3).join(" ");
+  return recommendationFallbackExplanation(item);
 }

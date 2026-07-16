@@ -5,6 +5,8 @@ export type ApiBook = {
   id: string;
   title: string;
   author: string;
+  display_title?: string | null;
+  original_title?: string | null;
   cover_url?: string | null;
   status: ReadingStatus;
   total_pages: number | null;
@@ -35,22 +37,31 @@ export type MatchedLikedBook = SimilarBook & {
   rating?: number | null;
 };
 
+export type RecommendationSource = "library" | "external";
+
+export type RecommendationBookRef = {
+  id?: string | null;
+  book_id?: number | string | null;
+  external_id?: string | null;
+  work_id?: string | null;
+  edition_id?: string | null;
+  isbn?: string | null;
+  title: string;
+  author: string;
+  display_title?: string | null;
+  original_title?: string | null;
+  authors?: string[];
+  cover_url?: string | null;
+  description?: string | null;
+  genres?: string[];
+  subjects?: string[];
+};
+
 export type RecommendationItem = {
-  recommended_book?: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description" | "genres" | "subjects"> & {
-    book_id?: number | null;
-    external_id?: string | null;
-    work_id?: string | null;
-    edition_id?: string | null;
-    isbn?: string | null;
-  };
-  book: Pick<ApiBook, "id" | "title" | "author" | "cover_url" | "description" | "genres" | "subjects"> & {
-    book_id?: number | null;
-    external_id?: string | null;
-    work_id?: string | null;
-    edition_id?: string | null;
-    isbn?: string | null;
-  };
-  book_id?: number | null;
+  recommendation_id?: string;
+  recommended_book?: RecommendationBookRef;
+  book: RecommendationBookRef;
+  book_id?: number | string | null;
   external_id?: string | null;
   work_id?: string | null;
   edition_id?: string | null;
@@ -61,11 +72,22 @@ export type RecommendationItem = {
   genres?: string[];
   subjects?: string[];
   score: number;
+  final_score?: number;
   match_score?: number;
+  qualitative_match_label?: string | null;
   in_library?: boolean;
+  is_in_library?: boolean;
+  source?: RecommendationSource;
   source_type?: "library" | "external_discovery";
   external_discovery?: boolean;
   discovery_source?: string | null;
+  discovery_query?: string | null;
+  discovery_cluster_id?: string | null;
+  exploration_mode?: string | null;
+  exploration_source?: string | null;
+  novelty_score?: number | null;
+  provider_rank?: number | null;
+  provider?: string | null;
   library_status?: string | null;
   reason?: string;
   explanation: string;
@@ -90,6 +112,7 @@ export type RecommendationItem = {
     inspired_by?: MatchedLikedBook[];
   };
   score_breakdown?: Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
   similar_books: SimilarBook[];
 };
 
@@ -105,13 +128,26 @@ export type RecommendationFacetResponse = {
 };
 
 export type RecommendationSectionItem = {
+  recommendation_id?: string;
   work_id: string;
   canonical_title: string;
   canonical_author: string;
+  book_id?: string | null;
+  canonical_identity?: string | null;
   cover_url?: string | null;
+  series_name?: string | null;
+  series_position?: number | null;
+  series_position_label?: string | null;
+  series_type?: string | null;
+  series_source?: string | null;
+  series_confidence?: number | null;
   score?: number | null;
+  final_score?: number | null;
   match_percentage?: number | null;
+  qualitative_match_label?: string | null;
   match_label: string;
+  display_title?: string | null;
+  original_title?: string | null;
   genres: string[];
   traits: string[];
   explanation: {
@@ -121,22 +157,42 @@ export type RecommendationSectionItem = {
     shared_traits: string[];
     style: string;
   };
+  reader_explanation: string;
   library_state: {
     in_library: boolean;
     status: ReadingStatus | null;
     selected_edition_id: string | null;
   };
   in_library?: boolean;
+  is_in_library?: boolean;
+  source?: RecommendationSource;
   external_discovery?: boolean;
   discovery_source?: string | null;
+  discovery_query?: string | null;
+  discovery_cluster_id?: string | null;
+  exploration_mode?: string | null;
+  exploration_source?: string | null;
+  novelty_score?: number | null;
+  provider_rank?: number | null;
+  score_breakdown?: Record<string, unknown>;
+  provider?: string | null;
+  cluster_id?: string | null;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type RecommendationSection = {
   id: string;
   type: string;
   title: string;
+  reading_identity?: string;
   source_book: SimilarBook | null;
   items: RecommendationSectionItem[];
+  why?: string;
+  anchors?: AnchorBook[];
+  dominant_genres?: string[];
+  dominant_themes?: string[];
+  cluster_size?: number;
+  cluster_id?: string;
 };
 
 export type RecommendationSectionsResponse = {
@@ -144,6 +200,30 @@ export type RecommendationSectionsResponse = {
   generated_at: string;
   style: string;
 };
+
+export type AnchorBook = {
+  title: string;
+  author: string;
+  rating?: number | null;
+  book_id?: string | null;
+  work_id?: string | null;
+  genres?: string[];
+  subjects?: string[];
+};
+
+export type RecommendationCluster = {
+  cluster_id: string;
+  title: string;
+  reading_identity?: string;
+  why: string;
+  anchors: AnchorBook[];
+  dominant_genres: string[];
+  dominant_themes: string[];
+  cluster_size: number;
+  recommendations: RecommendationSectionItem[];
+};
+
+export type RecommendationClustersResponse = RecommendationCluster[];
 
 export type BookProgressResponse = {
   book: ApiBook;
