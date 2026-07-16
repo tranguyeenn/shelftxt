@@ -79,6 +79,25 @@ For each to-read row:
 
 See [Implementation reference](#implementation-reference) for parameter defaults.
 
+### External discovery cluster fit
+
+External discovery candidates preserve the base recommendation score from
+`score_tbr_books`, then receive a bounded cluster-aware boost:
+
+`final score = base recommendation score + (0.08 * cluster_fit)`, clipped to `[0, 1]`.
+
+`cluster_fit` is normalized to `0..1` from specificity-weighted overlap with
+the cluster that discovered the candidate:
+
+- specific genre overlap
+- specific theme overlap
+- anchor semantic similarity
+- author affinity
+- discovery query confidence
+
+Generic metadata such as `fiction`, `drama`, `novel`, `bestseller`, and
+`general` contributes no eligibility evidence.
+
 ---
 
 ## Recommendation styles

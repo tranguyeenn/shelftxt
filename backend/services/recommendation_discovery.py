@@ -39,9 +39,11 @@ from backend.services.metadata_specificity import (
 logger = logging.getLogger(__name__)
 DEBUG_TITLES = {"killer instinct", "all in", "bad blood"}
 
-DEFAULT_DISCOVERY_MAX_QUERIES = 8
+DEFAULT_DISCOVERY_MAX_QUERIES = 3
 MAX_LOCAL_DISCOVERY_CANDIDATES = 250
 DEFAULT_DISCOVERY_RESULTS_PER_QUERY = 20
+DEFAULT_EXTERNAL_DISCOVERY_TIMEOUT_SECONDS = 4.0
+DEFAULT_EXTERNAL_DISCOVERY_CANDIDATE_LIMIT = 30
 MIN_DISCOVERY_CONFIDENCE = 0.35
 
 
@@ -51,12 +53,14 @@ def _run_aggregation(
     *,
     allow_external: bool = True,
     result_limit: int | None = None,
+    timeout_seconds: float | None = None,
 ):
     return book_search._run_aggregation(
         query,
         local_candidates,
         allow_external=allow_external,
         result_limit=result_limit,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -65,11 +69,13 @@ def explore_external_candidates(
     *,
     limit: int = 80,
     result_limit_per_source: int | None = None,
+    deadline: float | None = None,
 ):
     return external_candidate_exploration.explore_external_candidates(
         library_books,
         limit=limit,
         result_limit_per_source=result_limit_per_source,
+        deadline=deadline,
     )
 
 
@@ -82,11 +88,28 @@ def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
 
 
 def discovery_max_queries() -> int:
-    return _env_int("DISCOVERY_MAX_QUERIES", DEFAULT_DISCOVERY_MAX_QUERIES, minimum=1, maximum=12)
+    return _env_int("DISCOVERY_MAX_QUERIES", DEFAULT_DISCOVERY_MAX_QUERIES, minimum=1, maximum=8)
 
 
 def discovery_results_per_query() -> int:
     return _env_int("DISCOVERY_RESULTS_PER_QUERY", DEFAULT_DISCOVERY_RESULTS_PER_QUERY, minimum=5, maximum=30)
+
+
+def external_discovery_candidate_limit() -> int:
+    return _env_int(
+        "EXTERNAL_DISCOVERY_CANDIDATE_LIMIT",
+        DEFAULT_EXTERNAL_DISCOVERY_CANDIDATE_LIMIT,
+        minimum=5,
+        maximum=60,
+    )
+
+
+def external_discovery_timeout_seconds() -> float:
+    try:
+        value = float(os.getenv("EXTERNAL_DISCOVERY_TIMEOUT_SECONDS", str(DEFAULT_EXTERNAL_DISCOVERY_TIMEOUT_SECONDS)))
+    except (TypeError, ValueError):
+        return DEFAULT_EXTERNAL_DISCOVERY_TIMEOUT_SECONDS
+    return max(0.25, min(10.0, value))
 
 
 @dataclass(frozen=True)
@@ -863,10 +886,13 @@ def discovery_candidate_rows(
     *,
     limit: int = 40,
     allow_external: bool = True,
+    include_broad_exploration: bool = True,
 ) -> tuple[list[dict], DiscoveryDiagnostics]:
     started = time.perf_counter()
     diagnostics = DiscoveryDiagnostics()
     query_specs = _structured_discovery_queries(library_books)
+    if allow_external:
+        query_specs = query_specs[:discovery_max_queries()]
     diagnostics.queries = [query.query for query in query_specs]
     diagnostics.structured_queries = [query.to_dict() for query in query_specs]
     if not query_specs:
@@ -893,7 +919,14 @@ def discovery_candidate_rows(
             by_key[key] = result
 
     results_per_query = discovery_results_per_query()
+    deadline = time.perf_counter() + external_discovery_timeout_seconds() if allow_external else None
     for query_spec in query_specs:
+        remaining = None if deadline is None else deadline - time.perf_counter()
+        if remaining is not None and remaining <= 0:
+            diagnostics.provider_failures.append(
+                {"source": "external_discovery", "outcome": "timeout", "error_type": "DiscoveryBudgetExceeded"}
+            )
+            break
         query = query_spec.query
         query_local_candidates = [
             candidate for candidate in local_candidates if _local_candidate_matches_query(candidate, query_spec)
@@ -904,9 +937,25 @@ def discovery_candidate_rows(
                 query_local_candidates,
                 allow_external=allow_external,
                 result_limit=results_per_query,
+                timeout_seconds=max(0.0, remaining) if remaining is not None else None,
             )
         except TypeError as exc:
-            if "result_limit" in str(exc):
+            if "timeout_seconds" in str(exc):
+                try:
+                    aggregation = _run_aggregation(
+                        query,
+                        query_local_candidates,
+                        allow_external=allow_external,
+                        result_limit=results_per_query,
+                    )
+                except TypeError as nested_exc:
+                    if "result_limit" in str(nested_exc):
+                        aggregation = _run_aggregation(query, query_local_candidates, allow_external=allow_external)
+                    elif "allow_external" in str(nested_exc):
+                        aggregation = _run_aggregation(query, query_local_candidates)
+                    else:
+                        raise
+            elif "result_limit" in str(exc):
                 try:
                     aggregation = _run_aggregation(query, query_local_candidates, allow_external=allow_external)
                 except TypeError as nested_exc:
@@ -1038,12 +1087,27 @@ def discovery_candidate_rows(
                 result["series_order_check"] = series_decision.get("decision") or "passed"
                 result["inclusion_reason"] = "eligible_after_canonical_duplicate_and_series_checks"
                 by_key[key] = result
+            if allow_external and len(by_key) >= external_discovery_candidate_limit():
+                break
+        if allow_external and len(by_key) >= external_discovery_candidate_limit():
+            break
 
-    if allow_external and not diagnostics.provider_failures:
+    budget_remaining = None if deadline is None else deadline - time.perf_counter()
+    if (
+        allow_external
+        and include_broad_exploration
+        and not diagnostics.provider_failures
+        and (budget_remaining is None or budget_remaining > 0.25)
+        and len(by_key) < external_discovery_candidate_limit()
+    ):
         exploration_results, exploration_diagnostics = explore_external_candidates(
             library_books,
-            limit=max(limit, results_per_query * max(1, len(query_specs))),
+            limit=min(
+                external_discovery_candidate_limit() - len(by_key),
+                max(limit, results_per_query * max(1, len(query_specs))),
+            ),
             result_limit_per_source=results_per_query,
+            deadline=deadline,
         )
         diagnostics.exploration_modes_used = exploration_diagnostics.exploration_requests
         diagnostics.external_exploration_candidate_count = exploration_diagnostics.total_open_library_candidates_fetched
@@ -1114,6 +1178,8 @@ def discovery_candidate_rows(
                 result["series_order_check"] = series_decision.get("decision") or "passed"
                 result["inclusion_reason"] = "eligible_after_broad_exploration_canonical_duplicate_and_series_checks"
                 by_key[key] = result
+            if len(by_key) >= external_discovery_candidate_limit():
+                break
 
     rows = [_result_to_row(result) for result in by_key.values()]
     rows = rows[:limit]

@@ -90,6 +90,7 @@ class Book(Base):
     __tablename__ = "books"
 
     __table_args__ = (
+        Index("ix_books_user_status", "user_id", "read_status"),
         UniqueConstraint("user_id", "isbn_uid", name="uq_books_user_id_isbn_uid"),
     )
 

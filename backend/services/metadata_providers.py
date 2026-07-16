@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
@@ -129,6 +130,55 @@ class ProviderHealthTracker:
 
 provider_health_tracker = ProviderHealthTracker()
 
+FAILURE_CACHE_OUTCOMES = {"timeout", "network_failure"}
+DEFAULT_PROVIDER_FAILURE_CACHE_TTL_SECONDS = 300
+_provider_failure_cache: dict[tuple[str, str], tuple[float, ProviderDiagnostic]] = {}
+
+
+def _failure_cache_ttl_seconds() -> int:
+    try:
+        value = int(os.getenv("PROVIDER_FAILURE_CACHE_TTL_SECONDS", str(DEFAULT_PROVIDER_FAILURE_CACHE_TTL_SECONDS)))
+    except (TypeError, ValueError):
+        return DEFAULT_PROVIDER_FAILURE_CACHE_TTL_SECONDS
+    return max(0, min(1800, value))
+
+
+def _cache_key(provider: str, query: str) -> tuple[str, str]:
+    return (provider, " ".join(str(query or "").casefold().split()))
+
+
+def _cached_failure(provider: str, query: str) -> ProviderDiagnostic | None:
+    ttl = _failure_cache_ttl_seconds()
+    if ttl <= 0:
+        return None
+    key = _cache_key(provider, query)
+    cached = _provider_failure_cache.get(key)
+    if cached is None:
+        return None
+    cached_at, diagnostic = cached
+    if time.monotonic() - cached_at >= ttl:
+        _provider_failure_cache.pop(key, None)
+        return None
+    return ProviderDiagnostic(
+        provider=diagnostic.provider,
+        outcome=diagnostic.outcome,
+        elapsed_ms=0.0,
+        http_status=diagnostic.http_status,
+        request_url=diagnostic.request_url,
+        response_body=diagnostic.response_body,
+        exception_type="CachedProviderFailure",
+        result_count=0,
+    )
+
+
+def _remember_failure(provider: str, query: str, diagnostic: ProviderDiagnostic) -> None:
+    if diagnostic.outcome in FAILURE_CACHE_OUTCOMES and _failure_cache_ttl_seconds() > 0:
+        _provider_failure_cache[_cache_key(provider, query)] = (time.monotonic(), diagnostic)
+
+
+def clear_provider_failure_cache() -> None:
+    _provider_failure_cache.clear()
+
 
 class MetadataProvider(ABC):
     name: str
@@ -206,6 +256,14 @@ def diagnostic_for_exception(
 
 async def search_provider(provider: MetadataProvider, query: str) -> ProviderSearchResult:
     """Run one provider with timeout, transient retry, health, and fail-open behavior."""
+    cached = _cached_failure(provider.name, query)
+    if cached is not None:
+        logger.info(
+            "metadata_provider_failure_cache_hit",
+            extra={"provider": provider.name, "outcome": cached.outcome},
+        )
+        return ProviderSearchResult(provider=provider.name, results=[], diagnostic=cached)
+
     attempts = provider.max_retries + 1
     last_diagnostic: ProviderDiagnostic | None = None
     for attempt in range(1, attempts + 1):
@@ -261,6 +319,7 @@ async def search_provider(provider: MetadataProvider, query: str) -> ProviderSea
                 },
             )
             if attempt >= attempts or not is_transient_error(exc):
+                _remember_failure(provider.name, query, last_diagnostic)
                 return ProviderSearchResult(
                     provider=provider.name,
                     results=[],

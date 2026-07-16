@@ -394,6 +394,7 @@ def get_recommendation(
         books,
         limit=candidate_limit,
         allow_external=True,
+        include_broad_exploration=normalized_style in {"discovery", "external_first"},
     )
     discovery_diagnostics = external_diagnostics
     discovery_diagnostics.library_candidate_count = library_candidate_count

@@ -55,19 +55,48 @@ class LocalCatalogSource:
 
 
 class MetadataAggregationService:
-    def __init__(self, sources: list[MetadataSource], *, limit: int = 12) -> None:
+    def __init__(
+        self,
+        sources: list[MetadataSource],
+        *,
+        limit: int = 12,
+        timeout_seconds: float | None = None,
+    ) -> None:
         self.sources = sources
         self.limit = limit
+        self.timeout_seconds = timeout_seconds
 
     async def aggregate(self, query: str) -> MetadataAggregationResult:
         clean_query = str(query or "").strip()
         if not clean_query:
             return MetadataAggregationResult(results=[])
 
-        collected = await asyncio.gather(
-            *(self._search_source(source, clean_query) for source in self.sources),
-            return_exceptions=False,
-        )
+        tasks = {
+            asyncio.create_task(self._search_source(source, clean_query)): source
+            for source in self.sources
+        }
+        if self.timeout_seconds is None:
+            collected = await asyncio.gather(*tasks.keys(), return_exceptions=False)
+        else:
+            done, pending = await asyncio.wait(tasks.keys(), timeout=max(0.0, self.timeout_seconds))
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            collected = [task.result() for task in done]
+            collected.extend(
+                (
+                    SourceOutcome(
+                        source=tasks[task].name,
+                        success=False,
+                        latency_ms=round(self.timeout_seconds * 1000, 2),
+                        outcome="timeout",
+                        error_type="TimeoutError",
+                    ),
+                    [],
+                )
+                for task in pending
+            )
         candidates = [candidate for outcome, results in collected if outcome.success for candidate in results]
         ranked = _dedupe_and_rank(candidates, clean_query)[: self.limit]
         return MetadataAggregationResult(

@@ -266,7 +266,7 @@ def build_taste_dimensions(library_books: list[Book]) -> list[TasteDimension]:
     return dimensions
 
 
-def _open_library_subject_results(subject: str, *, limit: int) -> list[dict]:
+def _open_library_subject_results(subject: str, *, limit: int, timeout: float = OPEN_LIBRARY_SEARCH_TIMEOUT_SECONDS) -> list[dict]:
     payload = _http_get_json(
         "open_library",
         "https://openlibrary.org/search.json",
@@ -275,7 +275,7 @@ def _open_library_subject_results(subject: str, *, limit: int) -> list[dict]:
             "limit": limit,
             "fields": "title,author_name,subject,key,description,first_publish_year,cover_i",
         },
-        timeout=OPEN_LIBRARY_SEARCH_TIMEOUT_SECONDS,
+        timeout=timeout,
     )
     docs = payload.get("docs", []) if isinstance(payload, dict) else []
     results: list[dict] = []
@@ -318,6 +318,7 @@ def explore_external_candidates(
     *,
     limit: int = 80,
     result_limit_per_source: int | None = None,
+    deadline: float | None = None,
 ) -> tuple[list[dict], ExternalExplorationDiagnostics]:
     started = time.perf_counter()
     diagnostics = ExternalExplorationDiagnostics()
@@ -330,12 +331,26 @@ def explore_external_candidates(
     for dimension in dimensions:
         dimension_count = 0
         for mode, source in _mode_sources(dimension):
+            remaining = None if deadline is None else deadline - time.perf_counter()
+            if remaining is not None and remaining <= 0:
+                break
             if len(candidates) >= limit:
                 break
             if dimension_count >= max_per_dimension:
                 break
             try:
-                results = _open_library_subject_results(source, limit=per_source)
+                try:
+                    results = _open_library_subject_results(
+                        source,
+                        limit=per_source,
+                        timeout=min(OPEN_LIBRARY_SEARCH_TIMEOUT_SECONDS, max(0.25, remaining))
+                        if remaining is not None
+                        else OPEN_LIBRARY_SEARCH_TIMEOUT_SECONDS,
+                    )
+                except TypeError as exc:
+                    if "timeout" not in str(exc):
+                        raise
+                    results = _open_library_subject_results(source, limit=per_source)
             except Exception as exc:
                 logger.info(
                     "external_candidate_exploration_failed mode=%s source=%s cluster=%s error=%s",

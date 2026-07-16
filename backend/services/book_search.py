@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import re
 import threading
 import time
@@ -45,6 +46,7 @@ LIBRARYTHING_ENRICHMENT_TIMEOUT_SECONDS = 2.25
 SEARCH_RESULT_LIMIT = 12
 PROVIDER_HTTP_MAX_RETRIES = 1
 PROVIDER_HTTP_TIMEOUT = httpx.Timeout(4.0, connect=2.0, read=4.0, write=4.0, pool=2.0)
+DEFAULT_EXTERNAL_PROVIDER_LIMIT = 2
 _edition_cache: dict[tuple[str, int], tuple[float, dict]] = {}
 _edition_inflight: dict[tuple[str, int], Future] = {}
 _edition_lock = threading.Lock()
@@ -75,6 +77,14 @@ def _http_get_json(
     timeout: float,
     follow_redirects: bool = False,
 ) -> dict:
+    bounded_timeout = max(0.25, float(timeout or OPEN_LIBRARY_SEARCH_TIMEOUT_SECONDS))
+    http_timeout = httpx.Timeout(
+        bounded_timeout,
+        connect=min(2.0, bounded_timeout),
+        read=bounded_timeout,
+        write=min(2.0, bounded_timeout),
+        pool=min(2.0, bounded_timeout),
+    )
     for attempt in range(1, PROVIDER_HTTP_MAX_RETRIES + 2):
         started = time.perf_counter()
         request_url = url
@@ -82,7 +92,7 @@ def _http_get_json(
             response = httpx.get(
                 url,
                 params=params,
-                timeout=PROVIDER_HTTP_TIMEOUT,
+                timeout=http_timeout,
                 follow_redirects=follow_redirects,
             )
             request_url = str(response.request.url)
@@ -644,13 +654,25 @@ def _dedupe_results(results: list[dict], query: str) -> list[dict]:
     )
 
 
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def external_provider_limit() -> int:
+    return _env_int("EXTERNAL_PROVIDER_LIMIT", DEFAULT_EXTERNAL_PROVIDER_LIMIT, minimum=1, maximum=3)
+
+
 def _metadata_sources(local_candidates: list[dict], *, allow_external: bool = True):
     from app.integrations.librarything import LibraryThingProvider
     from app.integrations.openlibrary import OpenLibraryProvider
 
     sources = [LocalCatalogSource(local_candidates)]
     if allow_external:
-        sources.extend([OpenLibraryProvider(), LibraryThingProvider()])
+        sources.extend([OpenLibraryProvider(), LibraryThingProvider()][:external_provider_limit()])
     return sources
 
 
@@ -660,10 +682,12 @@ async def _aggregate_results(
     *,
     allow_external: bool = True,
     result_limit: int | None = None,
+    timeout_seconds: float | None = None,
 ):
     service = MetadataAggregationService(
         _metadata_sources(local_candidates, allow_external=allow_external),
         limit=result_limit or SEARCH_RESULT_LIMIT,
+        timeout_seconds=timeout_seconds,
     )
     return await service.aggregate(query)
 
@@ -674,6 +698,7 @@ def _run_aggregation(
     *,
     allow_external: bool = True,
     result_limit: int | None = None,
+    timeout_seconds: float | None = None,
 ):
     try:
         asyncio.get_running_loop()
@@ -684,6 +709,7 @@ def _run_aggregation(
                 local_candidates,
                 allow_external=allow_external,
                 result_limit=result_limit,
+                timeout_seconds=timeout_seconds,
             )
         )
 
@@ -699,6 +725,7 @@ def _run_aggregation(
                     local_candidates,
                     allow_external=allow_external,
                     result_limit=result_limit,
+                    timeout_seconds=timeout_seconds,
                 )
             )
         ).result()
