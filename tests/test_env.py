@@ -1,7 +1,25 @@
 import logging
 from unittest.mock import patch
 
-from backend.env import load_backend_env, log_local_env_presence
+from backend.env import BACKEND_ENV_PATH, ENV_PATH, load_backend_env, log_local_env_presence
+
+
+def test_backend_env_loader_reads_root_then_backend_env_without_override():
+    with patch.dict("os.environ", {}, clear=True), patch("backend.env.load_dotenv") as load_dotenv:
+        load_backend_env()
+
+    assert load_dotenv.call_args_list[0].kwargs == {"dotenv_path": ENV_PATH, "override": False}
+    assert load_dotenv.call_args_list[1].kwargs == {"dotenv_path": BACKEND_ENV_PATH, "override": False}
+
+
+def test_env_example_documents_nyt_books_configuration():
+    text = (ENV_PATH.parent / ".env.example").read_text()
+
+    assert "NYT_BOOKS_ENABLED=" in text
+    assert "NYT_BOOKS_API_URL=" in text
+    assert "NYT_BOOKS_API_KEY=" in text
+    assert "NYT_BOOKS_TIMEOUT_SECONDS=" in text
+    assert "NYT_BOOKS_CACHE_SECONDS=" in text
 
 
 def test_local_backend_env_aliases_root_vite_supabase_anon_key():

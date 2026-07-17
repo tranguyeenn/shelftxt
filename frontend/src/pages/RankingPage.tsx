@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BookCover } from "@/components/ui/BookCover";
@@ -11,18 +10,19 @@ import { fetchJson } from "@/lib/api";
 import { submitSectionRecommendationFeedback } from "@/lib/recommendationFeedback";
 import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
 import {
-  getClusterDisplayTitle,
   getRecommendationDisplayExplanation,
   getRecommendationMatchLabel,
   normalizeRecommendationItem,
-  visibleRecommendationTags
+  publicRecommendationProvider,
+  splitRecommendationSections
 } from "@/lib/recommendationNormalization";
 import { recommendationSectionsQuery, type RecommendationFilters } from "@/lib/userSettings";
 import type {
   RecommendationFacet,
   RecommendationFacetResponse,
-  RecommendationClustersResponse,
-  RecommendationCluster,
+  ExternalSectionReplaceResponse,
+  NewlyFoundSectionRefreshResponse,
+  PopularSectionRefreshResponse,
   RecommendationItem,
   RecommendationSection,
   RecommendationSectionItem,
@@ -30,8 +30,73 @@ import type {
 } from "@/lib/types";
 
 type RecommendationTab = "for-you" | "genres" | "authors";
+type DiscoverSectionType = "shelf_recommendations" | "popular_this_week" | "newly_found";
+type ExternalSectionType = "popular_this_week" | "newly_found";
+type LoadingExternalState = { section: ExternalSectionType; id: string } | null;
 
-const RECOMMENDATION_UI_RESPONSE_VERSION = "identity-v2";
+export const POPULAR_CATEGORY_OPTIONS = [
+  ["any", "Any"],
+  ["fiction", "Fiction"],
+  ["young_adult", "Young Adult"],
+  ["romance", "Romance"],
+  ["fantasy_scifi", "Fantasy / Sci-Fi"],
+  ["mystery_thriller", "Mystery / Thriller"],
+  ["manga_graphic", "Manga / Graphic"],
+  ["nonfiction", "Nonfiction"]
+] as const;
+
+export const NEWLY_FOUND_CATEGORY_OPTIONS = [
+  ["any", "Any"],
+  ["fiction", "Fiction"],
+  ["young_adult", "Young Adult"],
+  ["romance", "Romance"],
+  ["fantasy_scifi", "Fantasy / Sci-Fi"],
+  ["mystery_thriller", "Mystery / Thriller"],
+  ["manga_graphic", "Manga / Graphic"],
+  ["literary_fiction", "Literary Fiction"],
+  ["historical_fiction", "Historical Fiction"]
+] as const;
+
+const POPULAR_REFRESH_OPTIONS = [
+  ["mixed", "Refresh all"],
+  ["mixed", "Mixed"],
+  ["fiction_heavy", "Fiction-heavy"],
+  ["young_adult", "Young Adult"],
+  ["romance", "Romance"],
+  ["fantasy_scifi", "Fantasy / Sci-Fi"],
+  ["mystery_thriller", "Mystery / Thriller"],
+  ["manga_graphic", "Manga / Graphic"]
+] as const;
+
+const NEWLY_REFRESH_OPTIONS = [
+  ["mixed", "Refresh all"],
+  ["mixed", "Mixed"],
+  ["fiction", "Fiction"],
+  ["young_adult", "Young Adult"],
+  ["romance", "Romance"],
+  ["fantasy_scifi", "Fantasy / Sci-Fi"],
+  ["mystery_thriller", "Mystery / Thriller"],
+  ["literary_fiction", "Literary Fiction"],
+  ["historical_fiction", "Historical Fiction"]
+] as const;
+
+const DISCOVER_SECTION_COPY: Record<DiscoverSectionType, { title: string; description: string; empty: string }> = {
+  shelf_recommendations: {
+    title: "From Your Shelf",
+    description: "Books you already own that fit your reading history.",
+    empty: "No unread shelf books are ready to recommend yet."
+  },
+  popular_this_week: {
+    title: "Popular This Week",
+    description: "Books appearing on current bestseller lists.",
+    empty: "Popular books are unavailable right now."
+  },
+  newly_found: {
+    title: "Newly Found",
+    description: "Recent books discovered outside your library.",
+    empty: "No recent discoveries are available right now."
+  }
+};
 
 export function RankingPage() {
   const {
@@ -40,6 +105,17 @@ export function RankingPage() {
     setRecommendationFilters: setAppliedFilters
   } = useUserSettings();
   const [sections, setSections] = useState<RecommendationSection[]>([]);
+  const [providerStatus, setProviderStatus] = useState<RecommendationSectionsResponse["provider_status"]>();
+  const [skippedExternalIds, setSkippedExternalIds] = useState<Record<ExternalSectionType, string[]>>({
+    popular_this_week: [],
+    newly_found: []
+  });
+  const [loadingExternal, setLoadingExternal] = useState<LoadingExternalState>(null);
+  const [noMatchMessages, setNoMatchMessages] = useState<Record<string, string>>({});
+  const [sectionPreferences, setSectionPreferences] = useState<Record<ExternalSectionType, string>>({
+    popular_this_week: "mixed",
+    newly_found: "mixed"
+  });
   const [genreFacets, setGenreFacets] = useState<RecommendationFacet[]>([]);
   const [authorFacets, setAuthorFacets] = useState<RecommendationFacet[]>([]);
   const [activeTab, setActiveTab] = useState<RecommendationTab>(() => {
@@ -58,26 +134,23 @@ export function RankingPage() {
   const [maxPages, setMaxPages] = useState(
     appliedFilters.max_pages === undefined ? "" : String(appliedFilters.max_pages)
   );
-  const visibleSections = visibleRecommendationSections(sections);
+  const loadRequestId = useRef(0);
 
-  const loadFallbackSections = useCallback(async (
+  const loadSections = useCallback(async (
     refresh = false,
     excludeIds: string[] = [],
     filters: RecommendationFilters = {}
   ) => {
     const endpoint = recommendationSectionsQuery(settings, refresh, excludeIds, filters);
-    try {
-      const ranked = await fetchJson<RecommendationSectionsResponse>(
-        endpoint,
-        { skipClientCache: refresh }
-      );
-      const responseSections = Array.isArray(ranked.sections) ? ranked.sections : [];
-      return {
-        sections: normalizeRecommendationSections(responseSections)
-      };
-    } catch (err) {
-      throw err instanceof Error ? err : new Error("Failed to load recommendations");
-    }
+    const ranked = await fetchJson<RecommendationSectionsResponse>(
+      endpoint,
+      { skipClientCache: true }
+    );
+    const responseSections = explicitRecommendationSections(ranked);
+    return {
+      sections: normalizeRecommendationSections(responseSections),
+      providerStatus: ranked.provider_status
+    };
   }, [settings.recommendationStyle]);
 
   const load = useCallback(async (
@@ -85,39 +158,25 @@ export function RankingPage() {
     excludeIds: string[] = [],
     filters: RecommendationFilters = {}
   ) => {
+    const requestId = loadRequestId.current + 1;
+    loadRequestId.current = requestId;
     setLoading(true);
     setError("");
     try {
-      const clusterEndpoint = recommendationClustersQuery(settings);
-      const clustered = await fetchJson<RecommendationClustersResponse>(
-        clusterEndpoint,
-        { skipClientCache: refresh }
-      );
-      const clusterSections = normalizeRecommendationClusterSections(clustered);
-      if (clusterSections.length > 0) {
-        setSections(clusterSections);
-        return;
-      }
-      const fallback = await loadFallbackSections(refresh, excludeIds, filters);
-      setSections(fallback.sections);
-    } catch (clusterErr) {
-      try {
-        const fallback = await loadFallbackSections(refresh, excludeIds, filters);
-        setSections(fallback.sections);
-      } catch (fallbackErr) {
-        setSections([]);
-        setError(
-          fallbackErr instanceof Error
-            ? fallbackErr.message
-            : clusterErr instanceof Error
-              ? clusterErr.message
-              : "Failed to load recommendations"
-        );
-      }
+      const response = await loadSections(refresh, excludeIds, filters);
+      if (requestId !== loadRequestId.current) return;
+      setProviderStatus(response.providerStatus);
+      setSections((current) => mergeLoadedDiscoverSections(current, response.sections));
+    } catch (err) {
+      if (requestId !== loadRequestId.current) return;
+      setSections((current) => current);
+      setError(err instanceof Error ? err.message : "Failed to load recommendations");
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) {
+        setLoading(false);
+      }
     }
-  }, [loadFallbackSections, settings.recommendationStyle]);
+  }, [loadSections, settings.recommendationStyle]);
 
   useEffect(() => {
     void load(false, [], appliedFilters);
@@ -144,6 +203,123 @@ export function RankingPage() {
   function refreshRecommendations() {
     const excludeIds = sections.flatMap((section) => section.items.map((item) => item.work_id)).filter(Boolean);
     void load(true, excludeIds, appliedFilters);
+  }
+
+  function externalSectionItems(type: ExternalSectionType): RecommendationSectionItem[] {
+    return sections.find((section) => section.type === type)?.items ?? [];
+  }
+
+  function externalIds(type: ExternalSectionType): string[] {
+    return externalSectionItems(type)
+      .map((item) => item.recommendation_id ?? item.canonical_identity ?? item.work_id)
+      .filter((value): value is string => Boolean(value));
+  }
+
+  async function postExternalJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    return fetchJson<T>(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      skipClientCache: true
+    });
+  }
+
+  async function replaceExternalCard(type: ExternalSectionType, item: RecommendationSectionItem, category: string) {
+    const itemId = item.recommendation_id ?? item.canonical_identity ?? item.work_id;
+    if (!itemId) return;
+    setLoadingExternal({ section: type, id: itemId });
+    setNoMatchMessages((current) => ({ ...current, [itemId]: "" }));
+    const skipped = skippedExternalIds[type];
+    const endpoint = type === "popular_this_week"
+      ? "/recommendations/popular/replace"
+      : "/recommendations/newly-found/replace";
+    try {
+      const response = await postExternalJson<ExternalSectionReplaceResponse>(endpoint, {
+        current_recommendation_ids: externalIds(type),
+        excluded_recommendation_ids: skipped,
+        replace_recommendation_id: itemId,
+        category
+      });
+      if (!response.replacement) {
+        setNoMatchMessages((current) => ({
+          ...current,
+          [itemId]: type === "popular_this_week"
+            ? "No more books match that category right now."
+            : "No more recent books match that category right now."
+        }));
+        setSkippedExternalIds((current) => ({
+          ...current,
+          [type]: Array.from(new Set([...current[type], itemId]))
+        }));
+        return;
+      }
+      const replacement = normalizeRecommendationItem(response.replacement);
+      setSections((current) =>
+        current.map((section) => section.type !== type ? section : {
+          ...section,
+          items: section.items.map((candidate) => {
+            const candidateId = candidate.recommendation_id ?? candidate.canonical_identity ?? candidate.work_id;
+            return candidateId === itemId ? replacement : candidate;
+          })
+        })
+      );
+      setSkippedExternalIds((current) => ({
+        ...current,
+        [type]: Array.from(new Set([...current[type], itemId]))
+      }));
+    } catch (err) {
+      setNoMatchMessages((current) => ({
+        ...current,
+        [itemId]: err instanceof Error ? err.message : "Could not replace this book."
+      }));
+    } finally {
+      setLoadingExternal(null);
+    }
+  }
+
+  async function refreshExternalSection(type: ExternalSectionType, preference: string) {
+    setSectionPreferences((current) => ({ ...current, [type]: preference }));
+    setLoadingExternal({ section: type, id: "__section__" });
+    const endpoint = type === "popular_this_week"
+      ? "/recommendations/popular/refresh"
+      : "/recommendations/newly-found/refresh";
+    try {
+      const response = type === "popular_this_week"
+        ? await postExternalJson<PopularSectionRefreshResponse>(endpoint, {
+            current_recommendation_ids: externalIds(type),
+            excluded_recommendation_ids: skippedExternalIds[type],
+            preference,
+            limit: 5
+          })
+        : await postExternalJson<NewlyFoundSectionRefreshResponse>(endpoint, {
+            current_recommendation_ids: externalIds(type),
+            excluded_recommendation_ids: skippedExternalIds[type],
+            preference,
+            limit: 5
+          });
+      const nextItems = (type === "popular_this_week"
+        ? (response as PopularSectionRefreshResponse).popular_this_week
+        : (response as NewlyFoundSectionRefreshResponse).newly_found
+      ).map(normalizeRecommendationItem);
+      setSkippedExternalIds((current) => ({
+        ...current,
+        [type]: Array.from(new Set([...current[type], ...externalIds(type)]))
+      }));
+      setNoMatchMessages((current) => ({
+        ...current,
+        [`${type}:section`]: nextItems.length > 0 ? "" : type === "popular_this_week"
+          ? "No more books match that category right now."
+          : "No more recent books match that category right now."
+      }));
+      setSections((current) => applyExternalRefreshResult(current, type, nextItems));
+    } catch (err) {
+      setNoMatchMessages((current) => ({
+        ...current,
+        [`${type}:section`]: err instanceof Error ? err.message : "Could not refresh this section."
+      }));
+    } finally {
+      setLoadingExternal(null);
+    }
   }
 
   async function handleNotInterested(item: RecommendationSectionItem) {
@@ -317,23 +493,23 @@ export function RankingPage() {
         />
       ) : null}
 
-      {!loading && !error && sections.every((section) => section.items.length === 0) && visibleSections.every((section) => section.items.length === 0) ? (
-        <EmptyState
-          title="No clear recommendation yet."
-          description="Add more books from your TBR or rate a few finished reads so ShelfTxt can explain the next pick."
-        />
+      {!loading && providerStatus ? (
+        <p className="text-xs text-text-dim">
+          Popular provider {providerStatus.nyt?.available ? "available" : "unavailable"} · Discovery provider {providerStatus.hardcover?.available ? "available" : "unavailable"}.
+        </p>
       ) : null}
 
-      {!loading && visibleSections.some((section) => section.items.length > 0) ? (
-        <div className="grid gap-6">
-          {visibleSections.map((section) => (
-            <RecommendationSectionBlock
-              key={section.id}
-              section={section}
-              onNotInterested={handleNotInterested}
-            />
-          ))}
-        </div>
+      {activeTab === "for-you" ? (
+        <DiscoverSections
+          sections={sections}
+          loading={loading}
+          loadingExternal={loadingExternal}
+          noMatchMessages={noMatchMessages}
+          sectionPreferences={sectionPreferences}
+          onNotInterested={handleNotInterested}
+          onReplaceExternal={replaceExternalCard}
+          onRefreshExternal={refreshExternalSection}
+        />
       ) : null}
     </div>
   );
@@ -349,13 +525,34 @@ export function sectionItemFromRecommendation(item: RecommendationItem): Recomme
   return {
     recommendation_id: item.recommendation_id,
     work_id: canonicalIdentity ?? book.id ?? recommendationTitleAuthorIdentity(book.title, book.author),
+    external_id: item.external_id ?? book.external_id ?? null,
+    edition_id: item.edition_id ?? book.edition_id ?? null,
+    isbn: item.isbn ?? book.isbn ?? null,
+    isbn_10: book.isbn_10 ?? null,
+    isbn_13: book.isbn_13 ?? null,
     canonical_title: book.title,
     canonical_author: book.author,
     book_id: inLibrary ? String(item.book_id ?? book.book_id ?? book.id ?? "") || null : null,
     canonical_identity: canonicalIdentity,
     cover_url: book.cover_url,
+    publication_year: item.publication_year ?? book.publication_year ?? book.first_publish_year ?? null,
+    first_publish_year: item.first_publish_year ?? book.first_publish_year ?? book.publication_year ?? null,
+    page_count: item.page_count ?? book.page_count ?? book.total_pages ?? null,
+    total_pages: item.total_pages ?? book.total_pages ?? book.page_count ?? null,
+    publisher: item.publisher ?? book.publisher ?? null,
+    source_url: item.source_url ?? book.source_url ?? null,
+    source_urls: item.source_urls ?? book.source_urls ?? [],
+    provider_source_id: item.provider_source_id ?? book.provider_source_id ?? null,
+    provider_rating: item.provider_rating ?? book.provider_rating ?? book.rating ?? null,
+    rating: item.rating ?? book.rating ?? book.provider_rating ?? null,
+    ratings_count: item.ratings_count ?? book.ratings_count ?? null,
+    users_count: item.users_count ?? book.users_count ?? null,
+    activities_count: item.activities_count ?? book.activities_count ?? null,
+    language: item.language ?? book.language ?? null,
+    discovery_reason: item.discovery_reason ?? book.discovery_reason ?? null,
     score,
     final_score: item.final_score ?? score,
+    reader_likelihood_score: item.reader_likelihood_score ?? null,
     match_label: item.qualitative_match_label ?? recommendationMatchLabel(score ?? 0),
     qualitative_match_label: item.qualitative_match_label ?? recommendationMatchLabel(score ?? 0),
     display_title: book.display_title ?? book.title,
@@ -388,7 +585,7 @@ export function sectionItemFromRecommendation(item: RecommendationItem): Recomme
     provider_rank: item.provider_rank,
     score_breakdown: item.score_breakdown,
     diagnostics: item.diagnostics,
-    provider: item.provider ?? item.discovery_source ?? null
+    provider: publicRecommendationProvider(item.provider ?? item.discovery_source)
   };
 }
 
@@ -409,31 +606,8 @@ function normalizeRecommendationSections(sections: RecommendationSection[]): Rec
   }));
 }
 
-function normalizeRecommendationClusterSections(clusters: RecommendationClustersResponse): RecommendationSection[] {
-  if (!Array.isArray(clusters)) return [];
-  return clusters
-    .filter((cluster) => Array.isArray(cluster.recommendations) && cluster.recommendations.length > 0)
-    .map(clusterSectionFromCluster);
-}
-
-function clusterSectionFromCluster(cluster: RecommendationCluster): RecommendationSection {
-  const title = cluster.title || "Recommended for you";
-  return {
-    ...cluster,
-    id: `cluster-${cluster.cluster_id}`,
-    type: "cluster",
-    title: cluster.title,
-    reading_identity: cluster.reading_identity || title,
-    source_book: null,
-    why: cluster.why || undefined,
-    anchors: Array.isArray(cluster.anchors) ? cluster.anchors : [],
-    dominant_genres: Array.isArray(cluster.dominant_genres) ? cluster.dominant_genres : [],
-    dominant_themes: Array.isArray(cluster.dominant_themes) ? cluster.dominant_themes : [],
-    items: cluster.recommendations.map((item) => ({
-      ...normalizeRecommendationItem(item),
-      cluster_id: cluster.cluster_id
-    }))
-  };
+export function explicitRecommendationSections(response: RecommendationSectionsResponse): RecommendationSection[] {
+  return splitRecommendationSections(response);
 }
 
 export function visibleRecommendationSections(sections: RecommendationSection[]): RecommendationSection[] {
@@ -451,6 +625,41 @@ export function visibleRecommendationSections(sections: RecommendationSection[])
     .filter((section) => section.items.length > 0);
 }
 
+export function mergeLoadedDiscoverSections(
+  currentSections: RecommendationSection[],
+  nextSections: RecommendationSection[]
+): RecommendationSection[] {
+  return nextSections.map((nextSection) => {
+    if (nextSection.type !== "popular_this_week" && nextSection.type !== "newly_found") {
+      return nextSection;
+    }
+    if (nextSection.items.length > 0) {
+      return nextSection;
+    }
+    const currentSection = currentSections.find((section) => section.type === nextSection.type);
+    if (!currentSection || currentSection.items.length === 0) {
+      return nextSection;
+    }
+    return {
+      ...nextSection,
+      items: currentSection.items
+    };
+  });
+}
+
+export function applyExternalRefreshResult(
+  currentSections: RecommendationSection[],
+  type: ExternalSectionType,
+  nextItems: RecommendationSectionItem[]
+): RecommendationSection[] {
+  if (nextItems.length === 0) {
+    return currentSections;
+  }
+  return currentSections.map((section) =>
+    section.type === type ? { ...section, items: nextItems } : section
+  );
+}
+
 function visibleRecommendationKey(item: RecommendationSectionItem): string {
   return String(
     item.canonical_identity
@@ -460,12 +669,16 @@ function visibleRecommendationKey(item: RecommendationSectionItem): string {
   );
 }
 
-function sectionItemSource(item: RecommendationSectionItem): "library" | "external" {
-  return item.source === "external" || item.library_state.in_library === false ? "external" : "library";
-}
-
 function recommendationSource(item: RecommendationItem): "library" | "external" {
-  if (item.source === "external" || item.source_type === "external_discovery" || item.external_discovery === true || item.is_in_library === false || item.in_library === false) {
+  if (
+    item.source === "external" ||
+    item.source === "nyt" ||
+    item.source === "hardcover" ||
+    item.source_type === "external_discovery" ||
+    item.external_discovery === true ||
+    item.is_in_library === false ||
+    item.in_library === false
+  ) {
     return "external";
   }
   if (item.source === "library" || item.is_in_library === true || item.in_library === true) {
@@ -478,13 +691,14 @@ function recommendationInLibrary(item: RecommendationItem): boolean {
   return recommendationSource(item) === "library";
 }
 
-function recommendationActionLabel(item: RecommendationSectionItem): string {
-  return item.library_state.in_library ? "Start reading" : "Add to library";
-}
-
-function recommendationBadgeLabel(item: RecommendationSectionItem): string {
-  const fallback = item.library_state.in_library ? "On your shelf" : "Outside your library";
-  return sectionItemSource(item) === "external" ? "Outside your library" : fallback;
+function providerBadgeLabel(item: RecommendationSectionItem): string {
+  const provider = publicRecommendationProvider(item.provider ?? item.discovery_source);
+  if (provider === "hardcover") return "Hardcover";
+  if (provider === "open_library") return "Open Library";
+  if (provider === "librarything") return "LibraryThing";
+  if (provider === "series_metadata") return "Series metadata";
+  if (provider === "nyt") return "Bestseller list";
+  return provider ? provider.replace(/_/g, " ") : "External source";
 }
 
 function recommendationTitleAuthorIdentity(title: string, author: string): string {
@@ -493,60 +707,376 @@ function recommendationTitleAuthorIdentity(title: string, author: string): strin
   return `title_author:${normalize(title)}:${normalize(author.split(",", 1)[0] ?? "")}`;
 }
 
-function recommendationClustersQuery(settings: { recommendationStyle: string }): string {
-  const params = new URLSearchParams({
-    style: settings.recommendationStyle,
-    limit: "3",
-    max_per_cluster: "3",
-    ui_response_version: RECOMMENDATION_UI_RESPONSE_VERSION
-  });
-  return `/recommendations/clusters?${params.toString()}`;
+export function DiscoverSections({
+  sections,
+  loading,
+  loadingExternal = null,
+  noMatchMessages = {},
+  sectionPreferences = { popular_this_week: "mixed", newly_found: "mixed" },
+  onNotInterested,
+  onReplaceExternal = async () => undefined,
+  onRefreshExternal = async () => undefined
+}: {
+  sections: RecommendationSection[];
+  loading: boolean;
+  loadingExternal?: LoadingExternalState;
+  noMatchMessages?: Record<string, string>;
+  sectionPreferences?: Record<ExternalSectionType, string>;
+  onNotInterested: (item: RecommendationSectionItem) => Promise<void>;
+  onReplaceExternal?: (type: ExternalSectionType, item: RecommendationSectionItem, category: string) => Promise<void>;
+  onRefreshExternal?: (type: ExternalSectionType, preference: string) => Promise<void>;
+}) {
+  const byType = new Map(sections.map((section) => [section.type, section]));
+  const orderedTypes: DiscoverSectionType[] = ["shelf_recommendations", "popular_this_week", "newly_found"];
+  return (
+    <div className="grid gap-6" data-testid="discover-sections">
+      {orderedTypes.map((type) => {
+        const section = byType.get(type);
+        return (
+          <DiscoverSectionBlock
+            key={type}
+            type={type}
+            items={section?.items ?? []}
+            loading={loading}
+            loadingExternal={loadingExternal}
+            noMatchMessages={noMatchMessages}
+            sectionPreference={type === "shelf_recommendations" ? undefined : sectionPreferences[type]}
+            onNotInterested={onNotInterested}
+            onReplaceExternal={onReplaceExternal}
+            onRefreshExternal={onRefreshExternal}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
-function RecommendationSectionBlock({
-  section,
-  onNotInterested
+function DiscoverSectionBlock({
+  type,
+  items,
+  loading,
+  loadingExternal,
+  noMatchMessages,
+  sectionPreference,
+  onNotInterested,
+  onReplaceExternal,
+  onRefreshExternal
 }: {
-  section: RecommendationSection;
+  type: DiscoverSectionType;
+  items: RecommendationSectionItem[];
+  loading: boolean;
+  loadingExternal: LoadingExternalState;
+  noMatchMessages: Record<string, string>;
+  sectionPreference?: string;
   onNotInterested: (item: RecommendationSectionItem) => Promise<void>;
+  onReplaceExternal: (type: ExternalSectionType, item: RecommendationSectionItem, category: string) => Promise<void>;
+  onRefreshExternal: (type: ExternalSectionType, preference: string) => Promise<void>;
 }) {
-  if (section.items.length === 0) return null;
-  const anchors = section.anchors ?? [];
-  const readingIdentity = getClusterDisplayTitle(section);
-  const themes = [...(section.dominant_themes ?? []), ...(section.dominant_genres ?? [])]
-    .filter((theme) => visibleRecommendationTags([theme]).length > 0)
-    .filter((theme, index, all) => theme && all.findIndex((candidate) => candidate.toLowerCase() === theme.toLowerCase()) === index)
-    .slice(0, 6);
+  const copy = DISCOVER_SECTION_COPY[type];
+  const externalType = type === "shelf_recommendations" ? null : type;
+  const sectionMessage = externalType ? noMatchMessages[`${externalType}:section`] : "";
   return (
-    <section className="grid gap-3">
-      <div className="grid gap-2">
-        <h2 className="text-sm font-semibold uppercase text-text-dim">{readingIdentity}</h2>
-        {anchors.length > 0 ? (
-          <p className="text-sm text-text-muted">
-            Anchors: {anchors.slice(0, 3).map((anchor) => anchor.title).join(", ")}
-          </p>
-        ) : null}
-        {section.why ? <p className="text-sm text-text-muted">{section.why}</p> : null}
-        {themes.length > 0 ? (
-          <div className="flex flex-wrap gap-2" aria-label={`${section.title} themes`}>
-            {themes.map((theme) => (
-              <span key={theme} className="rounded-full border border-border px-2 py-1 text-xs text-text-muted">
-                {theme}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {section.items.map((item) => (
-          <StructuredRecommendationCard key={visibleRecommendationKey(item)}
-            item={item}
-            onNotInterested={onNotInterested}
+    <section className="grid gap-3" aria-labelledby={`${type}-heading`} data-testid={type} data-preference={sectionPreference}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <h2 id={`${type}-heading`} className="text-sm font-semibold uppercase text-text-dim">
+            {copy.title}
+          </h2>
+          <p className="text-sm text-text-muted">{copy.description}</p>
+        </div>
+        {externalType ? (
+          <PreferenceMenu
+            label={`Refresh ${copy.title}`}
+            options={externalType === "popular_this_week" ? POPULAR_REFRESH_OPTIONS : NEWLY_REFRESH_OPTIONS}
+            disabled={loadingExternal?.section === externalType}
+            onSelect={(preference) => onRefreshExternal(externalType, preference)}
           />
-        ))}
+        ) : null}
       </div>
+      {sectionMessage ? <p className="text-sm text-text-muted" role="status">{sectionMessage}</p> : null}
+      {loading ? (
+        <SectionSkeleton />
+      ) : items.length === 0 ? (
+        <EmptyState title={copy.empty} description={copy.description} />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {items.slice(0, 5).map((item) => {
+            if (type === "shelf_recommendations") {
+              return (
+                <ShelfRecommendationCard
+                  key={visibleRecommendationKey(item)}
+                  item={item}
+                  onNotInterested={onNotInterested}
+                />
+              );
+            }
+            if (type === "popular_this_week") {
+              return (
+                <PopularityCard
+                  key={visibleRecommendationKey(item)}
+                  item={item}
+                  loading={loadingExternal?.section === "popular_this_week" && loadingExternal.id === (item.recommendation_id ?? item.canonical_identity ?? item.work_id)}
+                  message={noMatchMessages[item.recommendation_id ?? item.canonical_identity ?? item.work_id] ?? ""}
+                  onReplace={(category) => onReplaceExternal("popular_this_week", item, category)}
+                />
+              );
+            }
+            return (
+              <DiscoveryCard
+                key={visibleRecommendationKey(item)}
+                item={item}
+                loading={loadingExternal?.section === "newly_found" && loadingExternal.id === (item.recommendation_id ?? item.canonical_identity ?? item.work_id)}
+                message={noMatchMessages[item.recommendation_id ?? item.canonical_identity ?? item.work_id] ?? ""}
+                onReplace={(category) => onReplaceExternal("newly_found", item, category)}
+              />
+            );
+          })}
+        </div>
+      )}
     </section>
   );
+}
+
+function PreferenceMenu({
+  label,
+  options,
+  disabled,
+  onSelect
+}: {
+  label: string;
+  options: readonly (readonly [string, string])[];
+  disabled?: boolean;
+  onSelect: (value: string) => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function closeMenu() {
+    setOpen(false);
+    window.setTimeout(() => buttonRef.current?.focus(), 0);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const next = (activeIndex + delta + options.length) % options.length;
+      setActiveIndex(next);
+      itemRefs.current[next]?.focus();
+    }
+  }
+
+  return (
+    <div className="relative justify-self-start" onKeyDown={handleKeyDown}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex h-8 min-w-8 items-center justify-center rounded-full border border-border bg-bg-elevated px-2 text-xs text-text-muted transition hover:text-text focus:outline-none focus:ring-2 focus:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        ↻
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 z-20 mt-2 grid min-w-44 gap-1 rounded-lg border border-border bg-surface p-1 shadow-card"
+        >
+          {options.map(([value, optionLabel], index) => (
+            <button
+              key={`${value}-${optionLabel}`}
+              ref={(node) => {
+                itemRefs.current[index] = node;
+              }}
+              type="button"
+              role="menuitem"
+              tabIndex={index === activeIndex ? 0 : -1}
+              onFocus={() => setActiveIndex(index)}
+              onClick={() => {
+                void onSelect(value);
+                closeMenu();
+              }}
+              className="rounded-md px-3 py-1.5 text-left text-sm text-text-muted hover:bg-bg-elevated hover:text-text focus:bg-bg-elevated focus:text-text focus:outline-none"
+            >
+              {optionLabel}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SectionSkeleton() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" aria-label="Loading section">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <Card key={index} className="grid gap-3">
+          <div className="h-44 animate-pulse rounded-lg bg-bg-elevated" />
+          <div className="h-4 animate-pulse rounded bg-bg-elevated" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-bg-elevated" />
+          <div className="h-8 animate-pulse rounded bg-bg-elevated" />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function ShelfRecommendationCard({
+  item,
+  onNotInterested
+}: {
+  item: RecommendationSectionItem;
+  onNotInterested: (item: RecommendationSectionItem) => Promise<void>;
+}) {
+  return (
+    <Card className="grid content-start gap-3">
+      <BookCover title={item.canonical_title} coverUrl={item.cover_url} className="w-full" />
+      <div className="grid gap-1">
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-accent/30 bg-accent-muted px-2 py-0.5 text-xs text-accent-readable">
+            Shelf
+          </span>
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+            {getRecommendationMatchLabel(item)}
+          </span>
+        </div>
+        <h3 className="line-clamp-2 font-semibold text-text">{item.canonical_title}</h3>
+        <p className="truncate text-sm text-text-muted">{item.canonical_author}</p>
+      </div>
+      <p className="line-clamp-3 text-sm leading-6 text-text-muted">
+        {getRecommendationDisplayExplanation(item)}
+      </p>
+      <button
+        type="button"
+        aria-label={`Not interested in ${item.canonical_title}`}
+        onClick={() => void onNotInterested(item)}
+        className="justify-self-start rounded-lg px-3 py-1.5 text-xs text-text-dim hover:bg-bg-elevated hover:text-text"
+      >
+        Not interested
+      </button>
+    </Card>
+  );
+}
+
+function PopularityCard({
+  item,
+  loading,
+  message,
+  onReplace
+}: {
+  item: RecommendationSectionItem;
+  loading: boolean;
+  message: string;
+  onReplace: (category: string) => Promise<void>;
+}) {
+  const metadata = [
+    item.broad_genre ?? item.nyt_list_name ?? item.genres[0] ?? null,
+    item.nyt_rank ? `#${item.nyt_rank}` : null,
+    item.nyt_weeks_on_list ? `${item.nyt_weeks_on_list} weeks on list` : null
+  ].filter(Boolean);
+  return (
+    <Card className={`relative grid content-start gap-3 transition ${loading ? "opacity-70" : "opacity-100"}`}>
+      <div className="absolute right-2 top-2 z-10">
+        <PreferenceMenu
+          label={`Replace ${item.canonical_title}`}
+          options={POPULAR_CATEGORY_OPTIONS}
+          disabled={loading}
+          onSelect={onReplace}
+        />
+      </div>
+      <BookCover title={item.canonical_title} coverUrl={item.cover_url} className="w-full" />
+      <div className="grid gap-1">
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+            Bestseller list
+          </span>
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+            Popular this week
+          </span>
+        </div>
+        <h3 className="line-clamp-2 font-semibold text-text">{item.canonical_title}</h3>
+        <p className="truncate text-sm text-text-muted">{item.canonical_author}</p>
+        {metadata.length > 0 ? (
+          <p className="text-xs text-text-dim">{metadata.join(" · ")}</p>
+        ) : null}
+      </div>
+      {loading ? <p className="text-xs text-text-dim" role="status">Replacing...</p> : null}
+      {message ? <p className="text-xs text-text-muted" role="status">{message}</p> : null}
+    </Card>
+  );
+}
+
+function DiscoveryCard({
+  item,
+  loading,
+  message,
+  onReplace
+}: {
+  item: RecommendationSectionItem;
+  loading: boolean;
+  message: string;
+  onReplace: (category: string) => Promise<void>;
+}) {
+  const year = item.publication_year ?? item.first_publish_year;
+  const description = externalDiscoveryDescription(item);
+  return (
+    <Card className={`relative grid content-start gap-3 transition ${loading ? "opacity-70" : "opacity-100"}`}>
+      <div className="absolute right-2 top-2 z-10">
+        <PreferenceMenu
+          label={`Replace ${item.canonical_title}`}
+          options={NEWLY_FOUND_CATEGORY_OPTIONS}
+          disabled={loading}
+          onSelect={onReplace}
+        />
+      </div>
+      <BookCover title={item.canonical_title} coverUrl={item.cover_url} className="w-full" />
+      <div className="grid gap-1">
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+            {providerBadgeLabel(item)}
+          </span>
+          {year ? (
+            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
+              Published in {year}
+            </span>
+          ) : null}
+        </div>
+        <h3 className="line-clamp-2 font-semibold text-text">{item.canonical_title}</h3>
+        <p className="truncate text-sm text-text-muted">{item.canonical_author}</p>
+      </div>
+      {description ? <p className="line-clamp-3 text-sm leading-6 text-text-muted">{description}</p> : null}
+      {loading ? <p className="text-xs text-text-dim" role="status">Replacing...</p> : null}
+      {message ? <p className="text-xs text-text-muted" role="status">{message}</p> : null}
+    </Card>
+  );
+}
+
+function externalDiscoveryDescription(item: RecommendationSectionItem): string {
+  const candidates = [
+    item.description,
+    item.discovery_reason,
+    item.explanation.primary_reason,
+    item.reader_explanation
+  ];
+  return candidates.find((candidate) => isSpecificDiscoveryCopy(candidate)) ?? "";
+}
+
+function isSpecificDiscoveryCopy(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (!text) return false;
+  return text !== "Selected from your unread shelf based on your reading history.";
 }
 
 function FacetSelector({
@@ -585,87 +1115,5 @@ function FacetSelector({
         );
       })}
     </div>
-  );
-}
-
-function StructuredRecommendationCard({
-  item,
-  onNotInterested
-}: {
-  item: RecommendationSectionItem;
-  onNotInterested: (item: RecommendationSectionItem) => Promise<void>;
-}) {
-  const [submittingFeedback, setSubmittingFeedback] = useState(false);
-  const [feedbackError, setFeedbackError] = useState("");
-  const actionLabel = recommendationActionLabel(item);
-  const badgeLabel = recommendationBadgeLabel(item);
-  const detailsPath = item.library_state.in_library
-    ? `/app/book/${encodeURIComponent(item.book_id ?? item.work_id)}`
-    : "/app/add";
-  const visibleTags = visibleRecommendationTags([...item.genres, ...item.traits]).slice(0, 5);
-  const matchLabel = getRecommendationMatchLabel(item);
-  const readerExplanation = getRecommendationDisplayExplanation(item);
-
-  return (
-    <Card className="grid gap-4">
-      <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-3">
-        <BookCover title={item.canonical_title} coverUrl={item.cover_url} className="w-[84px] rounded-lg" />
-        <div className="min-w-0">
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-accent/30 bg-accent-muted px-2 py-0.5 text-xs text-accent-readable">
-              {matchLabel}
-            </span>
-            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">
-              {badgeLabel}
-            </span>
-          </div>
-          <h3 className="mt-3 line-clamp-2 font-semibold text-text">{item.canonical_title}</h3>
-          <p className="mt-1 truncate text-sm text-text-muted">{item.canonical_author}</p>
-        </div>
-      </div>
-      <p className="line-clamp-3 text-sm leading-6 text-text-muted">{readerExplanation}</p>
-      {visibleTags.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {visibleTags.map((tag) => (
-            <span key={tag} className="rounded-full border border-border px-2 py-1 text-xs text-text-muted">
-              {tag}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" className="px-3 py-1.5 text-xs">
-          {actionLabel}
-        </Button>
-        <Link
-          to={detailsPath}
-          className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-muted hover:text-text"
-        >
-          View Details
-        </Link>
-        <button
-          type="button"
-          disabled={submittingFeedback}
-          aria-label={`Not interested in ${item.canonical_title}`}
-          title="This recommendation may not match what you want right now."
-          onClick={async () => {
-            setSubmittingFeedback(true);
-            setFeedbackError("");
-            try {
-              await onNotInterested(item);
-            } catch (err) {
-              setFeedbackError(err instanceof Error ? err.message : "Could not update recommendations.");
-              setSubmittingFeedback(false);
-            }
-          }}
-          className="rounded-lg px-3 py-1.5 text-xs text-text-dim hover:bg-bg-elevated hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submittingFeedback ? "Adjusting..." : "Not interested"}
-        </button>
-      </div>
-      {feedbackError ? (
-        <p className="text-sm text-danger" role="alert">{feedbackError}</p>
-      ) : null}
-    </Card>
   );
 }

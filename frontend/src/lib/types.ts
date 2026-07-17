@@ -1,4 +1,5 @@
 export type ReadingStatus = "not_started" | "reading" | "completed" | "dnf";
+export type RecommendationLibraryStatus = ReadingStatus | "to-read" | "read" | "currently-reading";
 export type TrackingMode = "percentage" | "pages";
 
 export type ApiBook = {
@@ -37,7 +38,7 @@ export type MatchedLikedBook = SimilarBook & {
   rating?: number | null;
 };
 
-export type RecommendationSource = "library" | "external";
+export type RecommendationSource = "library" | "external" | "nyt" | "hardcover";
 
 export type RecommendationBookRef = {
   id?: string | null;
@@ -46,6 +47,8 @@ export type RecommendationBookRef = {
   work_id?: string | null;
   edition_id?: string | null;
   isbn?: string | null;
+  isbn_10?: string | null;
+  isbn_13?: string | null;
   title: string;
   author: string;
   display_title?: string | null;
@@ -53,6 +56,21 @@ export type RecommendationBookRef = {
   authors?: string[];
   cover_url?: string | null;
   description?: string | null;
+  publication_year?: number | null;
+  first_publish_year?: number | null;
+  page_count?: number | null;
+  total_pages?: number | null;
+  publisher?: string | null;
+  source_url?: string | null;
+  source_urls?: string[];
+  provider_source_id?: string | null;
+  provider_rating?: number | null;
+  rating?: number | null;
+  ratings_count?: number | null;
+  users_count?: number | null;
+  activities_count?: number | null;
+  language?: string | null;
+  discovery_reason?: string | null;
   genres?: string[];
   subjects?: string[];
 };
@@ -69,10 +87,26 @@ export type RecommendationItem = {
   title?: string;
   author?: string;
   cover_url?: string | null;
+  publication_year?: number | null;
+  first_publish_year?: number | null;
+  page_count?: number | null;
+  total_pages?: number | null;
+  publisher?: string | null;
+  source_url?: string | null;
+  source_urls?: string[];
+  provider_source_id?: string | null;
+  provider_rating?: number | null;
+  rating?: number | null;
+  ratings_count?: number | null;
+  users_count?: number | null;
+  activities_count?: number | null;
+  language?: string | null;
+  discovery_reason?: string | null;
   genres?: string[];
   subjects?: string[];
   score: number;
   final_score?: number;
+  reader_likelihood_score?: number | null;
   match_score?: number;
   qualitative_match_label?: string | null;
   in_library?: boolean;
@@ -130,11 +164,32 @@ export type RecommendationFacetResponse = {
 export type RecommendationSectionItem = {
   recommendation_id?: string;
   work_id: string;
+  external_id?: string | null;
+  edition_id?: string | null;
+  isbn?: string | null;
+  isbn_10?: string | null;
+  isbn_13?: string | null;
   canonical_title: string;
   canonical_author: string;
   book_id?: string | null;
   canonical_identity?: string | null;
   cover_url?: string | null;
+  publication_year?: number | null;
+  first_publish_year?: number | null;
+  page_count?: number | null;
+  total_pages?: number | null;
+  publisher?: string | null;
+  source_url?: string | null;
+  source_urls?: string[];
+  provider_source_id?: string | null;
+  provider_rating?: number | null;
+  rating?: number | null;
+  ratings_count?: number | null;
+  users_count?: number | null;
+  activities_count?: number | null;
+  language?: string | null;
+  discovery_reason?: string | null;
+  description?: string | null;
   series_name?: string | null;
   series_position?: number | null;
   series_position_label?: string | null;
@@ -143,6 +198,7 @@ export type RecommendationSectionItem = {
   series_confidence?: number | null;
   score?: number | null;
   final_score?: number | null;
+  reader_likelihood_score?: number | null;
   match_percentage?: number | null;
   qualitative_match_label?: string | null;
   match_label: string;
@@ -160,7 +216,7 @@ export type RecommendationSectionItem = {
   reader_explanation: string;
   library_state: {
     in_library: boolean;
-    status: ReadingStatus | null;
+    status: RecommendationLibraryStatus | null;
     selected_edition_id: string | null;
   };
   in_library?: boolean;
@@ -176,13 +232,23 @@ export type RecommendationSectionItem = {
   provider_rank?: number | null;
   score_breakdown?: Record<string, unknown>;
   provider?: string | null;
+  broad_genre?: string | null;
+  discovery_label?: string | null;
+  nyt_rank?: number | null;
+  nyt_rank_last_week?: number | null;
+  nyt_weeks_on_list?: number | null;
+  nyt_list_name?: string | null;
+  nyt_list_name_encoded?: string | null;
+  nyt_published_date?: string | null;
+  nyt_bestsellers_date?: string | null;
+  contributor?: string | null;
   cluster_id?: string | null;
   diagnostics?: Record<string, unknown>;
 };
 
 export type RecommendationSection = {
   id: string;
-  type: string;
+  type: "shelf_recommendations" | "popular_this_week" | "newly_found" | "cluster" | string;
   title: string;
   reading_identity?: string;
   source_book: SimilarBook | null;
@@ -195,10 +261,62 @@ export type RecommendationSection = {
   cluster_id?: string;
 };
 
+export type RecommendationProviderStatus = {
+  enabled?: boolean;
+  available?: boolean;
+  cached?: boolean;
+  request_count?: number;
+  error?: string;
+};
+
 export type RecommendationSectionsResponse = {
-  sections: RecommendationSection[];
+  schema_version: 3;
+  sections?: RecommendationSection[];
+  legacy_sections_deprecated?: boolean;
+  shelf_recommendations: RecommendationSectionItem[];
+  popular_this_week: RecommendationSectionItem[];
+  newly_found: RecommendationSectionItem[];
+  provider_status?: {
+    nyt?: RecommendationProviderStatus;
+    hardcover?: RecommendationProviderStatus;
+  };
+  discovery_diagnostics?: {
+    nyt_request_count?: number;
+    hardcover_query_count?: number;
+    nyt_cache?: string;
+    hardcover_cache?: string;
+    weekly_popularity_supported?: boolean;
+    popular_label?: string;
+    popularity_basis?: string;
+  };
+  request_context?: {
+    profile_id?: string | null;
+    library_count?: number | null;
+  };
   generated_at: string;
   style: string;
+};
+
+export type ExternalSectionReplaceResponse = {
+  replacement: RecommendationSectionItem | null;
+  provider_status?: RecommendationProviderStatus;
+  remaining_candidate_count: number;
+  reason?: string | null;
+  diagnostics?: Record<string, unknown>;
+};
+
+export type PopularSectionRefreshResponse = {
+  popular_this_week: RecommendationSectionItem[];
+  provider_status?: RecommendationProviderStatus;
+  remaining_candidate_count: number;
+  diagnostics?: Record<string, unknown>;
+};
+
+export type NewlyFoundSectionRefreshResponse = {
+  newly_found: RecommendationSectionItem[];
+  provider_status?: RecommendationProviderStatus;
+  remaining_candidate_count: number;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type AnchorBook = {

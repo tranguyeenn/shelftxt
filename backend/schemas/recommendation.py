@@ -63,3 +63,45 @@ class RecommendationFeedbackResponse(BaseModel):
     replacement: dict | None = None
     recommendations: list[dict] = Field(default_factory=list)
     recommendation_count: int = 0
+
+
+ExternalCategory = Literal[
+    "any",
+    "fiction",
+    "young_adult",
+    "romance",
+    "fantasy_scifi",
+    "mystery_thriller",
+    "manga_graphic",
+    "nonfiction",
+    "literary_fiction",
+    "historical_fiction",
+]
+
+ExternalRefreshPreference = Literal[
+    "mixed",
+    "fiction_heavy",
+    "fiction",
+    "young_adult",
+    "romance",
+    "fantasy_scifi",
+    "mystery_thriller",
+    "manga_graphic",
+    "nonfiction",
+    "literary_fiction",
+    "historical_fiction",
+]
+
+
+class ExternalSectionReplaceRequest(BaseModel):
+    current_recommendation_ids: list[str] = Field(default_factory=list)
+    excluded_recommendation_ids: list[str] = Field(default_factory=list)
+    replace_recommendation_id: str | None = Field(default=None, max_length=512)
+    category: ExternalCategory = "any"
+
+
+class ExternalSectionRefreshRequest(BaseModel):
+    current_recommendation_ids: list[str] = Field(default_factory=list)
+    excluded_recommendation_ids: list[str] = Field(default_factory=list)
+    preference: str = "mixed"
+    limit: int = Field(default=5, ge=1, le=5)

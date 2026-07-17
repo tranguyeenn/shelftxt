@@ -32,12 +32,43 @@ export function apiUrl(path: string): string {
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const GET_CACHE_TTL_MS = 15_000;
+export const RECOMMENDATION_RESPONSE_SCHEMA_VERSION = 3;
 const API_FETCH_TIMEOUT_MS = Number(
   import.meta.env.VITE_API_FETCH_TIMEOUT_MS ?? 20_000
 );
 let sessionPromise: ReturnType<typeof supabase.auth.getSession> | null = null;
 let sessionCacheUntil = 0;
 const jsonCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
+
+function isRecommendationSectionsPath(path: string): boolean {
+  return path.startsWith("/recommendations/sections");
+}
+
+function apiCacheKey(method: string, path: string): string {
+  const schemaSegment = isRecommendationSectionsPath(path)
+    ? `:schema=${RECOMMENDATION_RESPONSE_SCHEMA_VERSION}`
+    : "";
+  return `${method}${schemaSegment}:${path}`;
+}
+
+export function apiCacheKeyForTest(method: string, path: string): string {
+  return apiCacheKey(method.toUpperCase(), path);
+}
+
+function validateRecommendationSectionsPayload(path: string, payload: unknown): void {
+  if (!isRecommendationSectionsPath(path)) return;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Recommendation response was malformed.");
+  }
+  const response = payload as Record<string, unknown>;
+  const hasSplitArrays =
+    Array.isArray(response.shelf_recommendations) &&
+    Array.isArray(response.popular_this_week) &&
+    Array.isArray(response.newly_found);
+  if (response.schema_version !== RECOMMENDATION_RESPONSE_SCHEMA_VERSION || !hasSplitArrays) {
+    throw new Error("Recommendation response is stale. Please refresh Discover.");
+  }
+}
 
 async function authHeaders(initHeaders?: HeadersInit, requireAuth = true): Promise<Headers> {
   const headers = new Headers(initHeaders);
@@ -121,7 +152,7 @@ export async function getApiErrorMessage(
 export async function fetchJson<T>(path: string, init?: ApiFetchInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const cacheable = method === "GET" && !init?.skipClientCache;
-  const key = `${method}:${path}`;
+  const key = apiCacheKey(method, path);
   const now = Date.now();
   if (cacheable) {
     const cached = jsonCache.get(key);
@@ -144,7 +175,9 @@ export async function fetchJson<T>(path: string, init?: ApiFetchInit): Promise<T
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response));
     }
-    return response.json() as Promise<T>;
+    const body = await response.json();
+    validateRecommendationSectionsPayload(path, body);
+    return body as T;
   })();
 
   if (cacheable) {

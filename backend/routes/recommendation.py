@@ -12,9 +12,22 @@ from backend.auth.dependencies import get_current_user
 from backend.db.database import get_db
 from backend.db.models import Profile
 from backend.env import embeddings_debug_enabled, is_local_env, ollama_enabled
-from backend.schemas.recommendation import RecommendationFeedbackCreate, RecommendationFeedbackResponse
+from backend.schemas.recommendation import (
+    ExternalSectionRefreshRequest,
+    ExternalSectionReplaceRequest,
+    RecommendationFeedbackCreate,
+    RecommendationFeedbackResponse,
+)
 from backend.services.ollama_embeddings import OllamaEmbeddingClient, embedding_status
-from backend.services.recommendation import get_recommendation, get_recommendation_sections, recommendation_facets
+from backend.services.recommendation import (
+    get_recommendation,
+    get_recommendation_sections,
+    recommendation_facets,
+    refresh_newly_found_section,
+    refresh_popular_this_week_section,
+    replace_newly_found_item,
+    replace_popular_this_week_item,
+)
 from backend.services.recommendation_clusters import get_clustered_recommendations
 from backend.services.recommendation_feedback import create_feedback, feedback_action, feedback_to_record
 
@@ -193,6 +206,70 @@ def recommendation_sections(
         author=author,
         min_pages=min_pages,
         max_pages=max_pages,
+    )
+
+
+@router.post("/recommendations/popular/replace")
+def replace_popular_recommendation(
+    payload: ExternalSectionReplaceRequest,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return replace_popular_this_week_item(
+        db,
+        current_user.id,
+        current_recommendation_ids=payload.current_recommendation_ids,
+        excluded_recommendation_ids=payload.excluded_recommendation_ids,
+        replace_recommendation_id=payload.replace_recommendation_id,
+        category=payload.category,
+    )
+
+
+@router.post("/recommendations/popular/refresh")
+def refresh_popular_recommendations(
+    payload: ExternalSectionRefreshRequest,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return refresh_popular_this_week_section(
+        db,
+        current_user.id,
+        current_recommendation_ids=payload.current_recommendation_ids,
+        excluded_recommendation_ids=payload.excluded_recommendation_ids,
+        preference=payload.preference,
+        limit=payload.limit,
+    )
+
+
+@router.post("/recommendations/newly-found/replace")
+def replace_newly_found_recommendation(
+    payload: ExternalSectionReplaceRequest,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return replace_newly_found_item(
+        db,
+        current_user.id,
+        current_recommendation_ids=payload.current_recommendation_ids,
+        excluded_recommendation_ids=payload.excluded_recommendation_ids,
+        replace_recommendation_id=payload.replace_recommendation_id,
+        category=payload.category,
+    )
+
+
+@router.post("/recommendations/newly-found/refresh")
+def refresh_newly_found_recommendations(
+    payload: ExternalSectionRefreshRequest,
+    db: Session = Depends(get_db),
+    current_user: Profile = Depends(get_current_user),
+):
+    return refresh_newly_found_section(
+        db,
+        current_user.id,
+        current_recommendation_ids=payload.current_recommendation_ids,
+        excluded_recommendation_ids=payload.excluded_recommendation_ids,
+        preference=payload.preference,
+        limit=payload.limit,
     )
 
 

@@ -2,7 +2,8 @@ import { recommendationMatchLabel } from "@/lib/recommendationDisplay";
 import type {
   RecommendationCluster,
   RecommendationSection,
-  RecommendationSectionItem
+  RecommendationSectionItem,
+  RecommendationSectionsResponse
 } from "@/lib/types";
 
 const GENERIC_RECOMMENDATION_TAGS = new Set([
@@ -25,7 +26,9 @@ const GENERIC_RECOMMENDATION_TAGS = new Set([
 ]);
 
 const GENERIC_EXPLANATION_FALLBACK =
-  "This is the strongest available match from your current library. Add ratings or related books for a clearer explanation.";
+  "Selected from your unread shelf based on your reading history.";
+const VAGUE_EXPLANATION_TERMS = ["related themes", "similar themes", "may fit your reading taste"];
+const PERSONALIZED_MATCH_LABELS = new Set(["strong match", "good match", "possible match", "exploratory match"]);
 
 type RecommendationExplanation =
   | string
@@ -52,19 +55,64 @@ export function getClusterDisplayTitle(section: Pick<RecommendationSection, "rea
   return cleanText(section.reading_identity) || cleanText(section.title) || "Recommended for you";
 }
 
+export function splitRecommendationSections(response: RecommendationSectionsResponse): RecommendationSection[] {
+  if (response.schema_version !== 3) {
+    throw new Error("Recommendation response is stale. Please refresh Discover.");
+  }
+  return [
+    {
+      id: "from-your-shelf",
+      type: "shelf_recommendations",
+      title: "From Your Shelf",
+      source_book: null,
+      items: splitArrayItems(response.shelf_recommendations)
+        .filter(isUnreadShelfRecommendation)
+        .slice(0, 5)
+    },
+    {
+      id: "popular-this-week",
+      type: "popular_this_week",
+      title: "Popular This Week",
+      source_book: null,
+      items: splitArrayItems(response.popular_this_week)
+        .filter((item) => sectionItemSource(item) === "external")
+        .slice(0, 5)
+    },
+    {
+      id: "newly-found",
+      type: "newly_found",
+      title: "Newly Found",
+      source_book: null,
+      items: splitArrayItems(response.newly_found)
+        .filter((item) => sectionItemSource(item) === "external")
+        .slice(0, 5)
+    }
+  ];
+}
+
 export function getRecommendationDisplayExplanation(
   recommendation: Pick<RecommendationSectionItem, "reader_explanation" | "explanation">
 ): string {
+  const readerExplanation = cleanReaderExplanation(recommendation.reader_explanation);
+  const primaryReason = cleanReaderExplanation(recommendation.explanation?.primary_reason);
   return (
-    cleanText(recommendation.reader_explanation) ||
-    cleanText(recommendation.explanation?.primary_reason) ||
+    readerExplanation ||
+    primaryReason ||
     GENERIC_EXPLANATION_FALLBACK
   );
 }
 
 export function getRecommendationMatchLabel(
-  recommendation: Pick<RecommendationSectionItem, "qualitative_match_label" | "match_label" | "final_score" | "score">
+  recommendation: Pick<RecommendationSectionItem, "qualitative_match_label" | "match_label" | "final_score" | "score" | "source" | "external_discovery" | "discovery_label">
 ): string {
+  if (recommendation.source === "external" || recommendation.external_discovery) {
+    return (
+      cleanText(recommendation.discovery_label) ||
+      cleanDiscoveryLabel(recommendation.qualitative_match_label) ||
+      cleanDiscoveryLabel(recommendation.match_label) ||
+      "New discovery"
+    );
+  }
   return (
     cleanText(recommendation.qualitative_match_label) ||
     cleanText(recommendation.match_label) ||
@@ -114,6 +162,9 @@ export function normalizeRecommendationItem(recommendation: RecommendationInput)
   const source = sectionItemSource(recommendation);
   const inLibrary = source === "library";
   const readerExplanation = readerExplanationFrom(recommendation);
+  const discoveryLabel = source === "external"
+    ? cleanText(recommendation.discovery_label) || cleanDiscoveryLabel(recommendation.qualitative_match_label) || cleanDiscoveryLabel(recommendation.match_label) || "New discovery"
+    : "";
   const normalized: RecommendationSectionItem = {
     ...recommendation,
     work_id: workId,
@@ -122,10 +173,12 @@ export function normalizeRecommendationItem(recommendation: RecommendationInput)
     book_id: inLibrary ? recommendation.book_id ?? null : null,
     canonical_identity: recommendation.canonical_identity ?? recommendation.recommendation_id ?? workId,
     match_label:
+      discoveryLabel ||
       cleanText(recommendation.qualitative_match_label) ||
       cleanText(recommendation.match_label) ||
       recommendationMatchLabel(Number(recommendation.final_score ?? recommendation.score ?? 0)),
     qualitative_match_label:
+      discoveryLabel ||
       cleanText(recommendation.qualitative_match_label) ||
       cleanText(recommendation.match_label) ||
       recommendationMatchLabel(Number(recommendation.final_score ?? recommendation.score ?? 0)),
@@ -145,7 +198,11 @@ export function normalizeRecommendationItem(recommendation: RecommendationInput)
     is_in_library: inLibrary,
     source,
     external_discovery: source === "external" ? true : recommendation.external_discovery,
+    discovery_label: discoveryLabel || recommendation.discovery_label || null,
+    reader_likelihood_score: recommendation.reader_likelihood_score ?? numericScoreBreakdown(recommendation.score_breakdown, "reader_likelihood_score"),
+    provider: publicRecommendationProvider(recommendation.provider ?? recommendation.discovery_source),
     discovery_query: recommendation.discovery_query ?? null,
+    discovery_reason: recommendation.discovery_reason ?? null,
     discovery_cluster_id: recommendation.discovery_cluster_id ?? recommendation.cluster_id ?? null,
     exploration_mode: recommendation.exploration_mode ?? null,
     exploration_source: recommendation.exploration_source ?? null,
@@ -159,15 +216,29 @@ export function normalizeRecommendationItem(recommendation: RecommendationInput)
   return normalized;
 }
 
+function numericScoreBreakdown(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+export function publicRecommendationProvider(value: unknown): string | null {
+  const provider = cleanText(value).toLowerCase();
+  if (!provider) return null;
+  if (["hardcover", "nyt", "open_library", "librarything", "series_metadata"].includes(provider)) return provider;
+  if (["seeded_fixture", "local_catalog", "metadata_aggregation", "manual_override"].includes(provider)) return "open_library";
+  return "open_library";
+}
+
 function readerExplanationFrom(recommendation: RecommendationInput): string {
   return (
-    cleanText(recommendation.reader_explanation) ||
-    cleanText(
+    cleanReaderExplanation(recommendation.reader_explanation) ||
+    cleanReaderExplanation(
       typeof recommendation.explanation === "string"
         ? recommendation.explanation
         : recommendation.explanation?.primary_reason
     ) ||
-    cleanText(recommendation.reason) ||
+    cleanReaderExplanation(recommendation.reason) ||
     GENERIC_EXPLANATION_FALLBACK
   );
 }
@@ -194,14 +265,44 @@ function normalizeExplanation(
   };
 }
 
+function cleanReaderExplanation(value: unknown): string {
+  const text = cleanText(value);
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  if (VAGUE_EXPLANATION_TERMS.some((term) => lower.includes(term))) return "";
+  return text;
+}
+
+function cleanDiscoveryLabel(value: unknown): string {
+  const text = cleanText(value);
+  if (!text || PERSONALIZED_MATCH_LABELS.has(text.toLowerCase())) return "";
+  return text;
+}
+
+function splitArrayItems(items: RecommendationSectionItem[] | undefined): RecommendationSectionItem[] {
+  return Array.isArray(items) ? items : [];
+}
+
+function isUnreadShelfRecommendation(item: RecommendationInput): boolean {
+  if (sectionItemSource(item) !== "library") return false;
+  const status = item.library_state?.status;
+  return status !== "reading" && status !== "completed" && status !== "dnf";
+}
+
 function sectionItemSource(item: RecommendationInput): "library" | "external" {
-  if (item.source === "external" || item.external_discovery === true || item.library_state?.in_library === false) {
+  if (
+    item.source === "external" ||
+    item.source === "nyt" ||
+    item.source === "hardcover" ||
+    item.external_discovery === true ||
+    item.library_state?.in_library === false
+  ) {
     return "external";
   }
   if (item.source === "library" || item.library_state?.in_library === true || item.is_in_library === true || item.in_library === true) {
     return "library";
   }
-  return "external";
+  return "library";
 }
 
 function recommendationTitleAuthorIdentity(title: string, author: string): string {

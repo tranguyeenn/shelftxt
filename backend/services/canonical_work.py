@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 
 from backend.db.models import Book
+from backend.services.candidate_integrity import evaluate_candidate_integrity
 from backend.services.status import normalize_status
 
 
@@ -171,8 +172,18 @@ def canonical_work_for_values(
         edition_identity = f"title_author:{normalize_title_alias(title_text).replace(' ', '-')}:{author_key}"
     components = tuple((record or {}).get("components") or ())
     collection_type = str((record or {}).get("collection_type") or "single_work")
-    if collection_type == "single_work" and any(term in title_key for term in ("boxed set", "box set", "trilogy", "omnibus")):
-        collection_type = "box_set" if "box" in title_key else "omnibus"
+    if collection_type == "single_work":
+        integrity = evaluate_candidate_integrity(
+            {
+                "title": title_text,
+                "subtitle": None,
+                "headline": None,
+            }
+        )
+        if integrity.classification == "boxed_set":
+            collection_type = "box_set"
+        elif integrity.classification in {"omnibus", "bundle"}:
+            collection_type = integrity.classification
     return CanonicalWork(
         canonical_work_identity=canonical_identity,
         canonical_title=canonical_title,

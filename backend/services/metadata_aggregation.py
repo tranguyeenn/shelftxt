@@ -71,32 +71,66 @@ class MetadataAggregationService:
         if not clean_query:
             return MetadataAggregationResult(results=[])
 
-        tasks = {
-            asyncio.create_task(self._search_source(source, clean_query)): source
-            for source in self.sources
-        }
-        if self.timeout_seconds is None:
-            collected = await asyncio.gather(*tasks.keys(), return_exceptions=False)
-        else:
-            done, pending = await asyncio.wait(tasks.keys(), timeout=max(0.0, self.timeout_seconds))
-            for task in pending:
-                task.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
-            collected = [task.result() for task in done]
-            collected.extend(
-                (
-                    SourceOutcome(
-                        source=tasks[task].name,
-                        success=False,
-                        latency_ms=round(self.timeout_seconds * 1000, 2),
-                        outcome="timeout",
-                        error_type="TimeoutError",
-                    ),
-                    [],
+        if not any(source.name == "hardcover" for source in self.sources):
+            tasks = {
+                asyncio.create_task(self._search_source(source, clean_query)): source
+                for source in self.sources
+            }
+            if self.timeout_seconds is None:
+                collected = await asyncio.gather(*tasks.keys(), return_exceptions=False)
+            else:
+                done, pending = await asyncio.wait(tasks.keys(), timeout=max(0.0, self.timeout_seconds))
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+                collected = [task.result() for task in done]
+                collected.extend(
+                    (
+                        SourceOutcome(
+                            source=tasks[task].name,
+                            success=False,
+                            latency_ms=round(self.timeout_seconds * 1000, 2),
+                            outcome="timeout",
+                            error_type="TimeoutError",
+                        ),
+                        [],
+                    )
+                    for task in pending
                 )
-                for task in pending
+            candidates = [candidate for outcome, results in collected if outcome.success for candidate in results]
+            ranked = _dedupe_and_rank(candidates, clean_query)[: self.limit]
+            return MetadataAggregationResult(
+                results=ranked,
+                outcomes=tuple(outcome for outcome, _results in collected),
             )
+
+        collected: list[tuple[SourceOutcome, list[dict]]] = []
+        started = time.perf_counter()
+        for source in self.sources:
+            if self.timeout_seconds is not None and (time.perf_counter() - started) >= self.timeout_seconds:
+                collected.append(
+                    (
+                        SourceOutcome(
+                            source=source.name,
+                            success=False,
+                            latency_ms=round(self.timeout_seconds * 1000, 2),
+                            outcome="timeout",
+                            error_type="TimeoutError",
+                        ),
+                        [],
+                    )
+                )
+                continue
+            outcome, results = await self._search_source(source, clean_query)
+            collected.append((outcome, results))
+            if source.name == "local":
+                continue
+            if source.name == "hardcover" and outcome.success and len(results) >= self.limit:
+                break
+            current_results = [candidate for current_outcome, current in collected if current_outcome.success for candidate in current]
+            if source.name == "hardcover" and outcome.success and len(current_results) >= max(3, min(self.limit, len(results))):
+                break
         candidates = [candidate for outcome, results in collected if outcome.success for candidate in results]
         ranked = _dedupe_and_rank(candidates, clean_query)[: self.limit]
         return MetadataAggregationResult(
@@ -221,6 +255,11 @@ def _normalized_result(**values: Any) -> dict:
         "source_urls": list(dict.fromkeys(str(value) for value in values.get("source_urls") or [] if str(value).strip())),
         "already_in_library": bool(values.get("already_in_library", False)),
         "confidence_score": float(values.get("confidence_score") or 0.0),
+        "provider_rating": values.get("provider_rating"),
+        "provider_rating_count": _positive_int(values.get("provider_rating_count")),
+        "provider_user_count": _positive_int(values.get("provider_user_count")),
+        "provider_activity_count": _positive_int(values.get("provider_activity_count")),
+        "discovery_reason": _clean_text(values.get("discovery_reason")),
     }
     if series:
         result.update(series)
@@ -321,6 +360,11 @@ def _merge_results(base: dict, incoming: dict, query: str) -> dict:
         "series_type",
         "series_source",
         "series_confidence",
+        "provider_rating",
+        "provider_rating_count",
+        "provider_user_count",
+        "provider_activity_count",
+        "discovery_reason",
     ):
         if not merged.get(field_name) and secondary.get(field_name):
             merged[field_name] = secondary[field_name]

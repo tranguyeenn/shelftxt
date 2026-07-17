@@ -67,7 +67,7 @@ def test_ranking_page_renders_external_recommendations_without_book_id_requireme
 def test_frontend_uses_explicit_mixed_recommendation_types():
     source = (FRONTEND / "lib" / "types.ts").read_text()
 
-    assert 'export type RecommendationSource = "library" | "external";' in source
+    assert 'export type RecommendationSource = "library" | "external" | "nyt" | "hardcover";' in source
     assert "export type RecommendationBookRef" in source
     assert "id?: string | null" in source
     assert "book_id?: number | string | null" in source
@@ -137,6 +137,22 @@ def test_discover_external_cards_are_visibly_external_and_addable():
     assert "progress" not in source[source.index("function StructuredRecommendationCard"):]
 
 
+def test_discover_cards_render_public_provider_metadata_without_diagnostics():
+    source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
+    types = (FRONTEND / "lib" / "types.ts").read_text()
+
+    assert "recommendationProviderLabel" in source
+    assert "publicRecommendationProvider" in source
+    assert "Hardcover" in source
+    assert "recommendationMetadataLine" in source
+    assert "provider ratings" in source
+    assert "Found from" in source
+    assert "source_url" in types
+    assert "ratings_count" in types
+    assert "provider_source_id" in types
+    assert "publication_year" in types
+
+
 def test_external_item_source_cannot_be_overwritten_by_nested_book_data():
     source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
     replacement_mapper = source[source.index("function sectionItemFromRecommendation"):source.index("function dedupeSectionItems")]
@@ -162,30 +178,33 @@ def test_mixed_library_external_rendering_keeps_user_facing_contract():
     assert "On your shelf" in source
 
 
-def test_discover_fetches_clustered_recommendations_before_sections_fallback():
+def test_discover_fetches_explicit_split_recommendation_sections():
     source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
+    settings = (FRONTEND / "lib" / "userSettings.ts").read_text()
 
-    assert 'fetchJson<RecommendationClustersResponse>' in source
-    assert 'recommendationClustersQuery(settings)' in source
-    assert "/recommendations/clusters?" in source
-    assert "normalizeRecommendationClusterSections(clustered)" in source
-    assert "if (clusterSections.length > 0)" in source
-    assert "loadFallbackSections(refresh, excludeIds, filters)" in source
+    assert 'fetchJson<RecommendationSectionsResponse>' in source
+    assert "/recommendations/clusters?" not in source
+    assert 'RECOMMENDATION_UI_RESPONSE_VERSION = "split-discovery-v6-schema3"' in settings
+    assert "explicitRecommendationSections(ranked)" in source
     assert "recommendationSectionsQuery(settings, refresh, excludeIds, filters)" in source
 
 
-def test_discover_cluster_sections_render_titles_anchors_themes_and_cards():
+def test_discover_split_sections_render_titles_themes_and_cards():
     source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
+    normalization = (FRONTEND / "lib" / "recommendationNormalization.ts").read_text()
 
-    assert "function normalizeRecommendationClusterSections" in source
-    assert "function clusterSectionFromCluster" in source
-    assert 'type: "cluster"' in source
-    assert "title: cluster.title" in source
-    assert "anchors: Array.isArray(cluster.anchors) ? cluster.anchors : []" in source
-    assert "dominant_genres: Array.isArray(cluster.dominant_genres)" in source
-    assert "dominant_themes: Array.isArray(cluster.dominant_themes)" in source
-    assert "cluster.recommendations.map((item) =>" in source
-    assert "cluster_id: cluster.cluster_id" in source
+    assert "export function explicitRecommendationSections" in source
+    assert 'title: "From Your Shelf"' in normalization
+    assert 'title: "Popular This Week"' in normalization
+    assert 'title: "Newly found"' in normalization
+    assert "response.shelf_recommendations" in normalization
+    assert "response.popular_this_week" in normalization
+    assert "response.newly_found" in normalization
+    assert "sectionItems(" not in source
+    assert "sectionItems(" not in normalization
+    assert "splitRecommendationSections(response)" in source
+    assert "items: splitArrayItems(response.shelf_recommendations)" in normalization
+    assert "{ skipClientCache: true }" in source
     assert "Anchors:" in source
     assert "section.dominant_themes" in source
     assert "section.dominant_genres" in source
@@ -202,14 +221,21 @@ def test_discover_cluster_response_types_are_explicit():
     assert "dominant_genres: string[]" in source
     assert "dominant_themes: string[]" in source
     assert "cluster_size: number" in source
-    assert "recommendations: RecommendationSectionItem[]" in source
-    assert "export type RecommendationClustersResponse = RecommendationCluster[]" in source
 
 
-def test_clustered_discover_preserves_external_cards_and_global_dedupe():
+def test_frontend_filters_vague_recommendation_explanations():
+    source = (FRONTEND / "lib" / "recommendationNormalization.ts").read_text()
+
+    assert "VAGUE_EXPLANATION_TERMS" in source
+    assert "related themes" in source
+    assert "cleanReaderExplanation" in source
+    assert "getRecommendationDisplayExplanation" in source
+
+
+def test_split_discover_preserves_external_cards_and_global_dedupe():
     source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
 
-    assert "normalizeRecommendationClusterSections(clustered)" in source
+    assert "explicitRecommendationSections(ranked)" in source
     assert "visibleRecommendationSections(sections)" in source
     assert "const seen = new Set<string>()" in source
     assert "item.canonical_identity" in source
@@ -220,15 +246,15 @@ def test_clustered_discover_preserves_external_cards_and_global_dedupe():
     assert "BookCover" in source
 
 
-def test_cluster_fixture_titles_are_covered_by_end_to_end_cluster_tests():
+def test_split_discovery_tests_cover_external_label_and_source_contracts():
     source = (FRONTEND / "pages" / "RankingPage.tsx").read_text()
-    backend_cluster_tests = (Path(__file__).resolve().parents[1] / "tests" / "test_recommendation_clusters.py").read_text()
+    normalization_tests = (FRONTEND / "lib" / "recommendationNormalization.test.ts").read_text()
 
-    assert "cluster.recommendations.map((item) =>" in source
-    assert "Killer Instinct" in backend_cluster_tests
-    assert "ya-mystery-thriller" in backend_cluster_tests
-    assert "Happy Place" in backend_cluster_tests
-    assert "contemporary-romance-new-adult" in backend_cluster_tests
+    assert "externalDetailsUrl" in source
+    assert "New York Times" in source
+    assert "Hardcover" in source
+    assert "without personalized match labels" in normalization_tests
+    assert "New discovery" in normalization_tests
 
 
 def test_happy_place_trace_output_is_removed_from_discover_page():

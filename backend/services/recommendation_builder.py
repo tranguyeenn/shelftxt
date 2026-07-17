@@ -2,6 +2,8 @@ import logging
 import math
 import re
 import time
+from collections import Counter
+from collections.abc import Callable
 from numbers import Real
 
 import pandas as pd
@@ -18,6 +20,8 @@ from backend.services.metadata_specificity import metadata_specificity, normaliz
 from backend.services.recommendation_evidence import (
     MIN_ANCHOR_SIMILARITY,
     apply_minimum_evidence_filter as _apply_minimum_evidence_filter,
+    has_backfill_evidence,
+    has_minimum_positive_evidence,
 )
 from backend.services.recommendation_identity import recommendation_identity, recommendation_identity_aliases
 from backend.services.recommendation_signals import meaningful_similar_books, read_dataframe
@@ -29,6 +33,12 @@ DEBUG_TITLES = {"killer instinct", "all in", "bad blood"}
 HIGH_RATING_THRESHOLD = 4.0
 REASON_CLOSE_CONTRIBUTION_MARGIN = 0.35
 MAIN_SERIES_TYPES = {None, "", "main", "main series", "main_series", "main-series", "main novel"}
+READER_INTENT_MAX_BOOST = 0.10
+READER_INTENT_MAX_PENALTY = 0.10
+READER_LIKELIHOOD_MAX_BOOST = 0.14
+READER_LIKELIHOOD_MAX_PENALTY = 0.18
+READER_CONTINUITY_MAX_BOOST = 0.18
+READER_STYLE_JUMP_MAX_PENALTY = 0.28
 
 
 def _debug_title(row: pd.Series) -> str:
@@ -237,6 +247,40 @@ def _safe_score(value: object, default: float = 0.5) -> float:
     return round(min(1.0, max(0.0, score)), 4)
 
 
+def _reader_intent_date_weight(value: object) -> float:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return 0.35
+    today = pd.Timestamp.utcnow().tz_localize(None)
+    parsed = parsed.tz_localize(None) if getattr(parsed, "tzinfo", None) else parsed
+    days = max(0, (today - parsed).days)
+    return float(max(0.15, 1.0 - (days / 365)))
+
+
+def _reader_intent_rating_weight(value: object, *, status: str) -> float:
+    rating = pd.to_numeric(value, errors="coerce")
+    if bool(pd.isna(rating)):
+        return 0.55 if status == "reading" else 0.35
+    rating = float(rating)
+    if status == "dnf":
+        return -0.65 if rating < 3 else -0.35
+    if status == "reading":
+        return min(0.9, max(0.35, rating / 5))
+    if rating >= 5:
+        return 1.0
+    if rating >= 4.5:
+        return 0.9
+    if rating >= 4:
+        return 0.75
+    if rating >= 3.5:
+        return 0.35
+    if rating >= 3:
+        return 0.1
+    if rating >= 2:
+        return -0.45
+    return -0.7
+
+
 def _safe_int(value: object) -> int | None:
     if _is_missing_value(value):
         return None
@@ -252,6 +296,33 @@ def _first_present(*values: object) -> object:
         if safe is not None and str(safe).strip():
             return safe
     return None
+
+
+def _row_metadata_external(row: pd.Series) -> dict:
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    external = metadata.get("external")
+    return external if isinstance(external, dict) else {}
+
+
+def _isbn_10_or_13(value: object, *, length: int) -> str | None:
+    cleaned = re.sub(r"[^0-9Xx]", "", str(value or "")).upper()
+    return cleaned if len(cleaned) == length else None
+
+
+PUBLIC_DISCOVERY_SOURCES = {"library", "series_metadata", "hardcover", "open_library", "librarything"}
+
+
+def _public_discovery_source(source: str, *, in_library: bool) -> str:
+    if in_library:
+        return "library"
+    normalized = (source or "").strip().casefold()
+    if normalized in PUBLIC_DISCOVERY_SOURCES:
+        return normalized
+    if normalized in {"seeded_fixture", "local_catalog", "metadata_aggregation", "manual_override"}:
+        return "open_library"
+    return "open_library"
 
 
 def _numeric_fields(value: object, prefix: str = "") -> dict[str, object]:
@@ -600,7 +671,7 @@ def _reason_from_details(details: dict, read_df: pd.DataFrame, candidate: pd.Ser
     if genres and headline_book:
         anchor_title = headline_book["title"]
         rating = _format_rating(headline_book.get("rating"))
-        rating_clause = f", which you rated {rating}," if rating else ""
+        rating_clause = f", which you rated {rating}" if rating else ""
         theme_label = _reader_theme_label(genres, subjects)
         if cluster_id == "ya-dystopian-speculative":
             return f"Because you enjoyed survival-focused dystopian stories like {anchor_title}{rating_clause}, this explores similar themes of control, survival, and resistance."
@@ -660,6 +731,505 @@ def _signals_from_row(row: pd.Series) -> dict:
 def _raw_signal_scores(row: pd.Series) -> dict:
     raw = row.get("_signal_scores")
     return raw if isinstance(raw, dict) else {}
+
+
+def _reader_intent_terms(row: pd.Series) -> set[str]:
+    values = [*_row_list(row.get("Genres")), *_row_list(row.get("Subjects"))]
+    terms: set[str] = set()
+    for value in values:
+        term = normalize_specificity_term(value)
+        if not term or metadata_specificity(term) <= 0:
+            continue
+        terms.add(term)
+    return terms
+
+
+def _reader_intent_profile(read_df: pd.DataFrame) -> dict:
+    status_col = _resolve_column(read_df, ["Read Status", "read_status"])
+    author_col = _resolve_column(read_df, ["Authors", "author"])
+    rating_col = _resolve_column(read_df, ["Star Rating", "star_rating", "rating"])
+    if read_df.empty or status_col is None:
+        return {
+            "term_counts": Counter(),
+            "recent_terms": Counter(),
+            "rating_terms": Counter(),
+            "current_terms": Counter(),
+            "dnf_terms": Counter(),
+            "authors": Counter(),
+            "author_best_rating": {},
+            "series": Counter(),
+            "rows_by_index": {},
+        }
+
+    term_counts: Counter[str] = Counter()
+    recent_terms: Counter[str] = Counter()
+    rating_terms: Counter[str] = Counter()
+    current_terms: Counter[str] = Counter()
+    dnf_terms: Counter[str] = Counter()
+    authors: Counter[str] = Counter()
+    author_best_rating: dict[str, float] = {}
+    series: Counter[str] = Counter()
+    rows_by_index: dict[object, pd.Series] = {}
+
+    for _, row in read_df.iterrows():
+        status = normalize_status(row.get(status_col))
+        if status not in {"completed", "reading", "dnf"}:
+            continue
+        rows_by_index[row.name] = row
+        rating = row.get(rating_col) if rating_col else None
+        rating_weight = _reader_intent_rating_weight(rating, status=status)
+        date_value = row.get("End Date", row.get("end_date", row.get("Last Date Read")))
+        recency_weight = _reader_intent_date_weight(date_value)
+        terms = _reader_intent_terms(row)
+        if status == "dnf" or rating_weight < 0:
+            for term in terms:
+                dnf_terms[term] += abs(rating_weight)
+            continue
+        for term in terms:
+            term_counts[term] += 1
+            recent_terms[term] += recency_weight
+            rating_terms[term] += rating_weight
+            if status == "reading":
+                current_terms[term] += max(0.55, rating_weight)
+        author = normalize_specificity_term(row.get(author_col)) if author_col else None
+        if author:
+            authors[author] += 1 + (0.5 * rating_weight)
+            author_best_rating[author] = max(author_best_rating.get(author, 0.0), rating_weight)
+        series_name = normalize_specificity_term(row.get("Series Name"))
+        if series_name:
+            series[series_name] += 1 + (0.5 * rating_weight)
+    return {
+        "term_counts": term_counts,
+        "recent_terms": recent_terms,
+        "rating_terms": rating_terms,
+        "current_terms": current_terms,
+        "dnf_terms": dnf_terms,
+        "authors": authors,
+        "author_best_rating": author_best_rating,
+        "series": series,
+        "rows_by_index": rows_by_index,
+    }
+
+
+def _counter_overlap_score(terms: set[str], counts: Counter[str], *, repeated_only: bool = False, denominator: float = 3.0) -> float:
+    if not terms or not counts:
+        return 0.0
+    total = 0.0
+    for term in terms:
+        value = float(counts.get(term, 0.0))
+        if repeated_only and value < 2:
+            continue
+        total += min(3.0, value) * max(0.25, metadata_specificity(term))
+    return min(1.0, total / denominator)
+
+
+PRESTIGE_LITERARY_TERMS = {
+    "classic",
+    "classics",
+    "literary fiction",
+    "philosophy",
+    "russian literature",
+    "spanish literature",
+    "historical fiction",
+}
+
+POLITICAL_PRESTIGE_DYSTOPIA_TERMS = {
+    "political fiction",
+    "fiction political",
+    "political",
+    "totalitarianism",
+    "theocracy",
+    "misogyny",
+    "history and criticism",
+    "philosophy",
+}
+
+BROAD_LOW_INTENT_TERMS = {
+    "fiction",
+    "literature",
+    "general",
+    "classic",
+    "young adult",
+    "children s fiction",
+}
+
+
+def _specific_term_count(terms: set[str]) -> int:
+    return sum(1 for term in terms if metadata_specificity(term) >= 0.5 and term not in BROAD_LOW_INTENT_TERMS)
+
+
+def _publication_year(row: pd.Series) -> int | None:
+    try:
+        year = int(float(row.get("First Publish Year") or 0))
+    except (TypeError, ValueError):
+        return None
+    return year if year > 0 else None
+
+
+def _reader_likelihood_breakdown(
+    row: pd.Series,
+    profile: dict,
+    terms: set[str],
+    anchor_support: dict,
+    *,
+    reader_intent_score: float,
+    repeated_support: float,
+    recent_support: float,
+    rating_support: float,
+    current_support: float,
+    author_support: float,
+    series_support: float,
+    dnf_similarity: float,
+    tone_mismatch_penalty: float,
+) -> dict:
+    specific_count = _specific_term_count(terms)
+    repeated_subgenre = _counter_overlap_score(terms, profile["term_counts"], repeated_only=True, denominator=2.25)
+    high_rating_subgenre = _counter_overlap_score(terms, profile["rating_terms"], denominator=2.5)
+    recent_subgenre = _counter_overlap_score(terms, profile["recent_terms"], denominator=2.75)
+    multiple_loved_books = min(1.0, float(anchor_support["qualified_anchor_count"]) / 3.0)
+    anchor_strength = float(anchor_support["anchor_strength"])
+    continuity = max(series_support, author_support)
+    evidence_quality = min(
+        1.0,
+        (multiple_loved_books * 0.40)
+        + (min(1.0, specific_count / 2.0) * 0.30)
+        + (anchor_strength * 0.30),
+    )
+    if series_support >= 0.65 or author_support >= 0.65:
+        evidence_quality = max(evidence_quality, 0.72)
+
+    broad_overlap_penalty = 0.0
+    if specific_count == 0 and anchor_support["qualified_anchor_count"] < 2 and continuity < 0.65:
+        broad_overlap_penalty = 0.18
+    elif specific_count <= 1 and anchor_support["qualified_anchor_count"] <= 1 and continuity < 0.65:
+        broad_overlap_penalty = 0.10
+
+    prestige_penalty = 0.0
+    prestige_terms = terms & PRESTIGE_LITERARY_TERMS
+    if prestige_terms and continuity < 0.65:
+        prestige_profile = sum(float(profile["term_counts"].get(term, 0.0)) for term in prestige_terms)
+        if prestige_profile < 3 or high_rating_subgenre < 0.45 or anchor_support["qualified_anchor_count"] < 3:
+            prestige_penalty = 0.10
+
+    weak_explanation_penalty = 0.0
+    if evidence_quality < 0.32 and continuity < 0.65:
+        weak_explanation_penalty = 0.16
+    elif evidence_quality < 0.48 and anchor_support["qualified_anchor_count"] <= 1 and continuity < 0.65:
+        weak_explanation_penalty = 0.09
+
+    style_jump_penalty = 0.0
+    if repeated_subgenre < 0.18 and high_rating_subgenre < 0.18 and continuity < 0.65:
+        style_jump_penalty = 0.08
+    ya_survival_style_jump_penalty = 0.0
+    ya_survival_profile = (
+        profile["term_counts"].get("young adult", 0) >= 2
+        or profile["term_counts"].get("dystopian", 0) >= 2
+        or profile["term_counts"].get("survival", 0) >= 2
+        or profile["term_counts"].get("science fiction", 0) >= 2
+    )
+    candidate_is_dystopian = bool(terms & {"dystopian", "dystopia", "dystopias", "science fiction"})
+    candidate_is_ya = bool(terms & {"young adult", "young adult fiction", "teen fiction", "juvenile works", "children s fiction"})
+    candidate_is_prestige = bool(terms & PRESTIGE_LITERARY_TERMS)
+    if ya_survival_profile and candidate_is_dystopian and not candidate_is_ya and continuity < 0.65:
+        ya_survival_style_jump_penalty = 0.12 + (0.06 if candidate_is_prestige else 0.0)
+    political_dystopia_penalty = 0.0
+    if candidate_is_dystopian and terms & POLITICAL_PRESTIGE_DYSTOPIA_TERMS and continuity < 0.65:
+        political_dystopia_penalty = 0.14
+
+    positive_score = min(
+        1.0,
+        (series_support * 0.30)
+        + (author_support * 0.24)
+        + (repeated_subgenre * 0.18)
+        + (high_rating_subgenre * 0.14)
+        + (recent_subgenre * 0.08)
+        + (current_support * 0.06)
+        + (multiple_loved_books * 0.14)
+        + (evidence_quality * 0.18)
+        + (reader_intent_score * 0.16),
+    )
+    negative_score = min(
+        1.0,
+        broad_overlap_penalty
+        + prestige_penalty
+        + weak_explanation_penalty
+        + style_jump_penalty
+        + ya_survival_style_jump_penalty
+        + political_dystopia_penalty
+        + (dnf_similarity * 0.08)
+        + tone_mismatch_penalty,
+    )
+    reader_likelihood = min(1.0, max(0.0, positive_score - negative_score))
+
+    reasons: list[str] = []
+    if series_support >= 0.65:
+        reasons.append("exact_series_continuation")
+    if author_support >= 0.65:
+        reasons.append("exact_author_continuation")
+    if repeated_subgenre >= 0.35:
+        reasons.append("repeated_subgenre_completion")
+    if high_rating_subgenre >= 0.35:
+        reasons.append("high_ratings_in_subgenre")
+    if recent_subgenre >= 0.35:
+        reasons.append("recent_completion_pattern")
+    if multiple_loved_books >= 0.67:
+        reasons.append("multiple_loved_book_anchors")
+    if evidence_quality >= 0.6:
+        reasons.append("specific_explanation_evidence")
+    if broad_overlap_penalty:
+        reasons.append("penalty_broad_overlap_only")
+    if prestige_penalty:
+        reasons.append("penalty_prestige_style_jump")
+    if weak_explanation_penalty:
+        reasons.append("penalty_weak_explanation_evidence")
+    if style_jump_penalty:
+        reasons.append("penalty_major_style_jump")
+    if ya_survival_style_jump_penalty:
+        reasons.append("penalty_ya_survival_to_adult_dystopia")
+    if political_dystopia_penalty:
+        reasons.append("penalty_political_prestige_dystopia")
+
+    adjustment = (reader_likelihood - 0.45) * 0.28
+    adjustment = min(READER_LIKELIHOOD_MAX_BOOST, max(-READER_LIKELIHOOD_MAX_PENALTY, adjustment))
+    return {
+        "reader_likelihood_score": round(reader_likelihood, 4),
+        "reader_likelihood_adjustment": round(adjustment, 4),
+        "reader_likelihood_reasons": reasons,
+        "reader_likelihood_positive_score": round(positive_score, 4),
+        "reader_likelihood_negative_score": round(negative_score, 4),
+        "reader_likelihood_evidence_quality": round(evidence_quality, 4),
+        "repeated_subgenre_likelihood": round(repeated_subgenre, 4),
+        "high_rating_subgenre_likelihood": round(high_rating_subgenre, 4),
+        "recent_subgenre_likelihood": round(recent_subgenre, 4),
+        "multiple_loved_books_likelihood": round(multiple_loved_books, 4),
+        "broad_overlap_likelihood_penalty": round(broad_overlap_penalty, 4),
+        "prestige_literary_likelihood_penalty": round(prestige_penalty, 4),
+        "weak_explanation_likelihood_penalty": round(weak_explanation_penalty, 4),
+        "style_jump_likelihood_penalty": round(style_jump_penalty, 4),
+        "ya_survival_style_jump_likelihood_penalty": round(ya_survival_style_jump_penalty, 4),
+        "political_dystopia_likelihood_penalty": round(political_dystopia_penalty, 4),
+    }
+
+
+def _anchor_similarity_strength(similarity: object) -> float:
+    shared_genres = getattr(similarity, "shared_genres", set()) or set()
+    shared_subjects = getattr(similarity, "shared_subjects", set()) or set()
+    same_author = bool(getattr(similarity, "same_author", False))
+    keyword_overlap = getattr(similarity, "keyword_overlap", set()) or set()
+    genre_strength = min(1.0, sum(metadata_specificity(value) for value in shared_genres))
+    subject_strength = min(1.0, sum(metadata_specificity(value) for value in shared_subjects))
+    return min(
+        1.0,
+        (genre_strength * 0.35)
+        + (subject_strength * 0.35)
+        + (0.20 if same_author else 0.0)
+        + (0.10 if keyword_overlap else 0.0),
+    )
+
+
+def _candidate_anchor_support(row: pd.Series, profile: dict) -> dict:
+    score_anchors = row.get("_score_anchors")
+    if not isinstance(score_anchors, list):
+        score_anchors = []
+    rows_by_index = profile.get("rows_by_index") or {}
+    weighted_strength = 0.0
+    weighted_recent = 0.0
+    weighted_rating = 0.0
+    qualified_anchor_count = 0
+    matched_anchor_count = 0
+    for item in score_anchors:
+        if not isinstance(item, tuple) or len(item) < 3:
+            continue
+        anchor_index, contribution, similarity = item[:3]
+        anchor_row = rows_by_index.get(anchor_index)
+        if anchor_row is None:
+            continue
+        strength = max(_anchor_similarity_strength(similarity), min(1.0, float(contribution or 0.0)))
+        if strength <= 0:
+            continue
+        matched_anchor_count += 1
+        if strength >= 0.18:
+            qualified_anchor_count += 1
+        recent = _reader_intent_date_weight(anchor_row.get("End Date", anchor_row.get("end_date", anchor_row.get("Last Date Read"))))
+        status = normalize_status(anchor_row.get("Read Status", anchor_row.get("read_status")))
+        rating = _reader_intent_rating_weight(anchor_row.get("Star Rating", anchor_row.get("star_rating", anchor_row.get("rating"))), status=status)
+        positive_rating = max(0.0, rating)
+        weighted_strength += strength
+        weighted_recent += strength * recent
+        weighted_rating += strength * positive_rating
+    denominator = max(weighted_strength, 0.0001)
+    return {
+        "matched_anchor_count": matched_anchor_count,
+        "qualified_anchor_count": qualified_anchor_count,
+        "anchor_strength": min(1.0, weighted_strength / 2.25),
+        "anchor_recent": min(1.0, weighted_recent / denominator),
+        "anchor_rating": min(1.0, weighted_rating / denominator),
+    }
+
+
+def _candidate_reader_intent(row: pd.Series, profile: dict) -> dict:
+    terms = _reader_intent_terms(row)
+    anchor_support = _candidate_anchor_support(row, profile)
+    repeated_support = anchor_support["anchor_strength"]
+    recent_support = anchor_support["anchor_recent"] * repeated_support
+    rating_support = anchor_support["anchor_rating"] * repeated_support
+    current_support = _counter_overlap_score(terms, profile["current_terms"], denominator=1.5)
+    dnf_similarity = _counter_overlap_score(terms, profile["dnf_terms"], denominator=2.0)
+
+    author = normalize_specificity_term(row.get("Authors"))
+    series_name = normalize_specificity_term(row.get("Series Name"))
+    author_support = 0.0
+    series_support = 0.0
+    if author and profile["authors"].get(author, 0) > 0:
+        author_count = float(profile["authors"][author])
+        best_rating = float((profile.get("author_best_rating") or {}).get(author, 0.0))
+        author_support = min(1.0, 0.45 + (0.25 * min(1.0, author_count / 2.0)) + (0.25 * best_rating))
+    if series_name and profile["series"].get(series_name, 0) >= 1.5:
+        series_support = min(1.0, profile["series"][series_name] / 2.0)
+    series_confidence = _safe_score(row.get("Series Confidence"), 0.0)
+    series_position = row.get("Series Position")
+    try:
+        has_series_position = float(series_position or 0) > 1
+    except (TypeError, ValueError):
+        has_series_position = False
+    if series_confidence >= 0.75 and has_series_position:
+        series_support = max(series_support, min(1.0, 0.65 + (0.25 * series_confidence)))
+
+    reader_intent_score = min(
+        1.0,
+        (repeated_support * 0.30)
+        + (recent_support * 0.20)
+        + (rating_support * 0.20)
+        + (current_support * 0.05)
+        + (author_support * 0.40)
+        + (series_support * 0.40),
+    )
+    if anchor_support["qualified_anchor_count"] < 2 and author_support < 0.65 and series_support < 0.65:
+        reader_intent_score = min(reader_intent_score, 0.48)
+    one_off_penalty = 0.0
+    if reader_intent_score < 0.22 and repeated_support < 0.15 and author_support == 0 and series_support == 0:
+        one_off_penalty = 0.035
+
+    normalized_terms = set(terms)
+    ya_survival_profile = (
+        profile["term_counts"].get("young adult", 0) >= 2
+        and (
+            profile["term_counts"].get("dystopian", 0) >= 2
+            or profile["term_counts"].get("survival", 0) >= 2
+            or profile["term_counts"].get("science fiction", 0) >= 2
+        )
+    )
+    candidate_is_dystopian = bool(normalized_terms & {"dystopian", "dystopia", "dystopias", "science fiction"})
+    candidate_is_ya = bool(normalized_terms & {"young adult", "young adult fiction", "teen fiction", "juvenile works", "children s fiction"})
+    candidate_has_horror = bool(normalized_terms & {"horror", "horror tales", "fiction horror", "suspense"})
+    tone_mismatch_penalty = 0.0
+    if ya_survival_profile and candidate_is_dystopian and candidate_has_horror and not candidate_is_ya:
+        tone_mismatch_penalty = 0.045
+
+    mismatch_penalty = min(READER_INTENT_MAX_PENALTY, dnf_similarity * 0.08 + one_off_penalty + tone_mismatch_penalty)
+    adjustment = min(READER_INTENT_MAX_BOOST, reader_intent_score * 0.10)
+    existing_score = _safe_score(row.get("score"), 0.0)
+    likelihood = _reader_likelihood_breakdown(
+        row,
+        profile,
+        terms,
+        anchor_support,
+        reader_intent_score=reader_intent_score,
+        repeated_support=repeated_support,
+        recent_support=recent_support,
+        rating_support=rating_support,
+        current_support=current_support,
+        author_support=author_support,
+        series_support=series_support,
+        dnf_similarity=dnf_similarity,
+        tone_mismatch_penalty=tone_mismatch_penalty,
+    )
+    reader_likelihood_score = float(likelihood["reader_likelihood_score"])
+    continuity_support = max(author_support, series_support)
+    continuity_adjustment = 0.0
+    if continuity_support >= 0.65 and reader_likelihood_score >= 0.42:
+        # Exact author/series continuations can have sparse provider metadata.
+        # Let reader evidence compensate without overriding normal base scoring.
+        continuity_adjustment = min(
+            READER_CONTINUITY_MAX_BOOST,
+            max(0.0, continuity_support - 0.60) * 0.45,
+        )
+    style_jump_final_penalty = 0.0
+    if continuity_support < 0.65:
+        publication_year = _publication_year(row)
+        low_intent_prestige_penalty = (
+            0.08
+            if (
+                (
+                    (terms & PRESTIGE_LITERARY_TERMS)
+                    or (publication_year is not None and publication_year < 1950)
+                )
+                and reader_intent_score < 0.40
+            )
+            else 0.0
+        )
+        style_jump_final_penalty = min(
+            READER_STYLE_JUMP_MAX_PENALTY,
+            (
+                float(likelihood["ya_survival_style_jump_likelihood_penalty"]) * 1.20
+                + float(likelihood["political_dystopia_likelihood_penalty"]) * 1.70
+                + float(likelihood["prestige_literary_likelihood_penalty"]) * 0.40
+                + low_intent_prestige_penalty
+            ),
+        )
+    final_score = min(
+        1.0,
+        max(
+            0.0,
+            existing_score
+            + adjustment
+            + float(likelihood["reader_likelihood_adjustment"])
+            + continuity_adjustment
+            - mismatch_penalty
+            - style_jump_final_penalty,
+        ),
+    )
+    return {
+        "existing_score": existing_score,
+        "reader_intent_score": round(reader_intent_score, 4),
+        "reader_intent_adjustment": round(adjustment, 4),
+        "continuity_adjustment": round(continuity_adjustment, 4),
+        "style_jump_final_penalty": round(style_jump_final_penalty, 4),
+        "reader_mismatch_penalty": round(mismatch_penalty, 4),
+        "repeated_completed_support": round(repeated_support, 4),
+        "recent_support": round(recent_support, 4),
+        "rating_support": round(rating_support, 4),
+        "current_reading_support": round(current_support, 4),
+        "author_support": round(author_support, 4),
+        "series_support": round(series_support, 4),
+        "author_series_support": round(max(author_support, series_support), 4),
+        "matched_anchor_count": anchor_support["matched_anchor_count"],
+        "qualified_anchor_count": anchor_support["qualified_anchor_count"],
+        "dnf_similarity": round(dnf_similarity, 4),
+        "tone_mismatch_penalty": round(tone_mismatch_penalty, 4),
+        **likelihood,
+        "final_score": round(final_score, 4),
+    }
+
+
+def _apply_reader_intent_rerank(ranked: pd.DataFrame, read_df: pd.DataFrame) -> pd.DataFrame:
+    if ranked.empty:
+        return ranked
+    profile = _reader_intent_profile(read_df)
+    result = ranked.copy()
+    diagnostics: dict[object, dict] = {}
+    for index, row in result.iterrows():
+        intent = _candidate_reader_intent(row, profile)
+        diagnostics[index] = intent
+        result.at[index, "_existing_score_before_reader_intent"] = intent["existing_score"]
+        result.at[index, "_reader_intent_score"] = intent["reader_intent_score"]
+        result.at[index, "_reader_likelihood_score"] = intent["reader_likelihood_score"]
+        result.at[index, "_reader_intent_adjustment"] = intent["reader_intent_adjustment"]
+        result.at[index, "_reader_likelihood_adjustment"] = intent["reader_likelihood_adjustment"]
+        result.at[index, "_reader_mismatch_penalty"] = intent["reader_mismatch_penalty"]
+        result.at[index, "score"] = intent["final_score"]
+    result["_reader_intent_breakdown"] = result.index.map(lambda index: diagnostics.get(index, {}))
+    return result.sort_values("score", ascending=False)
 
 
 def _breakdown_from_details(details: dict, signals: dict) -> dict:
@@ -1068,7 +1638,24 @@ def _apply_ownership_ranking(ranked: pd.DataFrame, style: str) -> pd.DataFrame:
     else:
         library_boost = 0.05
         external_boost = 0.0
-    result.loc[in_library, "score"] = result.loc[in_library, "score"] + library_boost
+    ownership_boosts = pd.Series(0.0, index=result.index)
+    for index, row in result.iterrows():
+        if not bool(in_library.loc[index]):
+            continue
+        signals = row.get("_signal_scores") if isinstance(row.get("_signal_scores"), dict) else {}
+        alignment = max(
+            _safe_score(signals.get("candidate_similarity"), 0.0),
+            _safe_score(signals.get("long_term_preference_score"), 0.0),
+            _safe_score(signals.get("author_affinity"), 0.0),
+        )
+        if alignment >= 0.38:
+            boost = library_boost
+        elif alignment >= 0.22:
+            boost = library_boost * 0.5
+        else:
+            boost = 0.0
+        ownership_boosts.loc[index] = boost
+    result.loc[in_library, "score"] = result.loc[in_library, "score"] + ownership_boosts.loc[in_library]
     result.loc[~in_library, "score"] = result.loc[~in_library, "score"] + external_boost
     novelty_boost = pd.Series(0.0, index=result.index)
     if "Novelty Score" in result.columns:
@@ -1083,8 +1670,17 @@ def _apply_ownership_ranking(ranked: pd.DataFrame, style: str) -> pd.DataFrame:
         exploration_boost.loc[broad_exploration] = exploration_value
         result.loc[broad_exploration, "score"] = result.loc[broad_exploration, "score"] + exploration_value
     result["score"] = result["score"].clip(0, 1)
-    boosts = in_library.map(lambda value: library_boost if value else external_boost)
+    boosts = in_library.map(lambda value: external_boost if not value else 0.0)
+    boosts.loc[in_library] = ownership_boosts.loc[in_library]
     result["_library_boost"] = boosts
+    result["_ownership_alignment"] = [
+        max(
+            _safe_score((row.get("_signal_scores") or {}).get("candidate_similarity"), 0.0) if isinstance(row.get("_signal_scores"), dict) else 0.0,
+            _safe_score((row.get("_signal_scores") or {}).get("long_term_preference_score"), 0.0) if isinstance(row.get("_signal_scores"), dict) else 0.0,
+            _safe_score((row.get("_signal_scores") or {}).get("author_affinity"), 0.0) if isinstance(row.get("_signal_scores"), dict) else 0.0,
+        )
+        for _, row in result.iterrows()
+    ]
     result["_novelty_boost"] = novelty_boost
     result["_exploration_boost"] = exploration_boost
     return result.sort_values("score", ascending=False)
@@ -1257,6 +1853,8 @@ def build_recommendations(
     exclude_ids: set[str] | None = None,
     feedback_records: list[dict] | None = None,
     excluded_identities: set[str] | None = None,
+    candidate_evidence_filter: Callable[[pd.Series], tuple[bool, str]] | None = None,
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     total_started = time.perf_counter()
     timings: dict[str, float] = {}
@@ -1280,8 +1878,34 @@ def build_recommendations(
     tbr_ranked = _apply_external_cluster_fit(tbr_ranked)
     tbr_ranked = _apply_series_continuity_boost(tbr_ranked, df)
     tbr_ranked = _apply_feedback_penalties(tbr_ranked, feedback_records)
+    if candidate_evidence_filter is not None and not tbr_ranked.empty:
+        keep_indexes: list[object] = []
+        rejected: list[dict] = []
+        for index, row in tbr_ranked.iterrows():
+            allowed, reason = candidate_evidence_filter(row)
+            if allowed:
+                keep_indexes.append(index)
+            else:
+                rejected.append({"title": row.get("Title"), "reason": reason})
+        if rejected:
+            logger.info(
+                "recommendation_cluster_evidence_rejections rejected_count=%s rejected=%s",
+                len(rejected),
+                rejected[:20],
+            )
+        tbr_ranked = tbr_ranked.loc[keep_indexes].copy() if keep_indexes else tbr_ranked.iloc[0:0].copy()
     before_evidence_filter = tbr_ranked.copy()
+    if diagnostics is not None:
+        diagnostics["candidate_count_before_minimum_evidence_filter"] = len(before_evidence_filter)
+        diagnostics["backfill_candidate_count"] = sum(
+            1
+            for _, row in before_evidence_filter.iterrows()
+            if not has_minimum_positive_evidence(row) and has_backfill_evidence(row)
+        )
     tbr_ranked = _apply_minimum_evidence_filter(tbr_ranked)
+    if diagnostics is not None:
+        diagnostics["candidate_count_after_minimum_evidence_filter"] = len(tbr_ranked)
+    tbr_ranked = _apply_reader_intent_rerank(tbr_ranked, read_df)
     if not before_evidence_filter.empty:
         before_external = before_evidence_filter[
             before_evidence_filter.apply(lambda row: not _is_in_library_row(row), axis=1)
@@ -1330,6 +1954,24 @@ def build_recommendations(
         read_df[author_col] = "unknown"
 
     top = _blend_library_and_discovery(tbr_ranked, top_n, style)
+    if candidate_evidence_filter is not None and not top.empty:
+        keep_indexes: list[object] = []
+        rejected: list[dict] = []
+        for index, row in top.iterrows():
+            allowed, reason = candidate_evidence_filter(row)
+            if allowed:
+                keep_indexes.append(index)
+            else:
+                rejected.append({"title": row.get("Title"), "reason": reason})
+        if rejected:
+            logger.info(
+                "recommendation_final_cluster_admission_rejections rejected_count=%s rejected=%s",
+                len(rejected),
+                rejected[:20],
+            )
+        top = top.loc[keep_indexes].copy() if keep_indexes else top.iloc[0:0].copy()
+    if top.empty:
+        return []
     for rank_index, (_index, row) in enumerate(top.iterrows(), start=1):
         _log_debug_title(
             "diversified",
@@ -1361,6 +2003,7 @@ def build_recommendations(
         isbn = _first_present(row.get("External ISBN"))
         source_type = _safe_text(row.get("Source Type"), "library" if in_library else "external_discovery")
         discovery_source = _safe_text(row.get("Discovery Source"), "library" if in_library else "local_catalog")
+        public_discovery_source = _public_discovery_source(discovery_source, in_library=in_library)
         outside_library = not in_library
         library_status = _safe_value(row.get("Library Status")) if in_library else None
         details = _match_details(row, read_df, precomputed_matches, score_anchors)
@@ -1385,7 +2028,24 @@ def build_recommendations(
         cluster_fit_breakdown = row.get("_cluster_fit_breakdown")
         if not isinstance(cluster_fit_breakdown, dict):
             cluster_fit_breakdown = {}
+        reader_intent_breakdown = row.get("_reader_intent_breakdown")
+        if not isinstance(reader_intent_breakdown, dict):
+            reader_intent_breakdown = {}
         recommendation_breakdown = _breakdown_from_details(details, signals)
+        external_metadata = _row_metadata_external(row)
+        source_urls = _safe_value(external_metadata.get("source_urls")) or []
+        source_url = source_urls[0] if isinstance(source_urls, list) and source_urls else None
+        page_count = _safe_int(row.get("Total Pages"))
+        publication_year = _safe_int(row.get("First Publish Year"))
+        isbn_13 = _isbn_10_or_13(isbn, length=13)
+        isbn_10 = _isbn_10_or_13(isbn, length=10)
+        provider_rating = _safe_value(external_metadata.get("provider_rating"))
+        provider_rating_count = _safe_int(external_metadata.get("provider_rating_count"))
+        provider_user_count = _safe_int(external_metadata.get("provider_user_count"))
+        provider_activity_count = _safe_int(external_metadata.get("provider_activity_count"))
+        publisher = _first_present(external_metadata.get("publisher"))
+        discovery_reason = _first_present(external_metadata.get("discovery_reason"))
+        reader_likelihood_score = reader_intent_breakdown.get("reader_likelihood_score", 0.0)
         recommended_book = {
             "id": book_api["id"],
             "book_id": book_id,
@@ -1393,11 +2053,27 @@ def build_recommendations(
             "work_id": work_id,
             "edition_id": edition_id,
             "isbn": isbn,
+            "isbn_10": isbn_10,
+            "isbn_13": isbn_13,
             "recommendation_id": _row_recommendation_identity(row),
             "title": book_api["title"],
             "author": book_api["author"],
             "cover_url": book_api.get("cover_url"),
             "description": book_api.get("description"),
+            "publication_year": publication_year,
+            "first_publish_year": publication_year,
+            "page_count": page_count,
+            "total_pages": page_count,
+            "publisher": publisher,
+            "source_url": source_url,
+            "source_urls": source_urls,
+            "provider_source_id": work_id or edition_id or external_id,
+            "provider_rating": provider_rating,
+            "rating": provider_rating,
+            "ratings_count": provider_rating_count,
+            "users_count": provider_user_count,
+            "activities_count": provider_activity_count,
+            "discovery_reason": discovery_reason,
             "genres": _row_list(row.get("Genres")),
             "subjects": _row_list(row.get("Subjects")),
             "outside_library": outside_library,
@@ -1423,6 +2099,7 @@ def build_recommendations(
             "component_work_ids": _safe_value(row.get("Component Work IDs")) or [],
             "component_titles": _safe_value(row.get("Component Titles")) or [],
             "component_series_positions": _safe_value(row.get("Component Series Positions")) or [],
+            "provider": public_discovery_source,
         }
         _log_debug_title(
             "identity_created",
@@ -1448,6 +2125,19 @@ def build_recommendations(
                 "author": book_api["author"],
                 "cover_url": book_api.get("cover_url"),
                 "description": book_api.get("description"),
+                "publication_year": publication_year,
+                "first_publish_year": publication_year,
+                "page_count": page_count,
+                "total_pages": page_count,
+                "publisher": publisher,
+                "source_url": source_url,
+                "source_urls": source_urls,
+                "provider_source_id": work_id or edition_id or external_id,
+                "provider_rating": provider_rating,
+                "rating": provider_rating,
+                "ratings_count": provider_rating_count,
+                "users_count": provider_user_count,
+                "activities_count": provider_activity_count,
                 "genres": _row_list(row.get("Genres")),
                 "subjects": _row_list(row.get("Subjects")),
                 "series_name": recommended_book["series_name"],
@@ -1481,6 +2171,7 @@ def build_recommendations(
                 "score": score,
                 "final_score": score,
                 "match_score": score,
+                "reader_likelihood_score": reader_likelihood_score,
                 "in_library": in_library,
                 "is_in_library": in_library,
                 "source": "library" if in_library else "external",
@@ -1489,6 +2180,7 @@ def build_recommendations(
                 "outside_library": outside_library,
                 "discovery_source": discovery_source,
                 "discovery_query": _safe_value(row.get("Discovery Query")),
+                "discovery_reason": discovery_reason,
                 "discovery_cluster_id": _safe_value(row.get("Discovery Cluster ID")),
                 "exploration_mode": _safe_value(row.get("Exploration Mode")),
                 "exploration_source": _safe_value(row.get("Exploration Source")),
@@ -1496,7 +2188,7 @@ def build_recommendations(
                 "novelty_score": _safe_value(row.get("Novelty Score")),
                 "discovery_anchor_titles": _safe_value(row.get("Discovery Anchor Titles")),
                 "provider_metadata_confidence": _safe_value(row.get("Provider Metadata Confidence")),
-                "provider": discovery_source,
+                "provider": public_discovery_source,
                 "library_status": library_status,
                 "reason": reason,
                 "explanation": reason,
@@ -1506,7 +2198,7 @@ def build_recommendations(
                 "matched_liked_books": details["matched_liked_books"],
                 "related_books": related_books,
                 "recommendation_reasons": [
-                    {"label": ownership_reason, "detail": "This recommendation is available in your library." if in_library else f"Found from {discovery_source.replace('_', ' ')} metadata."},
+                    {"label": ownership_reason, "detail": "This recommendation is available in your library." if in_library else f"Found from {public_discovery_source.replace('_', ' ')} metadata."},
                     *recommendation_reasons,
                 ][:4],
                 "signals": signals,
@@ -1534,6 +2226,39 @@ def build_recommendations(
                     "preference_score": raw_signals.get("long_term_preference_score"),
                     "recency_score": raw_signals.get("current_mood_score"),
                     "library_boost": library_boost,
+                    "existing_score": reader_intent_breakdown.get("existing_score", score),
+                    "reader_intent_score": reader_intent_breakdown.get("reader_intent_score", 0.0),
+                    "reader_intent_adjustment": reader_intent_breakdown.get("reader_intent_adjustment", 0.0),
+                    "continuity_adjustment": reader_intent_breakdown.get("continuity_adjustment", 0.0),
+                    "reader_likelihood_score": reader_intent_breakdown.get("reader_likelihood_score", 0.0),
+                    "reader_likelihood_adjustment": reader_intent_breakdown.get("reader_likelihood_adjustment", 0.0),
+                    "style_jump_final_penalty": reader_intent_breakdown.get("style_jump_final_penalty", 0.0),
+                    "reader_likelihood_reasons": reader_intent_breakdown.get("reader_likelihood_reasons", []),
+                    "reader_likelihood_positive_score": reader_intent_breakdown.get("reader_likelihood_positive_score", 0.0),
+                    "reader_likelihood_negative_score": reader_intent_breakdown.get("reader_likelihood_negative_score", 0.0),
+                    "reader_likelihood_evidence_quality": reader_intent_breakdown.get("reader_likelihood_evidence_quality", 0.0),
+                    "repeated_subgenre_likelihood": reader_intent_breakdown.get("repeated_subgenre_likelihood", 0.0),
+                    "high_rating_subgenre_likelihood": reader_intent_breakdown.get("high_rating_subgenre_likelihood", 0.0),
+                    "recent_subgenre_likelihood": reader_intent_breakdown.get("recent_subgenre_likelihood", 0.0),
+                    "multiple_loved_books_likelihood": reader_intent_breakdown.get("multiple_loved_books_likelihood", 0.0),
+                    "broad_overlap_likelihood_penalty": reader_intent_breakdown.get("broad_overlap_likelihood_penalty", 0.0),
+                    "prestige_literary_likelihood_penalty": reader_intent_breakdown.get("prestige_literary_likelihood_penalty", 0.0),
+                    "weak_explanation_likelihood_penalty": reader_intent_breakdown.get("weak_explanation_likelihood_penalty", 0.0),
+                    "style_jump_likelihood_penalty": reader_intent_breakdown.get("style_jump_likelihood_penalty", 0.0),
+                    "ya_survival_style_jump_likelihood_penalty": reader_intent_breakdown.get("ya_survival_style_jump_likelihood_penalty", 0.0),
+                    "political_dystopia_likelihood_penalty": reader_intent_breakdown.get("political_dystopia_likelihood_penalty", 0.0),
+                    "ownership_adjustment": library_boost,
+                    "reader_mismatch_penalty": reader_intent_breakdown.get("reader_mismatch_penalty", 0.0),
+                    "repeated_completed_support": reader_intent_breakdown.get("repeated_completed_support", 0.0),
+                    "recent_support": reader_intent_breakdown.get("recent_support", 0.0),
+                    "rating_support": reader_intent_breakdown.get("rating_support", 0.0),
+                    "current_reading_support": reader_intent_breakdown.get("current_reading_support", 0.0),
+                    "author_support": reader_intent_breakdown.get("author_support", 0.0),
+                    "series_support": reader_intent_breakdown.get("series_support", 0.0),
+                    "author_series_support": reader_intent_breakdown.get("author_series_support", 0.0),
+                    "matched_anchor_count": reader_intent_breakdown.get("matched_anchor_count", 0),
+                    "qualified_anchor_count": reader_intent_breakdown.get("qualified_anchor_count", 0),
+                    "tone_mismatch_penalty": reader_intent_breakdown.get("tone_mismatch_penalty", 0.0),
                     "penalties": {
                         "dislike_penalty": raw_signals.get("negative_preference_penalty"),
                         "recommendation_feedback_penalty": feedback_breakdown.get("recommendation_feedback_penalty", 0.0),

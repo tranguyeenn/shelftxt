@@ -668,12 +668,17 @@ def external_provider_limit() -> int:
 
 
 def _metadata_sources(local_candidates: list[dict], *, allow_external: bool = True):
+    from app.integrations.hardcover import HardcoverProvider, hardcover_enabled
     from app.integrations.librarything import LibraryThingProvider
     from app.integrations.openlibrary import OpenLibraryProvider
 
     sources = [LocalCatalogSource(local_candidates)]
     if allow_external:
-        sources.extend([OpenLibraryProvider(), LibraryThingProvider()][:external_provider_limit()])
+        external_sources = []
+        if hardcover_enabled():
+            external_sources.append(HardcoverProvider())
+        external_sources.extend([OpenLibraryProvider(), LibraryThingProvider()])
+        sources.extend(external_sources[:external_provider_limit()])
     return sources
 
 

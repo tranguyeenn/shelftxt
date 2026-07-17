@@ -21,6 +21,7 @@ from backend.services.canonical_work import (
     completed_component_identities,
     owned_component_identities,
 )
+from backend.services.candidate_integrity import evaluate_candidate_integrity
 from backend.services.series_metadata import (
     book_series_metadata,
     canonical_series_identity,
@@ -162,6 +163,7 @@ def _log_debug_title(stage: str, title: object, **fields) -> None:
 @dataclass
 class DiscoveryDiagnostics:
     library_candidate_count: int = 0
+    hardcover_candidate_count: int = 0
     open_library_candidate_count: int = 0
     librarything_candidate_count: int = 0
     other_provider_candidate_count: int = 0
@@ -173,6 +175,8 @@ class DiscoveryDiagnostics:
     final_eligible_candidate_count: int = 0
     final_source_breakdown: dict[str, int] = field(default_factory=dict)
     provider_failures: list[dict] = field(default_factory=list)
+    provider_query_diagnostics: list[dict] = field(default_factory=list)
+    cluster_allocation_diagnostics: list[dict] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
     structured_queries: list[dict] = field(default_factory=list)
     provider_results_returned: int = 0
@@ -194,6 +198,7 @@ class DiscoveryDiagnostics:
     def to_dict(self) -> dict:
         return {
             "library_candidate_count": self.library_candidate_count,
+            "hardcover_candidate_count": self.hardcover_candidate_count,
             "open_library_candidate_count": self.open_library_candidate_count,
             "librarything_candidate_count": self.librarything_candidate_count,
             "other_provider_candidate_count": self.other_provider_candidate_count,
@@ -205,6 +210,8 @@ class DiscoveryDiagnostics:
             "final_eligible_candidate_count": self.final_eligible_candidate_count,
             "final_source_breakdown": self.final_source_breakdown,
             "provider_failures": self.provider_failures,
+            "provider_query_diagnostics": self.provider_query_diagnostics,
+            "cluster_allocation_diagnostics": self.cluster_allocation_diagnostics,
             "queries": self.queries,
             "structured_queries": self.structured_queries,
             "provider_results_returned": self.provider_results_returned,
@@ -297,6 +304,7 @@ def _result_duplicates_library(result: dict, identities: dict[str, set]) -> bool
 
 def _canonical_rejection_reason(result: dict, identities: dict[str, set]) -> tuple[str, dict] | None:
     canonical = canonical_work_for_result(result)
+    integrity = evaluate_candidate_integrity(result)
     base = {
         "title": result.get("title"),
         "canonical_work_identity": canonical.canonical_work_identity,
@@ -305,7 +313,18 @@ def _canonical_rejection_reason(result: dict, identities: dict[str, set]) -> tup
         "language": canonical.language,
         "edition_identity": canonical.edition_identity,
         "collection_type": canonical.collection_type,
+        "integrity_classification": integrity.classification,
+        "integrity_confidence": integrity.confidence,
+        "integrity_evidence": list(integrity.evidence),
     }
+    if not integrity.recommendation_eligible:
+        return (
+            "candidate_integrity_rejected",
+            {
+                **base,
+                "reason": f"ineligible_{integrity.classification}",
+            },
+        )
     if canonical.collection_type == "single_work" and canonical.canonical_work_identity in identities["canonical_works"]:
         return (
             "translated_or_alternate_edition_duplicate",
@@ -314,7 +333,7 @@ def _canonical_rejection_reason(result: dict, identities: dict[str, set]) -> tup
                 "reason": "canonical_work_already_in_library",
             },
         )
-    if canonical.collection_type in {"omnibus", "box_set"}:
+    if canonical.collection_type in {"omnibus", "box_set", "boxed_set", "bundle"}:
         component_ids = [component.canonical_work_identity for component in canonical.component_works]
         completed = sorted(set(component_ids) & identities["completed_canonical_works"])
         owned = sorted(set(component_ids) & identities["owned_canonical_works"])
@@ -345,6 +364,10 @@ def _canonical_rejection_reason(result: dict, identities: dict[str, set]) -> tup
 
 def _external_duplicate_key(result: dict) -> tuple[str, str]:
     canonical = canonical_work_for_result(result)
+    integrity = evaluate_candidate_integrity(result)
+    if not integrity.recommendation_eligible:
+        title, author = _title_author_key(result.get("title"), _result_author(result))
+        return ("ineligible_collection", f"{title}|{author}")
     if canonical.collection_type == "single_work" and canonical.canonical_work_identity:
         return ("canonical_work", canonical.canonical_work_identity)
     work = str(result.get("work_key") or "").strip()
@@ -546,6 +569,9 @@ def _cluster_anchor_priority(book: Book, cluster_id: str) -> int:
     if cluster_id == "contemporary-romance-new-adult":
         if any(value in text for value in ("emily henry", "ali hazelwood", "book lovers", "women in stem")):
             return 3
+    if cluster_id == "fantasy":
+        if any(value in text for value in ("fantasy", "magic", "faeries", "court of", "amari")):
+            return 3
     return 1
 
 
@@ -571,7 +597,14 @@ def _clean_query_parts(parts: list[str]) -> list[str]:
     return cleaned
 
 
-def _structured_discovery_queries(library_books: list[Book]) -> list[DiscoveryQuery]:
+def _structured_discovery_queries(
+    library_books: list[Book],
+    *,
+    preferred_cluster_ids: set[str] | None = None,
+    allocation_reasons: dict[str, str] | None = None,
+) -> list[DiscoveryQuery]:
+    preferred_cluster_ids = preferred_cluster_ids or set()
+    allocation_reasons = allocation_reasons or {}
     completed = [
         book
         for book in library_books
@@ -646,16 +679,34 @@ def _structured_discovery_queries(library_books: list[Book]) -> list[DiscoveryQu
             candidates.append(DiscoveryQuery(f"books like {titles[0]} {authors[0]}", cluster_id, tuple(titles[:1]), tuple(authors[:1]), genres, themes, confidence - 0.02))
         if cluster_id == "literary-classics" and authors:
             candidates.append(DiscoveryQuery(" ".join(_clean_query_parts(["Russian realism", "psychological classics", authors[0]])), cluster_id, tuple(titles[:1]), tuple(authors[:1]), genres, themes, confidence - 0.05))
+        allocation_reason = allocation_reasons.get(cluster_id, reason)
         valid_candidates = [
-            _with_allocation(candidate, strongest, len(books), priority, reason)
+            _with_allocation(candidate, strongest, len(books), priority, allocation_reason)
             for candidate in candidates
             if candidate.query and _query_is_specific(candidate.query, candidate)
         ]
         if valid_candidates:
             cluster_candidates.append((priority, cluster_id, valid_candidates, strongest, reason))
 
-    cluster_candidates.sort(key=lambda item: (item[0], len(grouped.get(item[1], []))), reverse=True)
+    cluster_candidates.sort(
+        key=lambda item: (
+            item[1] in preferred_cluster_ids,
+            item[0],
+            len(grouped.get(item[1], [])),
+        ),
+        reverse=True,
+    )
     max_per_cluster = max(1, min(2, round(max_queries * 0.35)))
+    for priority, cluster_id, candidates, strongest, reason in cluster_candidates:
+        if len(queries) >= max_queries:
+            break
+        if cluster_id not in preferred_cluster_ids:
+            continue
+        used_for_cluster = sum(1 for query in queries if query.cluster_id == cluster_id)
+        if used_for_cluster >= max_per_cluster:
+            continue
+        queries.append(candidates[0])
+
     for priority, cluster_id, candidates, strongest, reason in cluster_candidates:
         if len(queries) >= max_queries:
             break
@@ -707,7 +758,7 @@ def _structured_discovery_queries(library_books: list[Book]) -> list[DiscoveryQu
             0.62,
         )
         if query.query and _query_is_specific(query.query, query):
-            queries.append(_with_allocation(query, strongest, len(books), priority, reason))
+            queries.append(_with_allocation(query, strongest, len(books), priority, allocation_reasons.get(cluster_id, reason)))
 
     deduped: list[DiscoveryQuery] = []
     seen: set[str] = set()
@@ -739,6 +790,7 @@ def _result_to_row(result: dict) -> dict:
     external_id = _external_id(result)
     series = series_metadata_for_result(result) or (result.get("series") if isinstance(result.get("series"), dict) else {})
     canonical = canonical_work_for_result(result)
+    integrity = evaluate_candidate_integrity(result)
     decision = result.get("series_order_decision") if isinstance(result.get("series_order_decision"), dict) else {}
     series_name = result.get("series_name") or series.get("series_name")
     row = {
@@ -768,6 +820,12 @@ def _result_to_row(result: dict) -> dict:
                 "publisher": result.get("publisher"),
                 "publish_date": result.get("publish_date"),
                 "confidence_score": result.get("confidence_score"),
+                "source_urls": result.get("source_urls") or [],
+                "provider_rating": result.get("provider_rating"),
+                "provider_rating_count": result.get("provider_rating_count"),
+                "provider_user_count": result.get("provider_user_count"),
+                "provider_activity_count": result.get("provider_activity_count"),
+                "discovery_reason": result.get("discovery_reason"),
             }
         },
         "In Library": False,
@@ -812,6 +870,10 @@ def _result_to_row(result: dict) -> dict:
         "Original Title": canonical.original_title,
         "Edition Identity": canonical.edition_identity,
         "Collection Type": canonical.collection_type,
+        "Candidate Integrity Classification": integrity.classification,
+        "Candidate Integrity Confidence": integrity.confidence,
+        "Candidate Integrity Evidence": list(integrity.evidence),
+        "Candidate Integrity Eligible": integrity.recommendation_eligible,
         "Component Work IDs": [component.canonical_work_identity for component in canonical.component_works],
         "Component Titles": [component.title for component in canonical.component_works],
         "Component Series Positions": [component.series_position for component in canonical.component_works],
@@ -868,6 +930,34 @@ def _novelty_score(result: dict, library_books: list[Book]) -> float:
 
 def _prepare_external_result(result: dict, library_books: list[Book]) -> dict:
     prepared = dict(result)
+    cluster_id = str(prepared.get("discovery_cluster_id") or "")
+    modern_clusters = {
+        "ya-dystopian-speculative",
+        "ya-mystery-thriller",
+        "contemporary-romance-new-adult",
+        "fantasy",
+    }
+    if cluster_id in modern_clusters:
+        year = prepared.get("first_publish_year")
+        try:
+            parsed_year = int(year) if year is not None else None
+        except (TypeError, ValueError):
+            parsed_year = None
+        source_authors = {
+            _normalize_text(value)
+            for value in prepared.get("discovery_anchor_authors") or []
+            if _normalize_text(value)
+        }
+        author_match = _normalize_text(_result_author(prepared)) in source_authors
+        series_payload = prepared.get("series") if isinstance(prepared.get("series"), dict) else {}
+        has_series = bool(prepared.get("series_name") or series_payload.get("series_name"))
+        base_confidence = float(prepared.get("confidence_score") or 0.0)
+        if parsed_year is not None and parsed_year >= 2010:
+            prepared["confidence_score"] = min(1.0, base_confidence + 0.04)
+            prepared["modern_candidate_preference"] = "boosted"
+        elif parsed_year is not None and not author_match and not has_series:
+            prepared["confidence_score"] = max(0.0, base_confidence - 0.04)
+            prepared["modern_candidate_preference"] = "soft_penalty"
     prepared["novelty_score"] = _novelty_score(prepared, library_books)
     prepared.setdefault("duplicate_checks", [
         "open_library_work_id",
@@ -887,12 +977,34 @@ def discovery_candidate_rows(
     limit: int = 40,
     allow_external: bool = True,
     include_broad_exploration: bool = True,
+    preferred_cluster_ids: set[str] | None = None,
+    allocation_reasons: dict[str, str] | None = None,
+    supplemental_query_specs: list[DiscoveryQuery] | None = None,
+    allocation_diagnostics: list[dict] | None = None,
 ) -> tuple[list[dict], DiscoveryDiagnostics]:
     started = time.perf_counter()
     diagnostics = DiscoveryDiagnostics()
-    query_specs = _structured_discovery_queries(library_books)
+    diagnostics.cluster_allocation_diagnostics = list(allocation_diagnostics or [])
+    query_specs = _structured_discovery_queries(
+        library_books,
+        preferred_cluster_ids=preferred_cluster_ids,
+        allocation_reasons=allocation_reasons,
+    )
     if allow_external:
-        query_specs = query_specs[:discovery_max_queries()]
+        max_queries = discovery_max_queries()
+        supplemental_query_specs = supplemental_query_specs or []
+        if supplemental_query_specs:
+            structured_keys = {query.query.casefold() for query in query_specs}
+            structured_clusters = {query.cluster_id for query in query_specs}
+            merged = [*query_specs]
+            merged.extend(
+                query
+                for query in supplemental_query_specs
+                if query.query.casefold() not in structured_keys and query.cluster_id not in structured_clusters
+            )
+            query_specs = merged[:max_queries]
+        else:
+            query_specs = query_specs[:max_queries]
     diagnostics.queries = [query.query for query in query_specs]
     diagnostics.structured_queries = [query.to_dict() for query in query_specs]
     if not query_specs:
@@ -969,6 +1081,9 @@ def discovery_candidate_rows(
         external_outcomes = [outcome for outcome in aggregation.outcomes if outcome.source != "local"]
         diagnostics.external_provider_attempts += len(external_outcomes)
         diagnostics.external_provider_successes += sum(1 for outcome in external_outcomes if outcome.success)
+        diagnostics.hardcover_candidate_count += sum(
+            outcome.result_count for outcome in external_outcomes if outcome.source == "hardcover"
+        )
         diagnostics.open_library_candidate_count += sum(
             outcome.result_count for outcome in external_outcomes if outcome.source == "open_library"
         )
@@ -989,6 +1104,21 @@ def discovery_candidate_rows(
             for outcome in external_outcomes
             if not outcome.success and outcome.outcome not in {"disabled", "not_configured", "empty_success"}
         )
+        diagnostics.provider_query_diagnostics.extend(
+            {
+                "provider": outcome.source,
+                "query": query_spec.query,
+                "cluster_id": query_spec.cluster_id,
+                "duration_ms": getattr(outcome, "latency_ms", 0.0),
+                "result_count": outcome.result_count,
+                "normalized_count": outcome.result_count,
+                "rejected_count": 0,
+                "cache_hit": False,
+                "fallback_reason": None if outcome.source == "hardcover" else "hardcover_disabled_failed_or_insufficient",
+                "error_category": getattr(outcome, "outcome", None) if not outcome.success else None,
+            }
+            for outcome in external_outcomes
+        )
 
         logger.info(
             "recommendation_discovery_query query=%s cluster=%s confidence=%.3f results=%s provider_results_per_query=%s",
@@ -1000,7 +1130,7 @@ def discovery_candidate_rows(
         )
         diagnostics.provider_results_returned += len(aggregation.results)
 
-        for raw_result in aggregation.results[:results_per_query]:
+        for provider_rank, raw_result in enumerate(aggregation.results[:results_per_query], start=1):
             result = {
                 **raw_result,
                 "discovery_query": query_spec.query,
@@ -1010,6 +1140,7 @@ def discovery_candidate_rows(
                 "discovery_anchor_authors": list(query_spec.anchor_authors),
                 "discovery_specific_genres": list(query_spec.specific_genres),
                 "discovery_specific_themes": list(query_spec.specific_themes),
+                "provider_rank": raw_result.get("provider_rank") or provider_rank,
             }
             result = _prepare_external_result(result, library_books)
             diagnostics.exact_anchor_query_candidate_count += 1
@@ -1046,7 +1177,10 @@ def discovery_candidate_rows(
             if canonical_rejection:
                 reason, payload = canonical_rejection
                 _log_debug_title("excluded", result.get("title"), reason=reason, source=result.get("metadata_source"))
-                if payload.get("collection_type") in {"omnibus", "box_set"}:
+                if (
+                    payload.get("collection_type") in {"omnibus", "box_set", "boxed_set", "bundle"}
+                    or payload.get("integrity_classification") in {"omnibus", "boxed_set", "bundle"}
+                ):
                     diagnostics.collection_rejections.append(payload)
                 else:
                     diagnostics.translated_edition_rejections.append(payload)
@@ -1099,6 +1233,7 @@ def discovery_candidate_rows(
         and not diagnostics.provider_failures
         and (budget_remaining is None or budget_remaining > 0.25)
         and len(by_key) < external_discovery_candidate_limit()
+        and diagnostics.hardcover_candidate_count < 3
     ):
         exploration_results, exploration_diagnostics = explore_external_candidates(
             library_books,
@@ -1139,7 +1274,10 @@ def discovery_candidate_rows(
             canonical_rejection = _canonical_rejection_reason(result, identities)
             if canonical_rejection:
                 reason, payload = canonical_rejection
-                if payload.get("collection_type") in {"omnibus", "box_set"}:
+                if (
+                    payload.get("collection_type") in {"omnibus", "box_set", "boxed_set", "bundle"}
+                    or payload.get("integrity_classification") in {"omnibus", "boxed_set", "bundle"}
+                ):
                     diagnostics.collection_rejections.append(payload)
                 else:
                     diagnostics.translated_edition_rejections.append(payload)

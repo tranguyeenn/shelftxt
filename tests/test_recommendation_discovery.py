@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from backend.db.database import Base
 from backend.db.models import Book, Profile
 from backend.schemas.books import AddBook
+from backend.services.candidate_integrity import evaluate_candidate_integrity
 from backend.services.postgres_books import add_book_service
 from backend.services.recommendation import (
     get_recommendation,
@@ -18,6 +19,7 @@ from backend.services.recommendation import (
     recommendation_facets,
 )
 from backend.services.recommendation_builder import build_recommendations
+from backend.services.recommendation_discovery import DiscoveryQuery, discovery_candidate_rows
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,28 @@ def _external(index, *, title=None, work_key=None, isbn=None, author="External A
         result["series"] = series
         result.update(series)
     return result
+
+
+def test_candidate_integrity_classifies_collections_conservatively():
+    boxed = evaluate_candidate_integrity({"title": "A Court of Thorns and Roses Box Set"})
+    ranged = evaluate_candidate_integrity({"title": "Fantasy Saga Books 1-3"})
+    collection_set = evaluate_candidate_integrity({"title": "Ali Hazelwood Collection 2 Books Set"})
+    complete = evaluate_candidate_integrity({"title": "The Complete Lunar Chronicles"})
+    standalone = evaluate_candidate_integrity({"title": "Set in Stone"})
+    anthology = evaluate_candidate_integrity({"title": "Best American Short Stories", "subjects": ["anthology"]})
+
+    assert boxed.classification == "boxed_set"
+    assert not boxed.recommendation_eligible
+    assert ranged.classification == "bundle"
+    assert not ranged.recommendation_eligible
+    assert collection_set.classification == "bundle"
+    assert not collection_set.recommendation_eligible
+    assert complete.classification == "omnibus"
+    assert not complete.recommendation_eligible
+    assert standalone.classification == "individual_book"
+    assert standalone.recommendation_eligible
+    assert anthology.classification == "anthology"
+    assert anthology.recommendation_eligible
 
 
 def _naturals_series(position=None):
@@ -242,6 +266,78 @@ def test_external_books_not_in_user_library_can_appear(monkeypatch):
     assert external[0]["book_id"] is None
     assert external[0]["source_type"] == "external_discovery"
     assert external[0]["book"]["title"] == "External Candidate 1"
+
+
+def test_discovery_rows_preserve_provider_rank(monkeypatch):
+    db = _session()
+    user_id = _profile(db)
+    anchor = _book(
+        user_id,
+        "The Hunger Games",
+        "hunger-games",
+        status="read",
+        rating=5,
+        author="Suzanne Collins",
+        genres=["dystopian"],
+        subjects=["survival", "rebellion"],
+    )
+    db.add(anchor)
+    db.commit()
+    monkeypatch.setattr(
+        "backend.services.recommendation_discovery._run_aggregation",
+        lambda _query, _local, **_kwargs: _provider_aggregation(
+            [
+                _external(1, title="First Result", author="A", work_key="/works/FIRST"),
+                _external(2, title="Second Result", author="B", work_key="/works/SECOND"),
+            ],
+            source="hardcover",
+        ),
+    )
+
+    rows, _diagnostics = discovery_candidate_rows(db, user_id, [anchor], include_broad_exploration=False)
+
+    ranks = {row["Title"]: row["Provider Rank"] for row in rows}
+    assert ranks["First Result"] == 1
+    assert ranks["Second Result"] == 2
+
+
+def test_preferred_cluster_queries_run_before_supplemental_fallbacks(monkeypatch):
+    db = _session()
+    user_id = _profile(db)
+    anchor = _book(
+        user_id,
+        "Book Lovers",
+        "book-lovers",
+        status="read",
+        rating=5,
+        author="Emily Henry",
+        genres=["romance"],
+        subjects=["contemporary romance"],
+    )
+    db.add(anchor)
+    db.commit()
+    monkeypatch.setenv("DISCOVERY_MAX_QUERIES", "2")
+    monkeypatch.setattr(
+        "backend.services.recommendation_discovery._run_aggregation",
+        lambda _query, _local, **_kwargs: _provider_aggregation([], source="hardcover"),
+    )
+
+    _rows, diagnostics = discovery_candidate_rows(
+        db,
+        user_id,
+        [anchor],
+        preferred_cluster_ids={"contemporary-romance-new-adult"},
+        supplemental_query_specs=[
+            DiscoveryQuery(
+                query="middle-grade bullying redemption friendship",
+                cluster_id="topic-middle-grade-friendship-and-moral-choices",
+                specific_genres=("middle grade",),
+                specific_themes=("bullying", "friendship"),
+            )
+        ],
+    )
+
+    assert diagnostics.structured_queries[0]["cluster_id"] == "contemporary-romance-new-adult"
 
 
 def test_strong_seeded_external_catching_fire_competes_end_to_end(monkeypatch):
@@ -440,7 +536,7 @@ def test_hunger_games_omnibus_suppressed_and_catching_fire_is_next(monkeypatch):
     assert "Mockingjay" not in titles
 
 
-def test_hunger_games_omnibus_eligible_when_user_owns_no_components(monkeypatch):
+def test_omnibus_rejected_even_when_user_owns_no_components(monkeypatch):
     db = _session()
     user_id = _profile(db)
     db.add(_book(user_id, "Scythe", "scythe", status="read", rating=5, author="Neal Shusterman", genres=["dystopian"], subjects=["rebellion"]))
@@ -454,10 +550,30 @@ def test_hunger_games_omnibus_eligible_when_user_owns_no_components(monkeypatch)
     )
 
     result = get_recommendation(db, user_id, top_n=10, style="balanced")
-    match = next(item for item in result if item["title"] == "The Hunger Games Trilogy")
 
-    assert match["collection_type"] == "omnibus"
-    assert "title_author:the-hunger-games:suzanne-collins" in match["component_work_ids"]
+    assert all(item["title"] != "The Hunger Games Trilogy" for item in result)
+
+
+def test_books_range_bundle_does_not_outrank_individual_volume(monkeypatch):
+    db = _session()
+    user_id = _profile(db)
+    db.add(_book(user_id, "A Court of Thorns and Roses", "acotar", status="read", rating=5, author="Sarah J. Maas", genres=["fantasy"], subjects=["magic"]))
+    db.commit()
+    bundle = _external(1, title="A Court of Thorns and Roses Books 1-3", author="Sarah J. Maas", work_key="/works/ACOTAR-BUNDLE")
+    individual = _external(2, title="A Court of Mist and Fury", author="Sarah J. Maas", work_key="/works/ACOMAF")
+    for item in (bundle, individual):
+        item["genres"] = ["fantasy"]
+        item["subjects"] = ["magic", "fae"]
+    monkeypatch.setattr(
+        "backend.services.recommendation_discovery._run_aggregation",
+        lambda _query, _local, allow_external=True, result_limit=None: _provider_aggregation([bundle, individual] if allow_external else [], source="hardcover"),
+    )
+
+    result = get_recommendation(db, user_id, top_n=10, style="balanced")
+    titles = [item["title"] for item in result]
+
+    assert "A Court of Thorns and Roses Books 1-3" not in titles
+    assert "A Court of Mist and Fury" in titles
 
 
 def test_no_throne_of_glass_books_receives_only_first_installment(monkeypatch):

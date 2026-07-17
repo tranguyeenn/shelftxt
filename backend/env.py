@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT_DIR / ".env"
+BACKEND_ENV_PATH = ROOT_DIR / "backend" / ".env"
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def ollama_timeout_seconds() -> float:
 
 def load_backend_env() -> None:
     load_dotenv(dotenv_path=ENV_PATH, override=False)
+    load_dotenv(dotenv_path=BACKEND_ENV_PATH, override=False)
     if (
         is_local_env()
         and not os.getenv("SUPABASE_ANON_KEY")

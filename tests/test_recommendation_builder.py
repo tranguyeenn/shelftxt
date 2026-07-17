@@ -117,9 +117,13 @@ class RecommendationBuilderTests(unittest.TestCase):
         )
 
         self.assertEqual(response["style"], "balanced")
-        self.assertEqual(len(response["sections"]), 1)
+        self.assertEqual(response["schema_version"], 3)
+        self.assertTrue(response["legacy_sections_deprecated"])
+        self.assertEqual(len(response["sections"]), 3)
+        self.assertEqual(response["sections"][0]["title"], "From Your Shelf")
         items = response["sections"][0]["items"]
         self.assertEqual(len(items), 1)
+        self.assertEqual(response["shelf_recommendations"], items)
         item = items[0]
         self.assertEqual(item["work_id"], "work-1")
         self.assertEqual(item["match_percentage"], 91)
@@ -129,7 +133,7 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertEqual(item["explanation"]["shared_genres"], ["Mystery"])
         self.assertEqual(item["explanation"]["shared_traits"], ["Detective"])
 
-    def test_recommendation_sections_keep_external_item_without_local_book_id(self):
+    def test_recommendation_sections_do_not_mix_external_item_into_shelf_recommendations(self):
         response = recommendation_sections_response(
             [
                 {
@@ -156,18 +160,10 @@ class RecommendationBuilderTests(unittest.TestCase):
             style="balanced",
         )
 
-        items = response["sections"][0]["items"]
-        self.assertEqual(len(items), 1)
-        item = items[0]
-        self.assertEqual(item["canonical_title"], "External Candidate")
-        self.assertEqual(item["work_id"], "/works/OL0001W")
-        self.assertIsNone(item["book_id"])
-        self.assertEqual(item["canonical_identity"], "work:/works/ol0001w")
-        self.assertFalse(item["library_state"]["in_library"])
-        self.assertFalse(item["is_in_library"])
-        self.assertEqual(item["source"], "external")
-        self.assertTrue(item["external_discovery"])
-        self.assertEqual(item["provider"], "seeded_fixture")
+        self.assertEqual(response["sections"][0]["items"], [])
+        self.assertEqual(response["shelf_recommendations"], [])
+        self.assertEqual(response["popular_this_week"], [])
+        self.assertEqual(response["newly_found"], [])
 
     def test_recommendation_sections_suppress_raw_near_duplicate_reading_levels(self):
         recommendations = []
@@ -346,6 +342,250 @@ class RecommendationBuilderTests(unittest.TestCase):
         self.assertEqual(result[0]["book"]["title"], "Unread")
         self.assertEqual(result[0]["similar_books"], [])
 
+    def test_to_read_books_do_not_define_reader_intent(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Completed History", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-06-01", "Genres": ["history"], "Subjects": ["civil rights history"], "Total Pages": 300},
+                {"Title": "Shelf Romance", "Authors": "B", "ISBN/UID": "s1", "Read Status": "to-read", "Genres": ["romance"], "Subjects": ["romantic comedy"], "Total Pages": 300},
+                {"Title": "History Candidate", "Authors": "C", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["history"], "Subjects": ["civil rights history"], "Total Pages": 300},
+                {"Title": "Romance Candidate", "Authors": "D", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["romance"], "Subjects": ["romantic comedy"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=10)
+
+        self.assertEqual(result[0]["title"], "History Candidate")
+        romance = next(item for item in result if item["title"] == "Romance Candidate")
+        self.assertEqual(romance["score_breakdown"]["reader_intent_score"], 0.0)
+
+    def test_recent_high_rated_completed_book_has_more_reader_intent_than_old_completed_book(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Recent Dystopia", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Total Pages": 300},
+                {"Title": "Old Classic", "Authors": "B", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 4, "End Date": "2020-01-01", "Genres": ["classic"], "Subjects": ["social customs"], "Total Pages": 300},
+                {"Title": "YA Dystopia Candidate", "Authors": "C", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Total Pages": 300},
+                {"Title": "Classic Candidate", "Authors": "D", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["classic"], "Subjects": ["social customs"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertGreater(
+            by_title["YA Dystopia Candidate"]["score_breakdown"]["reader_intent_score"],
+            by_title["Classic Candidate"]["score_breakdown"]["reader_intent_score"],
+        )
+
+    def test_owned_library_boost_is_reduced_for_weakly_aligned_candidate(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Read Dystopia", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["dystopian"], "Subjects": ["survival"], "Total Pages": 300},
+                {"Title": "Weak Owned Shelf Book", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "In Library": True, "Genres": ["cookbook"], "Subjects": ["recipes"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1)[0]
+
+        self.assertEqual(result["title"], "Weak Owned Shelf Book")
+        self.assertEqual(result["score_breakdown"]["library_boost"], 0.0)
+        self.assertGreater(result["score_breakdown"]["reader_mismatch_penalty"], 0.0)
+
+    def test_ya_dystopian_reader_prefers_ya_candidate_over_adult_horror_dystopian(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "The Hunger Games", "Authors": "Suzanne Collins", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival", "contests"], "Total Pages": 300},
+                {"Title": "The Maze Runner", "Authors": "James Dashner", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 5, "End Date": "2026-06-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Total Pages": 300},
+                {"Title": "YA Survival Candidate", "Authors": "C", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["young adult", "dystopian"], "Subjects": ["survival", "rebellion"], "Total Pages": 300},
+                {"Title": "Adult Horror Dystopia", "Authors": "D", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["dystopian", "horror"], "Subjects": ["survival", "suspense"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertEqual(result[0]["title"], "YA Survival Candidate")
+        self.assertGreater(by_title["Adult Horror Dystopia"]["score_breakdown"]["tone_mismatch_penalty"], 0.0)
+
+    def test_next_series_candidate_remains_preserved_after_reader_intent_rerank(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "The Hunger Games", "Authors": "Suzanne Collins", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Series Name": "The Hunger Games", "Series Position": 1, "Series Type": "main", "Total Pages": 300},
+                {"Title": "Catching Fire", "Authors": "Suzanne Collins", "ISBN/UID": "t1", "Read Status": "to-read", "In Library": False, "Genres": ["young adult", "dystopian"], "Subjects": ["survival", "rebellion"], "Series Name": "The Hunger Games", "Series Position": 2, "Series Type": "main", "Series Confidence": 0.98, "Source Type": "external_discovery", "Discovery Source": "series_metadata", "Total Pages": 300},
+                {"Title": "Standalone Dystopia", "Authors": "Other", "ISBN/UID": "t2", "Read Status": "to-read", "In Library": False, "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Source Type": "external_discovery", "Discovery Source": "open_library", "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+
+        self.assertEqual(result[0]["title"], "Catching Fire")
+        self.assertGreater(result[0]["score_breakdown"]["series_continuity_boost"], 0.0)
+        self.assertGreater(result[0]["score_breakdown"]["reader_intent_score"], 0.0)
+
+    def test_next_series_intent_exceeds_broad_classic_similarity(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "The Hunger Games", "Authors": "Suzanne Collins", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Series Name": "The Hunger Games", "Series Position": 1, "Series Type": "main", "Total Pages": 300},
+                {"Title": "Anna Karenina", "Authors": "Leo Tolstoy", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 5, "End Date": "2020-01-01", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "Catching Fire", "Authors": "Suzanne Collins", "ISBN/UID": "t1", "Read Status": "to-read", "In Library": False, "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Series Name": "The Hunger Games", "Series Position": 2, "Series Type": "main", "Series Confidence": 0.98, "Source Type": "external_discovery", "Discovery Source": "series_metadata", "Total Pages": 300},
+                {"Title": "Broad Classic", "Authors": "Classic Author", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertGreater(
+            by_title["Catching Fire"]["score_breakdown"]["reader_intent_score"],
+            by_title["Broad Classic"]["score_breakdown"]["reader_intent_score"],
+        )
+        self.assertGreater(by_title["Catching Fire"]["score_breakdown"]["series_support"], 0.8)
+        self.assertGreater(
+            by_title["Catching Fire"]["score_breakdown"]["reader_likelihood_score"],
+            by_title["Broad Classic"]["score_breakdown"]["reader_likelihood_score"],
+        )
+
+    def test_reader_likelihood_favors_probable_ya_dystopia_over_prestige_dystopia(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "The Hunger Games", "Authors": "Suzanne Collins", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival", "rebellion"], "Total Pages": 300},
+                {"Title": "The Maze Runner", "Authors": "James Dashner", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 5, "End Date": "2026-06-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Total Pages": 300},
+                {"Title": "Scythe", "Authors": "Neal Shusterman", "ISBN/UID": "r3", "Read Status": "read", "Star Rating": 4.5, "End Date": "2026-05-01", "Genres": ["young adult", "dystopian"], "Subjects": ["rebellion"], "Total Pages": 300},
+                {"Title": "Legend Like Candidate", "Authors": "A", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["young adult", "dystopian"], "Subjects": ["survival", "rebellion"], "Total Pages": 300},
+                {"Title": "Prestige Dystopia", "Authors": "B", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["classic", "dystopian"], "Subjects": ["political fiction", "philosophy"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertEqual(result[0]["title"], "Legend Like Candidate")
+        self.assertGreater(
+            by_title["Legend Like Candidate"]["score_breakdown"]["reader_likelihood_score"],
+            by_title["Prestige Dystopia"]["score_breakdown"]["reader_likelihood_score"],
+        )
+        self.assertGreater(
+            by_title["Prestige Dystopia"]["score_breakdown"]["prestige_literary_likelihood_penalty"],
+            0,
+        )
+        self.assertGreater(
+            by_title["Prestige Dystopia"]["score_breakdown"]["ya_survival_style_jump_likelihood_penalty"],
+            0,
+        )
+        self.assertGreater(
+            by_title["Prestige Dystopia"]["score_breakdown"]["political_dystopia_likelihood_penalty"],
+            0,
+        )
+        self.assertGreater(
+            by_title["Prestige Dystopia"]["score_breakdown"]["style_jump_final_penalty"],
+            0,
+        )
+
+    def test_sparse_exact_author_continuation_can_beat_dense_prestige_metadata(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Loved Contemporary Romance One", "Authors": "Author A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["contemporary romance"], "Subjects": ["romantic comedy"], "Total Pages": 320},
+                {"Title": "Loved Contemporary Romance Two", "Authors": "Author B", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 5, "End Date": "2026-06-01", "Genres": ["contemporary romance"], "Subjects": ["romance"], "Total Pages": 330},
+                {"Title": "Loved YA Dystopia", "Authors": "Author C", "ISBN/UID": "r3", "Read Status": "read", "Star Rating": 5, "End Date": "2026-05-01", "Genres": ["young adult", "dystopian"], "Subjects": ["survival"], "Total Pages": 340},
+                {"Title": "Sparse Same Author Followup", "Authors": "Author A", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": [], "Subjects": ["american literature", "new york times bestseller"], "Total Pages": 300},
+                {"Title": "Dense Prestige Dystopia", "Authors": "Author D", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["classic", "dystopian", "science fiction"], "Subjects": ["political fiction", "philosophy", "social problems"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertEqual(result[0]["title"], "Sparse Same Author Followup")
+        self.assertGreater(
+            by_title["Sparse Same Author Followup"]["score_breakdown"]["continuity_adjustment"],
+            0,
+        )
+        self.assertGreater(
+            by_title["Dense Prestige Dystopia"]["score_breakdown"]["style_jump_final_penalty"],
+            0,
+        )
+
+    def test_exact_author_affinity_strongly_supports_amari_like_candidate(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Amari and the Night Brothers", "Authors": "B. B. Alston", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-06-01", "Genres": ["fantasy"], "Subjects": ["magic", "supernatural"], "Total Pages": 300},
+                {"Title": "Amari and the Great Game", "Authors": "B. B. Alston", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["fantasy"], "Subjects": ["magic", "quests"], "Total Pages": 300},
+                {"Title": "Broad Fantasy", "Authors": "Other", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["fantasy"], "Subjects": ["magic"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertGreater(by_title["Amari and the Great Game"]["score_breakdown"]["author_support"], 0.8)
+        self.assertGreater(
+            by_title["Amari and the Great Game"]["score_breakdown"]["reader_intent_score"],
+            by_title["Broad Fantasy"]["score_breakdown"]["reader_intent_score"],
+        )
+        self.assertGreater(
+            by_title["Amari and the Great Game"]["score_breakdown"]["reader_likelihood_score"],
+            by_title["Broad Fantasy"]["score_breakdown"]["reader_likelihood_score"],
+        )
+
+    def test_weak_broad_overlap_receives_low_reader_likelihood(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Deep End", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["contemporary romance"], "Subjects": ["romantic tension"], "Total Pages": 300},
+                {"Title": "Weak Broad YA Romance", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["romance", "young adult"], "Subjects": [], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=3)
+
+        self.assertEqual(result[0]["title"], "Weak Broad YA Romance")
+        self.assertLess(result[0]["score_breakdown"]["reader_likelihood_score"], 0.2)
+        self.assertLess(result[0]["score"], 0.1)
+
+    def test_same_cluster_candidates_can_have_different_candidate_intent(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Anna Karenina", "Authors": "Leo Tolstoy", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "Pride and Prejudice", "Authors": "Jane Austen", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 4.5, "End Date": "2026-06-01", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "Close Classic", "Authors": "C", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "Loose Classic", "Authors": "D", "ISBN/UID": "t2", "Read Status": "to-read", "Genres": ["classic"], "Subjects": ["unrelated theme"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=2)
+        by_title = {item["title"]: item for item in result}
+
+        self.assertGreater(
+            by_title["Close Classic"]["score_breakdown"]["reader_intent_score"],
+            by_title["Loose Classic"]["score_breakdown"]["reader_intent_score"],
+        )
+
+    def test_old_one_off_anchor_does_not_create_maximum_candidate_intent(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Old Favorite", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2019-01-01", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "Old Pattern Candidate", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1)[0]
+
+        self.assertLess(result["score_breakdown"]["reader_intent_score"], 0.5)
+        self.assertEqual(result["score_breakdown"]["qualified_anchor_count"], 1)
+
+    def test_repeated_recent_classic_reading_can_strongly_support_classic_candidate(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Anna Karenina", "Authors": "Leo Tolstoy", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "End Date": "2026-07-01", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "Pride and Prejudice", "Authors": "Jane Austen", "ISBN/UID": "r2", "Read Status": "read", "Star Rating": 5, "End Date": "2026-06-15", "Genres": ["classic"], "Subjects": ["social life and customs"], "Total Pages": 300},
+                {"Title": "War and Peace", "Authors": "Leo Tolstoy", "ISBN/UID": "r3", "Read Status": "read", "Star Rating": 4.5, "End Date": "2026-06-01", "Genres": ["classic"], "Subjects": ["literary fiction"], "Total Pages": 300},
+                {"Title": "Supported Classic", "Authors": "C", "ISBN/UID": "t1", "Read Status": "to-read", "Genres": ["classic"], "Subjects": ["social life and customs", "literary fiction"], "Total Pages": 300},
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1)[0]
+
+        self.assertGreater(result["score_breakdown"]["reader_intent_score"], 0.45)
+        self.assertGreaterEqual(result["score_breakdown"]["qualified_anchor_count"], 2)
+
     def test_genre_overlap_generates_similarity_reason(self):
         df = pd.DataFrame(
             [
@@ -469,6 +709,134 @@ class RecommendationBuilderTests(unittest.TestCase):
         result = _blend_library_and_discovery(ranked, top_n=2, style="balanced")
 
         self.assertEqual(result.iloc[0]["Title"], "Strong External")
+
+    def test_strong_hardcover_candidate_can_outrank_weak_library_candidate(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Loved Mystery", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["mystery"], "Subjects": ["detectives"], "Total Pages": 300},
+                {"Title": "Weak Shelf Pick", "Authors": "B", "ISBN/UID": "t1", "Read Status": "to-read", "In Library": True, "Genres": ["general"], "Subjects": ["life"], "Total Pages": 300, "Discovery Source": "library"},
+                {
+                    "Title": "Strong Hardcover Pick",
+                    "Authors": "C",
+                    "ISBN/UID": "hardcover:book:1",
+                    "Read Status": "to-read",
+                    "In Library": False,
+                    "Genres": ["mystery"],
+                    "Subjects": ["detectives"],
+                    "Total Pages": 320,
+                    "First Publish Year": 2024,
+                    "Source Type": "external_discovery",
+                    "Discovery Source": "hardcover",
+                    "Discovery Query": "detective mystery",
+                    "Discovery Query Confidence": 0.9,
+                    "Provider Metadata Confidence": 0.8,
+                    "metadata": {"external": {"provider_rating_count": 1200, "source_urls": ["https://hardcover.app/books/strong"]}},
+                },
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1, style="external_first")
+
+        self.assertEqual(result[0]["title"], "Strong Hardcover Pick")
+        self.assertEqual(result[0]["provider"], "hardcover")
+        self.assertFalse(result[0]["in_library"])
+
+    def test_hardcover_metadata_is_serialized_for_frontend_contract(self):
+        df = pd.DataFrame(
+            [
+                {"Title": "Loved Mystery", "Authors": "A", "ISBN/UID": "r1", "Read Status": "read", "Star Rating": 5, "Genres": ["mystery"], "Subjects": ["detectives"], "Total Pages": 300},
+                {
+                    "Title": "Enriched Hardcover Pick",
+                    "Authors": "C",
+                    "ISBN/UID": "9781234567890",
+                    "Read Status": "to-read",
+                    "In Library": False,
+                    "Genres": ["mystery"],
+                    "Subjects": ["detectives"],
+                    "Total Pages": 321,
+                    "First Publish Year": 2023,
+                    "Language": "eng",
+                    "External Work ID": "hardcover:book:42",
+                    "External Edition ID": "hardcover:edition:42",
+                    "External ISBN": "9781234567890",
+                    "Source Type": "external_discovery",
+                    "Discovery Source": "hardcover",
+                    "Discovery Query": "detective mystery",
+                    "Discovery Query Confidence": 0.9,
+                    "metadata": {
+                        "external": {
+                            "publisher": "Test Publisher",
+                            "source_urls": ["https://hardcover.app/books/enriched"],
+                            "provider_rating": 4.1,
+                            "provider_rating_count": 1200,
+                            "provider_user_count": 3400,
+                            "provider_activity_count": 56,
+                            "discovery_reason": "Hardcover search for detective mystery",
+                        }
+                    },
+                },
+            ]
+        )
+
+        result = build_recommendations(df, top_n=1, style="external_first")[0]
+        book = result["recommended_book"]
+
+        self.assertEqual(book["publication_year"], 2023)
+        self.assertEqual(book["page_count"], 321)
+        self.assertEqual(book["publisher"], "Test Publisher")
+        self.assertEqual(book["source_url"], "https://hardcover.app/books/enriched")
+        self.assertEqual(book["ratings_count"], 1200)
+        self.assertEqual(book["users_count"], 3400)
+        self.assertEqual(book["activities_count"], 56)
+        self.assertEqual(book["isbn_13"], "9781234567890")
+        self.assertEqual(result["discovery_reason"], "Hardcover search for detective mystery")
+
+    def test_recommendation_sections_preserve_hardcover_public_metadata(self):
+        response = recommendation_sections_response(
+            [],
+            popular_this_week=[
+                {
+                    "recommendation_id": "work:hardcover:book:42",
+                    "work_id": "hardcover:book:42",
+                    "edition_id": "hardcover:edition:42",
+                    "isbn": "9781234567890",
+                    "isbn_13": "9781234567890",
+                    "canonical_title": "Enriched Hardcover Pick",
+                    "canonical_author": "C",
+                    "cover_url": "https://img.example/book.jpg",
+                    "publication_year": 2023,
+                    "page_count": 321,
+                    "primary_edition": {"page_count": 321, "isbn_13": "9781234567890"},
+                    "source_url": "https://hardcover.app/books/enriched",
+                    "ratings_count": 1200,
+                    "score": 0.82,
+                    "in_library": False,
+                    "external_discovery": True,
+                    "discovery_source": "hardcover",
+                    "discovery_query": "detective mystery",
+                    "discovery_reason": "Hardcover search for detective mystery",
+                    "provider_rank": 2,
+                    "provider": "hardcover",
+                    "reason": "A strong external match.",
+                    "matched_genres": ["mystery"],
+                    "matched_subjects": [],
+                    "related_books": [],
+                    "score_breakdown": {},
+                }
+            ],
+            style="external_first",
+        )
+
+        item = response["popular_this_week"][0]
+
+        self.assertEqual(item["provider"], "hardcover")
+        self.assertEqual(item["publication_year"], 2023)
+        self.assertEqual(item["page_count"], 321)
+        self.assertEqual(item["primary_edition"]["page_count"], 321)
+        self.assertEqual(item["primary_edition"]["isbn_13"], "9781234567890")
+        self.assertEqual(item["source_url"], "https://hardcover.app/books/enriched")
+        self.assertEqual(item["ratings_count"], 1200)
+        self.assertEqual(item["discovery_reason"], "Hardcover search for detective mystery")
 
     def test_library_wins_close_call_margin(self):
         ranked = pd.DataFrame(

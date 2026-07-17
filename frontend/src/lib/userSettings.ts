@@ -12,7 +12,7 @@ export type UserSettings = {
 };
 
 const STORAGE_KEY = "shelftxt.userSettings";
-const RECOMMENDATION_UI_RESPONSE_VERSION = "identity-v2";
+const RECOMMENDATION_UI_RESPONSE_VERSION = "split-discovery-v6-schema3";
 
 const DEFAULTS: UserSettings = {
   recommendationStyle: "balanced",
